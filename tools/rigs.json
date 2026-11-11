@@ -1,0 +1,366 @@
+{
+ "knight": {
+  "full": "en_knight",
+  "full_box": [
+   31,
+   232
+  ],
+  "parts": [
+   {
+    "tex": "enp_knight_leg",
+    "box": [
+     1032,
+     393
+    ],
+    "joint": [
+     1108,
+     415
+    ],
+    "at": [
+     222,
+     585
+    ],
+    "scale": 0.58,
+    "swing": 0.45,
+    "phase": 3.14159,
+    "dark": 0.7
+   },
+   {
+    "tex": "enp_knight_leg",
+    "box": [
+     1032,
+     393
+    ],
+    "joint": [
+     1108,
+     415
+    ],
+    "at": [
+     292,
+     585
+    ],
+    "scale": 0.58,
+    "swing": 0.45,
+    "phase": 0
+   },
+   {
+    "tex": "enp_knight_body",
+    "box": [
+     572,
+     246
+    ],
+    "joint": [
+     757,
+     600
+    ],
+    "at": [
+     257,
+     580
+    ],
+    "scale": 1.0,
+    "kind": "body"
+   },
+   {
+    "tex": "enp_knight_arm",
+    "box": [
+     1249,
+     335
+    ],
+    "joint": [
+     1338,
+     355
+    ],
+    "at": [
+     118,
+     405
+    ],
+    "scale": 0.81,
+    "swing": 0.25,
+    "phase": 3.14159
+   }
+  ],
+  "ground": [
+   257,
+   778
+  ],
+  "top": 244,
+  "stride": 20
+ },
+ "militia": {
+  "full": "en_militia",
+  "full_box": [
+   66,
+   250
+  ],
+  "ground": [
+   235,
+   830
+  ],
+  "top": 262,
+  "stride": 16,
+  "parts": [
+   {
+    "tex": "enp_militia_leg",
+    "box": [
+     1008,
+     542
+    ],
+    "joint": [
+     1078,
+     556
+    ],
+    "at": [
+     205,
+     650
+    ],
+    "scale": 0.72,
+    "swing": 0.5,
+    "phase": 3.14159,
+    "dark": 0.7
+   },
+   {
+    "tex": "enp_militia_leg",
+    "box": [
+     1008,
+     542
+    ],
+    "joint": [
+     1078,
+     556
+    ],
+    "at": [
+     262,
+     650
+    ],
+    "scale": 0.72,
+    "swing": 0.5,
+    "phase": 0
+   },
+   {
+    "tex": "enp_militia_body",
+    "box": [
+     565,
+     280
+    ],
+    "joint": [
+     735,
+     660
+    ],
+    "at": [
+     235,
+     640
+    ],
+    "scale": 1.0,
+    "kind": "body"
+   },
+   {
+    "tex": "enp_militia_arm",
+    "box": [
+     1257,
+     266
+    ],
+    "joint": [
+     1312,
+     458
+    ],
+    "at": [
+     292,
+     480
+    ],
+    "scale": 0.8,
+    "rest": 0.0,
+    "swing": 0.15,
+    "phase": 3.14159
+   }
+  ]
+ },
+ "priest": {
+  "full": "en_priest",
+  "full_box": [
+   91,
+   183
+  ],
+  "ground": [
+   275,
+   862
+  ],
+  "top": 262,
+  "stride": 15,
+  "parts": [
+   {
+    "tex": "enp_priest_leg",
+    "box": [
+     969,
+     484
+    ],
+    "joint": [
+     1047,
+     500
+    ],
+    "at": [
+     232,
+     545
+    ],
+    "scale": 0.88,
+    "swing": 0.22,
+    "phase": 3.14159,
+    "dark": 0.72
+   },
+   {
+    "tex": "enp_priest_leg",
+    "box": [
+     969,
+     484
+    ],
+    "joint": [
+     1047,
+     500
+    ],
+    "at": [
+     300,
+     545
+    ],
+    "scale": 0.88,
+    "swing": 0.22,
+    "phase": 0
+   },
+   {
+    "tex": "enp_priest_body",
+    "box": [
+     558,
+     252
+    ],
+    "joint": [
+     700,
+     560
+    ],
+    "at": [
+     270,
+     560
+    ],
+    "scale": 1.0,
+    "kind": "body"
+   },
+   {
+    "tex": "enp_priest_arm",
+    "box": [
+     1226,
+     195
+    ],
+    "joint": [
+     1290,
+     430
+    ],
+    "at": [
+     352,
+     445
+    ],
+    "scale": 0.85,
+    "swing": 0.12,
+    "phase": 3.14159
+   }
+  ],
+  "light": [
+   [
+    420,
+    335
+   ]
+  ]
+ },
+ "cart": {
+  "full": "en_cart",
+  "full_box": [
+   19,
+   34
+  ],
+  "ground": [
+   320,
+   652
+  ],
+  "top": 40,
+  "stride": 40,
+  "parts": [
+   {
+    "tex": "enp_cart_body",
+    "box": [
+     836,
+     34
+    ],
+    "joint": [
+     1130,
+     400
+    ],
+    "at": [
+     315,
+     400
+    ],
+    "scale": 1.0,
+    "kind": "body"
+   },
+   {
+    "tex": "enp_cart_ram",
+    "box": [
+     962,
+     705
+    ],
+    "joint": [
+     985,
+     818
+    ],
+    "at": [
+     452,
+     452
+    ],
+    "scale": 0.64,
+    "swing": 0.025,
+    "phase": 0
+   },
+   {
+    "tex": "enp_cart_wheel",
+    "box": [
+     592,
+     669
+    ],
+    "joint": [
+     741,
+     824
+    ],
+    "at": [
+     140,
+     558
+    ],
+    "scale": 0.72,
+    "kind": "wheel",
+    "r": 95
+   },
+   {
+    "tex": "enp_cart_wheel",
+    "box": [
+     592,
+     669
+    ],
+    "joint": [
+     741,
+     824
+    ],
+    "at": [
+     410,
+     552
+    ],
+    "scale": 0.72,
+    "kind": "wheel",
+    "r": 95
+   }
+  ],
+  "light": [
+   [
+    95,
+    160
+   ],
+   [
+    548,
+    210
+   ]
+  ]
+ }
+}

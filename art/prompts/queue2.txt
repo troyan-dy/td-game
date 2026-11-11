@@ -1,0 +1,3 @@
+tw_bones_1|art/prompts/tw_bones_1.txt|1024x1024|auto||
+tw_bones_2|art/prompts/tw_bones_2.txt|1024x1024|auto||
+tw_bones_3|art/prompts/tw_bones_3.txt|1024x1024|auto||

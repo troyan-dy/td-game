@@ -1,0 +1,4 @@
+Use case: an empty tower build pad for a dark-fantasy tower-defense game (pixel art). Image 1 shows the style; the small square stone-bordered pads with a plus sign in it show this design.
+Subject: one empty build pad: a rounded-square patch of dark packed earth framed by a ring of small grey-violet cobblestones, a pale carved plus sign in the centre.
+Camera: top-down 3/4 view from above at a slight angle as in Image 1 (the pad is wider than tall, about 1.6:1).
+Composition: one pad centred with a wide empty margin, filling about 70% of the canvas width. Nothing else, no grass around it, no shadow on the background, no text.

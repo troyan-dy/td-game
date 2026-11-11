@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Некрополис</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='7' r='6' fill='%23c45cff'/%3E%3Crect x='5' y='11' width='6' height='4' fill='%23c45cff'/%3E%3Ccircle cx='6' cy='7' r='1.5' fill='%23140f24'/%3E%3Ccircle cx='10' cy='7' r='1.5' fill='%23140f24'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="ui.css">
+</head><body>
+<div id="stage"><canvas id="c"></canvas><div id="ui"></div></div>
+<div id="dev"></div><div id="flash">reloaded</div>
+<script>
+// ИГРА + LIVE PREVIEW. Скрипты грузятся с cache-buster; в дев-режиме страница сама перезагружается при изменении исходников,
+// сохраняя состояние партии (sessionStorage). ?render=1 — офлайн-рендер для render.mjs/qa.mjs (без цикла и опроса).
+// Дев-клавиши: [ ] скорость, . шаг, R рестарт партии. Игровые клавиши — в ui.js.
+const V = Date.now(), STATIC = !!window.__STATIC__;
+const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src + '?v=' + V; s.onload = res; s.onerror = () => rej(new Error('failed ' + src)); document.head.appendChild(s); });
+(async () => {
+  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'sim.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js']) await load(f);
+  const q = new URLSearchParams(location.search), render = q.has('render');
+  const VW = SIM.VIEW.W, VH = SIM.VIEW.H, stage = document.getElementById('stage'), cv = document.getElementById('c');
+  const fit = () => { const k = Math.min(innerWidth / VW, innerHeight / VH); stage.style.width = VW * k + 'px'; stage.style.height = VH * k + 'px';
+    document.documentElement.style.setProperty('--k', k); };
+  fit(); addEventListener('resize', fit);
+  G.init(cv, VW, VH);
+  const rep = new Set(SCENE.REPEAT || []), near = (n) => SCENE.NEAREST === true || (SCENE.NEAREST || []).includes(n);
+  await Promise.all(Object.keys(ASSETS).map((n) => G.load(n, 'assets/' + n + '.png?v=' + V, { repeat: rep.has(n), nearest: near(n) })));
+  SCENE.programs();
+  window.__duration = SIM.L;
+  window.__renderAt = (t) => { SCENE.render(t); return cv.toDataURL('image/png'); };
+  window.__ready = true;
+  if (render) { document.getElementById('ui').style.display = 'none'; return; }
+
+  // ---- цикл: APP — мост между ui.js (DOM) и симом
+  const dev = document.getElementById('dev'), flash = document.getElementById('flash');
+  const APP = window.APP = { play: null, speed: 1, paused: false, simT: 0, cmds: [], devSpeed: 1 };
+  APP.cmd = (c) => APP.cmds.push(c);
+  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? (Date.now() & 0xffff) : seed); APP.paused = false; APP.speed = 1; };
+  APP.load = (S) => { APP.play = Object.assign(SIM.create(), S); APP.paused = false; };
+  APP.toMenu = () => { APP.play = null; };
+  try { const sv = JSON.parse(sessionStorage.getItem('live') || 'null');
+    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play) APP.load(sv.play); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
+  const saveLive = () => { try { sessionStorage.setItem('live', JSON.stringify({ simT: APP.simT, speed: APP.speed, paused: APP.paused, play: APP.play })); } catch (e) {} };
+  let stepOnce = false;
+  addEventListener('keydown', (e) => {
+    if (STATIC) return;
+    if (e.code === 'BracketLeft') APP.devSpeed = Math.max(0.1, APP.devSpeed / 2);
+    else if (e.code === 'BracketRight') APP.devSpeed = Math.min(8, APP.devSpeed * 2);
+    else if (e.code === 'Period') { stepOnce = true; APP.paused = true; }
+  });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && APP.play && !APP.paused && UI.autoPause) UI.autoPause(); });
+  UI.init(APP, cv);
+  let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 60, acc = 0;
+  const loop = () => {
+    const now = performance.now(), wall = Math.min(1 / 20, (now - last) / 1000); last = now;   // dt ограничен: после лага не «телепортируемся»
+    fpsAcc += wall; fpsN++; if (fpsAcc > 0.5) { fps = fpsN / fpsAcc; fpsAcc = 0; fpsN = 0; }
+    APP.simT += wall;                                                                      // мировое время: атмосфера живёт и на паузе
+    if (APP.play) {
+      const frozen = APP.paused && !stepOnce;
+      acc += frozen ? 0 : (stepOnce ? 1 / 60 : wall * APP.speed * APP.devSpeed); stepOnce = false;
+      if (APP.cmds.length) { SIM.step(APP.play, { cmds: APP.cmds.splice(0) }); acc = Math.max(0, acc - SIM.DT); }
+      let n = 0; while (acc >= SIM.DT && n++ < 600) { SIM.step(APP.play, null); acc -= SIM.DT; }
+      SCENE.state = APP.play;
+    } else SCENE.state = null;
+    try { SCENE.render(APP.simT); } catch (e) { if (!window.__renderErr) { window.__renderErr = e; console.error(e); } }
+    UI.frame(APP, APP.simT);
+    if (!STATIC) { dev.style.display = (APP.devSpeed !== 1 || q.has('dev')) ? 'block' : 'none'; dev.textContent = `LIVE ${APP.play ? 'play' : 'menu'} ${APP.devSpeed}× ${fps.toFixed(0)} fps   [ ] dev-скорость  . шаг`; }
+    requestAnimationFrame(loop);
+  };
+  loop();
+  if (STATIC) { dev.style.display = 'none'; return; }
+  const WATCH = ['index.html', 'scene.js', 'sim.js', 'bgmap.js', 'config.js', 'ui.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
+  const poll = async () => {
+    for (const f of WATCH) {
+      try { const r = await fetch(f + '?poll=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified') + r.headers.get('content-length');
+        if (stamp[f] && stamp[f] !== m) { saveLive(); location.reload(); return; } stamp[f] = m; } catch (e) {}
+    }
+    setTimeout(poll, 700);
+  };
+  addEventListener('beforeunload', saveLive);
+  poll();
+})().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', '<pre style="color:#f88;position:absolute;top:0;left:0;background:#000c;padding:12px;font:13px monospace;white-space:pre-wrap">' + e.stack + '</pre>');
+  if (window.__STATIC__) return;
+  const f = ['scene.js', 'sim.js', 'config.js', 'ui.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
+  setInterval(async () => { for (const x of f) { try { const r = await fetch(x + '?p=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified');
+    if (st[x] && st[x] !== m) location.reload(); st[x] = m; } catch (e) {} } }, 800); });
+</script></body></html>

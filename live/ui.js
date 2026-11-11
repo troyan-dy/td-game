@@ -1,0 +1,235 @@
+// live/ui.js — DOM-интерфейс «Некрополиса»: HUD, карточки, панель башни, выбор площадок, тосты, обучение, меню, сейв.
+// Состояние партии живёт в симе (APP.play); здесь только выбор игрока (SCENE.ui) и показ. Команды уходят через APP.cmd().
+(function () {
+  const C = SIM.CONFIG, T = C.TOWERS, EN = C.ENEMIES, CELL = C.CELL;
+  const SAVE_KEY = 'necropolis.save.v1', PREF_KEY = 'necropolis.prefs.v1';
+  const $ = (s, r = document) => r.querySelector(s);
+  const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
+  const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+  const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
+  const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
+  const SOUL = '<span class="soul-ico"></span>';
+  const PH = { bones: '#e6d9b8', spirits: '#6ff2e2', plague: '#8be04e', dark: '#c86bff' };
+  const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд' };
+  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶' };
+  const UI = (window.UI = {});
+  let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
+  const seenEv = new Set();
+  const ui = SCENE.ui;
+
+  // ---------------------------------------------------------------- разметка
+  const build = () => {
+    const root = $('#ui'); root.innerHTML = '';
+    root.append(h('div', 'pass', '<div id="title">НЕКРОПОЛИС</div>'));
+    const stats = h('div', '', ''); stats.id = 'stats';
+    stats.innerHTML = `<button class="btn ibtn" id="b-speed" title="Скорость (F)">▶</button><button class="btn ibtn" id="b-pause" title="Пауза (Пробел)">❚❚</button>
+      <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 25</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
+      <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Настройки (Esc)">⚙</button>`;
+    root.append(stats);
+    const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
+    const cards = h('div', 'frame', ''); cards.id = 'cards';
+    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${img('tw_' + k + '_1', `<div class="ph" style="background:${PH[k]}"></div>`)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.cost[0]}</div>`);
+      c.dataset.type = k; cards.append(c); });
+    root.append(cards);
+    const panel = h('div', 'frame', ''); panel.id = 'panel'; root.append(panel);
+    const tip = h('div', 'frame', ''); tip.id = 'tip'; root.append(tip);
+    const toasts = h('div', '', ''); toasts.id = 'toasts'; root.append(toasts);
+    const coach = h('div', 'frame', ''); coach.id = 'coach'; root.append(coach);
+    root.append(h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''));
+    const [menu, pause, end, ne] = root.querySelectorAll('.overlay'); menu.id = 'menu'; pause.id = 'pause'; end.id = 'end'; ne.id = 'newenemy';
+    pause.innerHTML = `<div class="frame box"><h2>Пауза</h2>
+      <div class="set"><span>Громкость</span><input type="range" min="0" max="1" step="0.05" id="vol"></div>
+      <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
+    wire();
+  };
+  const menuHTML = () => { const sv = store.get(SAVE_KEY);
+    return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
+      <div class="col">${sv ? `<button class="btn green" id="m-cont">Продолжить · волна ${sv.S.wave + 1}</button>` : ''}
+      <button class="btn ${sv ? '' : 'green'}" id="m-new">Новая игра</button><button class="btn" id="m-help">Как играть</button></div>
+      <div class="frame help" id="m-helptext"><b>Цель:</b> переживи 25 волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
+      <b>Строительство:</b> нажми на площадку «+», затем на карточку башни внизу слева (или клавиши 1–4).<br>
+      <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
+      <b>Улучшение:</b> нажми на башню, затем «Улучшить» (U). На 3-м уровне открывается выбор одного из двух перков.<br>
+      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
+      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Прогресс сохраняется между волнами.</div></div>`; };
+
+  // ---------------------------------------------------------------- события ввода
+  const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
+  const hitSlot = (x, y) => { const S = APP.play; if (!S) return -1; let best = -1, bd = 1e9;
+    C.SLOTS.forEach((s, i) => { const tw = S.towers[i];
+      const inside = tw ? (Math.abs(x - s.x) < 40 && y > s.y - 108 && y < s.y + 18) : ((x - s.x) ** 2 / 44 ** 2 + (y - s.y) ** 2 / 30 ** 2 <= 1);
+      const d = Math.hypot(x - s.x, y - (tw ? s.y - 40 : s.y)); if (inside && d < bd) { bd = d; best = i; } });
+    return best; };
+  const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; renderPanel(true); };
+  const tryBuild = (slot, type) => { const S = APP.play; if (!S || S.towers[slot]) return false;
+    if (S.souls < T[type].cost[0]) { flashPoor(type); AUDIO.ui('deny'); return false; }
+    APP.cmd({ k: 'build', slot, type }); ui.armed = null; ui.preview = null; ui.sel = slot; setTimeout(() => renderPanel(true), 30); return true; };
+  const flashPoor = (type) => { const c = $(`.card[data-type="${type}"]`); if (c) { c.animate([{ transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 220 }); }
+    const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
+  const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
+    if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
+    ui.armed = ui.armed === type ? null : type; ui.sel = -1; renderPanel(true); };
+  const upgrade = () => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
+    if (tw.lvl < 3) { if (S.souls >= SIM.upgradeCost(tw)) APP.cmd({ k: 'upgrade', slot: ui.sel }); else { AUDIO.ui('deny'); flashPoor(); } } setTimeout(() => renderPanel(true), 30); };
+  const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', slot: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
+  const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
+  const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
+  UI.autoPause = () => togglePause(true);
+
+  const wire = () => {
+    cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitSlot(x, y); cv.style.cursor = ui.hover >= 0 ? 'pointer' : 'default'; });
+    cv.addEventListener('pointerleave', () => { ui.hover = -1; });
+    cv.addEventListener('pointerdown', (e) => { AUDIO.unlock(); if (!APP.play || ended()) return; const [x, y] = toView(e), i = hitSlot(x, y);
+      if (i >= 0 && ui.armed && !APP.play.towers[i]) { tryBuild(i, ui.armed); return; }
+      if (i >= 0) { select(ui.sel === i && APP.play.towers[i] ? -1 : i); AUDIO.ui('click'); } else { select(-1); } });
+    addEventListener('pointerdown', () => AUDIO.unlock(), { once: true });
+    $('#cards').addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) { AUDIO.ui('click'); cardAction(c.dataset.type); } });
+    $('#cards').addEventListener('pointerover', (e) => { const c = e.target.closest('.card'); if (!c) return; showCardTip(c); if (ui.sel >= 0 && APP.play && !APP.play.towers[ui.sel]) ui.preview = c.dataset.type; });
+    $('#cards').addEventListener('pointerout', (e) => { const c = e.target.closest('.card'); if (c && !c.contains(e.relatedTarget)) { hideTip(); ui.preview = null; } });
+    $('#wavebtn').addEventListener('click', () => { AUDIO.unlock(); APP.cmd({ k: 'call' }); });
+    $('#b-pause').addEventListener('click', () => togglePause());
+    $('#b-speed').addEventListener('click', () => { APP.speed = APP.speed === 1 ? 2 : 1; });
+    $('#b-menu').addEventListener('click', () => togglePause(true));
+    $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
+    $('#p-resume').addEventListener('click', () => togglePause(false));
+    $('#p-restart').addEventListener('click', () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('pause', false); });
+    $('#p-menu').addEventListener('click', () => { showOverlay('pause', false); APP.toMenu(); showMenu(); });
+    addEventListener('keydown', (e) => {
+      if (e.repeat) return; const k = e.code;
+      if (!APP.play) { if (k === 'Enter') { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
+      if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
+      if (k === 'Escape') { if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
+      if (k === 'Space') { togglePause(); e.preventDefault(); return; }
+      if (APP.paused || ended()) return;
+      const dg = /^Digit([1-4])$/.exec(k) || /^Numpad([1-4])$/.exec(k); if (dg) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
+      if (k === 'KeyU') upgrade(); else if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
+      else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
+    });
+  };
+
+  // ---------------------------------------------------------------- тултипы
+  const towerLines = (k, lvl) => { const d = T[k], i = lvl - 1, L = [];
+    if (k === 'plague') L.push(['Яд', `${d.dps[i]}/с · ${d.cloudTime} с`]); else L.push(['Атака', `${d.dmg[i]} · ${TIP_DESC[d.dmgType]}`]);
+    L.push(['Скорость', `${d.rate[i]} с`]); L.push(['Радиус', `${d.range[i]} кл.`]);
+    if (k === 'spirits') L.push(['Замедление', `${Math.round(d.slow[i] * 100)}%`]);
+    if (k === 'dark') L.push(['По тяжёлым', `×${d.heavyMult}`]);
+    return L; };
+  const tipAt = (html, x, y) => { const t = $('#tip'); t.innerHTML = html; t.classList.add('show'); t.style.left = x + 'px'; t.style.top = (y - t.offsetHeight) + 'px'; };
+  const hideTip = () => $('#tip').classList.remove('show');
+  const showCardTip = (c) => { const k = c.dataset.type, d = T[k];
+    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${towerLines(k, 1).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')}</div>`, c.offsetLeft + 10, 900 - 150); };
+
+  // ---------------------------------------------------------------- панель
+  let panelKey = '';
+  const renderPanel = (force) => {
+    const S = APP.play, p = $('#panel');
+    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].cost[0];
+      c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
+    if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
+    const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1)]);
+    if (!force && key === panelKey) return; panelKey = key;
+    p.classList.add('show');
+    if (!tw) { const s = C.SLOTS[ui.sel], cov = SIM.coverage(ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по двум участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : 'короткий участок дороги';
+      p.innerHTML = `<button class="btn x">✕</button><div class="nm">Площадка</div><div class="note" style="margin-top:6px">${{ start: 'У ворот', mid: 'В центральных петлях', end: 'У склепа' }[s.zone]}: ${q}.</div>
+        <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
+      p.querySelector('.x').onclick = () => select(-1); return; }
+    const d = T[tw.type], lines = towerLines(tw.type, tw.lvl), next = tw.lvl < 3 ? towerLines(tw.type, tw.lvl + 1) : null, upc = SIM.upgradeCost(tw);
+    p.innerHTML = `<button class="btn x">✕</button><div class="hd"><div class="pic">${img([3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((n) => has(n) && +n.slice(-1) <= tw.lvl) || 'tw_' + tw.type + '_' + tw.lvl, `<div class="ph" style="width:40px;height:60px;background:${PH[tw.type]}"></div>`)}</div>
+      <div><div class="nm">${d.short}</div><div class="lv">УРОВЕНЬ ${tw.lvl}</div></div></div>
+      <div class="st">${lines.map(([a, b], i) => `<div><span>${a}</span><span><b>${b}</b>${next && next[i][1] !== b ? `<span class="nx">→ ${next[i][1].split(' ·')[0]}</span>` : ''}</span></div>`).join('')}
+      <div><span>Убито</span><span><b>${tw.kills}</b></span></div></div>
+      <div class="perks">${Object.entries(d.perks).map(([pk, pd]) => { const ch = tw.perk === pk, lock = tw.lvl < 3 || (tw.perk && !ch);
+        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''}" data-p="${pk}"><span class="ic">${PERK_ICON[pk]}</span>${pd.name}${!tw.perk && tw.lvl === 3 ? `<span style="color:var(--soul)">${SOUL}${pd.cost}</span>` : ''}</button>`; }).join('')}</div>
+      ${tw.lvl < 3 ? `<button class="btn green up ${S.souls < upc ? 'off' : ''}">УЛУЧШИТЬ · ${SOUL} ${upc}</button>` : `<button class="btn up off">${tw.perk ? 'МАКСИМУМ' : 'ВЫБЕРИ ПЕРК'}</button>`}
+      <button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
+    p.querySelector('.x').onclick = () => select(-1);
+    p.querySelector('.up').onclick = upgrade;
+    p.querySelector('.sell').onclick = sell;
+    p.querySelectorAll('.perk').forEach((b) => {
+      const pk = b.dataset.p, pd = d.perks[pk];
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, 1600 - 560, 900 - 200);
+      b.onmouseleave = hideTip;
+      b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', slot: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
+    });
+  };
+
+  // ---------------------------------------------------------------- тосты, новый враг, обучение
+  const toast = (html, cls = '', ms = 2600) => { const t = h('div', 'frame toast ' + cls, html); $('#toasts').append(t);
+    setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600); };
+  let neQueue = [];
+  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy');
+    const tags = [d.armor ? `броня ${Math.round(d.armor * 100)}%` : '', d.mres ? `защита от магии ${Math.round(d.mres * 100)}%` : '', d.heal ? 'лечит' : '', d.boss ? 'босс' : '', `скорость ${d.speed}`].filter(Boolean).join(' · ');
+    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${has('en_' + type) ? '' : 'filter:sepia(1) saturate(2.2) brightness(1.1)'}">${img(has('en_' + type) ? 'en_' + type : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
+      <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
+    showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
+  const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
+  const COACH = [
+    { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: () => { const s = C.SLOTS[11]; return [s.x + 50, s.y - 40]; }, text: 'Нажми на площадку «+» у дороги, затем выбери башню внизу слева. Узловые площадки внутри петель бьют сразу по двум участкам дороги.' },
+    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => [222, 152], text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
+    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: () => [1000, 640], text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни на слабой площадке.' },
+    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: () => [1000, 600], text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
+  ];
+  const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
+    for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
+    if (!c || APP.paused) { el.classList.remove('show'); return; }
+    const [x, y] = c.at(); el.textContent = c.text; el.style.left = Math.min(1600 - 340, x) + 'px'; el.style.top = y + 'px'; el.classList.add('show'); };
+  const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && t.lvl > 1)) || (q.id === 'perk' && S.towers.some((t) => t && t.perk));
+
+  // ---------------------------------------------------------------- оверлеи
+  const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
+  const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
+    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = store.get(SAVE_KEY); if (sv) { APP.load(sv.S); resetRun(); showOverlay('menu', false); } };
+    $('#m-new').onclick = () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); };
+    $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
+  const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
+    $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
+      <p>${won ? 'Последний паладин рассыпался в прах. Некрополис спит спокойно.' : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`}</p>
+      <div class="stats"><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
+      <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
+      <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
+    showOverlay('end', true); store.del(SAVE_KEY);
+    $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
+    $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
+  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.preview = null; neQueue = []; seenEv.clear(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+
+  // ---------------------------------------------------------------- сейв
+  const save = (S) => { if (S.phase === 'prep' && !S.demo) store.set(SAVE_KEY, { S, at: Date.now() }); };
+
+  // ---------------------------------------------------------------- кадр
+  let lastSouls = -1, lastHp = -1, wasEnded = false;
+  UI.frame = (A, t) => {
+    const S = A.play;
+    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden';
+    if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
+    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${C.WAVES.length}`;
+    if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
+    if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
+    $('#b-pause').classList.toggle('on', A.paused); $('#b-speed').textContent = A.speed === 2 ? '▶▶' : '▶'; $('#b-speed').classList.toggle('on', A.speed === 2);
+    const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < C.WAVES.length;
+    wb.classList.toggle('hidden', !canCall);
+    if (canCall) { const nx = S.wave + 1, boss = C.BOSSES[nx];
+      $('#w-l1').textContent = S.wave === 0 ? 'Начать волну 1' : `Призвать волну ${nx}`;
+      $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + (S.prepT > 0 ? `сама через ${Math.ceil(S.prepT)} с · Enter` : 'Enter');
+      wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean)); }
+    // события → звук, тосты, новые враги, сейв
+    for (const e of S.ev) { const key = e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1); if (seenEv.has(key)) continue; seenEv.add(key);
+      AUDIO.event(e);
+      if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
+      if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
+      if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); save(S); }
+      if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
+      if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell') && S.phase === 'prep') save(S);
+    }
+    if (seenEv.size > 3000) { seenEv.clear(); for (const e of S.ev) seenEv.add(e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1)); }
+    const isEnded = S.phase === 'won' || S.phase === 'lost';
+    if (isEnded && !wasEnded) { select(-1); setTimeout(() => showEnd(APP.play), 900); }
+    wasEnded = isEnded;
+    renderPanel(false); coach(S);
+  };
+
+  UI.init = (A, canvas) => {
+    APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol);
+    if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
+  };
+})();

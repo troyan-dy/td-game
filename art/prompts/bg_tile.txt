@@ -1,0 +1,9 @@
+Use case: one part of the full-screen level background of a pixel-art tower-defense game (one opaque image, the same aspect as the attached image).
+The attached image is a crop of a game screenshot with coloured edit marks drawn on it. This is an EDIT: keep the camera, framing, composition, palette, pixel-art rendering and every piece of scenery exactly where it is.
+Edits:
+1. Remove every character (knights, priests, carts, ghosts) and every health bar; show the empty road surface there.
+2. Remove every tower and build pad (bone ballistas, ghost lanterns, green cauldrons, purple obelisks, square stone pads with a plus sign, the purple dashed circle and beam). Paint dark grass, small bushes and a few small gravestones there, keeping those spots flat open ground.
+3. Remove all interface inside the yellow rectangles (title, counters, cards, panels); continue the scenery underneath.
+4. The pale lilac cobblestone road must follow the RED line exactly, the same width as the existing road. Where the red line leaves the old road, build new road the same way.
+5. Old road painted BLUE must disappear: replace it with dark grass, bushes and a few gravestones.
+6. Do not draw the red, blue or yellow marks themselves. No text anywhere.

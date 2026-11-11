@@ -1,0 +1,5 @@
+HD pixel art for a dark-fantasy graveyard tower-defense game, matching Image 1: chunky readable stylised shapes drawn on a visible pixel grid (about 3 screen px per art pixel), hard-edged pixels, 3-4 tone ramps per material with hue-shifted shadows that go blue-violet, no smooth gradients.
+Palette: ground and night background deep navy and grey-violet; trees and bushes saturated purple and violet; road pale lilac-grey cobblestone; ghosts and souls turquoise; dark magic bright violet-magenta; poison green; enemy torches and lit windows warm orange. Dark indigo 1-art-pixel outlines on objects, never pure black.
+Light: cool moonlight from the upper left, warm light only from torches and windows, turquoise light only from ghosts; only small soft contact shadows at the base of objects.
+Camera: top-down 3/4 view from above at a slight angle: roofs and the tops of ground surfaces are visible, and the front faces of buildings, towers and props.
+Detail concentrated on focal objects, quiet ground between them. No text, no letters, no logos, no watermark, no UI, no 3D render look.

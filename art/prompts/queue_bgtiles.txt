@@ -1,0 +1,4 @@
+bg_tl|art/prompts/bg_tile.txt|900x520|none|art/refs/bg_tl.jpg|--no-style-ref --fit stretch
+bg_tr|art/prompts/bg_tile.txt|900x520|none|art/refs/bg_tr.jpg|--no-style-ref --fit stretch
+bg_bl|art/prompts/bg_tile.txt|900x520|none|art/refs/bg_bl.jpg|--no-style-ref --fit stretch
+bg_br|art/prompts/bg_tile.txt|900x520|none|art/refs/bg_br.jpg|--no-style-ref --fit stretch

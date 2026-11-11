@@ -1,0 +1,8 @@
+Use case: an enemy siege vehicle for a dark-fantasy tower-defense game (pixel art). Image 1 shows the style; the red wooden siege carts with an iron drill-ram and torches on the road show this design.
+Subject: "Siege cart": a heavy wooden siege wagon with a red-painted roof and banners with a cross, iron bands, two lit torches, and a big iron ram with a pointed drill head at the front.
+Composition: a parts sheet with wide empty gaps, all pieces at the SAME scale, side view facing RIGHT with the slight top-down tilt of Image 1:
+(A) left: the complete cart with its wheels;
+(B) the cart body WITHOUT wheels and WITHOUT the ram;
+(C) one wooden spoked wheel seen from the side, perfectly round;
+(D) the iron drill-ram alone, horizontal.
+Constraints: no ground, no horses, no people, no shadow on the background, no text.

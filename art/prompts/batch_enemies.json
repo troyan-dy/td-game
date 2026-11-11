@@ -1,0 +1,5 @@
+[{"name":"en_knight_sheet","prompt":"art/prompts/en_knight_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"en_priest_sheet","prompt":"art/prompts/en_priest_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"en_militia_sheet","prompt":"art/prompts/en_militia_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"en_cart_sheet","prompt":"art/prompts/en_cart_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"en_paladin_sheet","prompt":"art/prompts/en_paladin_sheet.txt","size":"1536x1024","alpha":"auto"}]

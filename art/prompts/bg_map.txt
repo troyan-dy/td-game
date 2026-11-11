@@ -1,0 +1,10 @@
+Use case: the full-screen level background of a tower-defense game (one opaque image, 16:9, the whole map).
+The attached image is a game screenshot with coloured edit marks drawn on it. Keep the camera, the framing, the composition and every piece of scenery of the screenshot exactly where it is: the city gate with lit houses top-left, the crypt bottom-right, the trees, gravestones, fences, angel statues, ruined arches, ponds, bridge, candles. Match the screenshot pixel-art rendering, palette and light exactly.
+Edits (this is an edit of the screenshot, not a new picture):
+1. Remove every character: all knights, priests, siege carts, ghosts flying over the road, and all health bars. Show the empty road surface where they stood.
+2. Remove every tower and every build pad: the bone ballistas, the ghost lanterns, the green cauldrons, the purple skull obelisks, the purple dashed circle and beam, and all square stone pads with a plus sign. Paint dark grass, small bushes and a few small gravestones in those spots, keeping those spots as open flat ground (towers will be placed there later by the game).
+3. Remove all interface: the title plaque at the top, the wave/souls/heart counters and gear top-right, the four cards bottom-left, the panel bottom-right (the yellow rectangles). Continue the scenery underneath them (trees, fence, rocks, grass).
+4. The road: the pale lilac cobblestone road must follow the RED line exactly, as one continuous road of the same width as now, with no branches. Where the red line leaves the old road (the last part, from the lower road down to the crypt), build new road the same way and end it at the bottom of the crypt stairs, so the road leads up the stairs to the glowing crypt door.
+5. The old road painted BLUE must disappear completely: replace it with dark grass, a small pond edge, bushes and a few gravestones, matching the surroundings.
+6. Do not draw the red, blue or yellow marks themselves.
+Constraints: same pixel grid and palette as the screenshot everywhere; no new big buildings; nothing standing on the road; no text anywhere.

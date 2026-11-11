@@ -1,0 +1,9 @@
+Use case: an enemy character for a dark-fantasy tower-defense game (pixel art). Image 1 shows the style; the priests in white-and-red robes carrying torches show this design.
+Subject: "Priest": a crusader priest in a long white robe with a red stole and a gold cross, a hood, carrying a tall staff topped with a burning orange torch-lantern in the right hand.
+Composition: a parts sheet for a cut-out animation rig, with wide empty gaps between pieces, all pieces at the SAME scale, side view facing RIGHT:
+(A) left: the complete character standing in a neutral pose, legs slightly apart, arms away from the body;
+(B) the same character's torso with head, helmet/hood and anything worn on the body (and the shield, if any), WITHOUT legs and WITHOUT the weapon arm;
+(C) one leg, straight, from hip to foot, with its boot;
+(D) the weapon arm, straight, hanging down from the shoulder, holding the weapon.
+Camera: side view with the same slight top-down tilt as Image 1. Each piece is complete (also the parts normally hidden behind others).
+Constraints: chunky readable pixel-art character, the same design in all pieces, no ground, no shadow on the background, no health bar, no text.

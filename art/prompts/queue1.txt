@@ -1,0 +1,5 @@
+tw_bones_sheet|art/prompts/tw_bones_sheet.txt|1536x1024|auto||
+en_priest_sheet|art/prompts/en_priest_sheet.txt|1536x1024|auto||
+en_cart_sheet|art/prompts/en_cart_sheet.txt|1536x1024|auto||
+en_paladin_sheet|art/prompts/en_paladin_sheet.txt|1536x1024|auto||
+bg_map|art/prompts/bg_map.txt|1600x900|none|art/refs/route_guide.jpg|--no-style-ref

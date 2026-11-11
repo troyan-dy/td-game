@@ -1,0 +1,10 @@
+site/
+dist/
+frames/
+art/raw/
+art/old/
+art/logs/
+art/requests/
+art/fonts_src/*.ttf
+node_modules/
+__pycache__/

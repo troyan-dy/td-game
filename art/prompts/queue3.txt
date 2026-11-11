@@ -1,0 +1,3 @@
+tw_bones_3|art/prompts/tw_bones_3.txt|1024x1024|auto||
+tw_bones_2|art/prompts/tw_bones_2.txt|1024x1024|auto||
+en_paladin_sheet|art/prompts/en_paladin_sheet.txt|1536x1024|auto||

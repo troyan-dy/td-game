@@ -1,0 +1,5 @@
+[{"name":"tw_bones_sheet","prompt":"art/prompts/tw_bones_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"tw_spirits_sheet","prompt":"art/prompts/tw_spirits_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"tw_plague_sheet","prompt":"art/prompts/tw_plague_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"tw_dark_sheet","prompt":"art/prompts/tw_dark_sheet.txt","size":"1536x1024","alpha":"auto"},
+ {"name":"pad","prompt":"art/prompts/pad.txt","size":"1024x1024","alpha":"auto"}]

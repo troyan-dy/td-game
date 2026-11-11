@@ -1,0 +1,5 @@
+Use case: one tower sprite for a dark-fantasy tower-defense game (pixel art). Image 1 shows the style; the bone towers with a big bow of ribs in it show this design.
+Subject: "Bone tower": a big crossbow-shaped frame made of pale bones and ribs on a round cracked grey-violet stone base, facing right. Level 2 of 3: bigger, more bones, a hanging purple banner under the bow, two skulls, a wider stone base. It fills about 65% of the canvas height.
+Composition: one tower, centred, standing near the bottom with a clear margin around it.
+Camera: the same top-down 3/4 view as Image 1.
+Constraints: no ground, no shadow on the background, no text.
