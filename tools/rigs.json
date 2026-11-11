@@ -362,5 +362,93 @@
     210
    ]
   ]
+ },
+ "paladin": {
+  "full": "en_paladin",
+  "full_box": [
+   8,
+   107
+  ],
+  "ground": [
+   300,
+   842
+  ],
+  "top": 118,
+  "stride": 22,
+  "parts": [
+   {
+    "tex": "enp_paladin_leg",
+    "box": [
+     1049,
+     433
+    ],
+    "joint": [
+     1125,
+     448
+    ],
+    "at": [
+     275,
+     525
+    ],
+    "scale": 0.85,
+    "swing": 0.38,
+    "phase": 3.14159,
+    "dark": 0.7
+   },
+   {
+    "tex": "enp_paladin_leg",
+    "box": [
+     1049,
+     433
+    ],
+    "joint": [
+     1125,
+     448
+    ],
+    "at": [
+     385,
+     525
+    ],
+    "scale": 0.85,
+    "swing": 0.38,
+    "phase": 0
+   },
+   {
+    "tex": "enp_paladin_body",
+    "box": [
+     548,
+     200
+    ],
+    "joint": [
+     820,
+     615
+    ],
+    "at": [
+     325,
+     520
+    ],
+    "scale": 1.0,
+    "kind": "body"
+   },
+   {
+    "tex": "enp_paladin_arm",
+    "box": [
+     1201,
+     265
+    ],
+    "joint": [
+     1270,
+     325
+    ],
+    "at": [
+     150,
+     330
+    ],
+    "scale": 0.93,
+    "rest": 0.12,
+    "swing": 0.18,
+    "phase": 3.14159
+   }
+  ]
  }
 }

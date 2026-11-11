@@ -22,7 +22,7 @@
   };
   const TCOL = { bones: COL.bone, spirits: COL.soul, plague: COL.poison, dark: COL.dark };
   const TOWER_H = [86, 94, 104];                               // высота башни по уровням, view px
-  const EH = { militia: 34, knight: 36, priest: 38, cart: 58, paladin: 62 };
+  const EH = { militia: 34, knight: 36, priest: 38, cart: 58, paladin: 72 };
   const HUD_SOULS = [1392, 27];                                // куда летят души (центр счётчика душ в ui.js)
 
   // ---------------------------------------------------------------- плейсхолдер-фон (до генерации bg_map)
