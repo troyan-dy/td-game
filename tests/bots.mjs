@@ -1,4 +1,4 @@
-// Баланс-боты: играют партию headless на сгенерированной карте и возвращают итог. Используются в tests/ и tools/balance.mjs.
+// Баланс-боты: играют партию headless на сгенерированной карте и возвращают итог. Используются в tests/runs.mjs (ожидания), тестах и tools/balance.mjs.
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 export const SIM = require('../live/sim.js');

@@ -1,8 +1,9 @@
-// node --test tests/ — забег на сгенерированной карте: команды, шаг времени, детерминизм, сейв, боты.
+// node --test tests/*.test.mjs — забег на сгенерированной карте: команды, шаг времени, детерминизм, сейв, демо; боты — по tests/runs.mjs.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { SIM, play, smart, idle } from './bots.mjs';
+import { SIM, play, smart } from './bots.mjs';
+import { RUNS, resultOf, results, describe } from './runs.mjs';
 const require = createRequire(import.meta.url);
 const MAPGEN = require('../live/mapgen.js');
 const C = SIM.CONFIG;
@@ -146,6 +147,9 @@ test('детерминизм: тот же сид и те же команды —
   assert.deepEqual(a, b);
   const c = play(smart, 8, 900); assert.notDeepEqual(a.towers, c.towers);
 });
+for (const R of RUNS) test(`бот ${R.name}: ${R.want}`, () => {        // партии и ожидания — tests/runs.mjs
+  const r = resultOf(R.name); assert.ok(R.ok(r, results), `${R.name}: ${describe(r)}`);
+});
 
 test('состояние сериализуется в JSON без потерь (сейв)', () => {
   const S = SIM.create(3), cell = SIM.rankCells(S, 3)[0]; S.souls = 1000;
@@ -153,14 +157,6 @@ test('состояние сериализуется в JSON без потерь 
   run(S, 20);
   const R = JSON.parse(JSON.stringify(S)); for (let i = 0; i < 120 * 30; i++) { SIM.step(S, null); SIM.step(R, null); }
   assert.deepEqual(R, S);
-});
-
-test('боты на клетках: без обороны проигрыш, разумная оборона проходит заметно дальше', () => {
-  for (const seed of [1, 2, 3]) {
-    const r0 = play(idle, seed), r1 = play(smart, seed);
-    assert.equal(r0.phase, 'lost'); assert.ok(r0.wave <= 4, `seed ${seed}: idle wave ${r0.wave}`);
-    assert.ok(r1.wave >= r0.wave + 8, `seed ${seed}: smart wave ${r1.wave}, idle ${r0.wave}`);
-  }
 });
 
 test('титульное демо: на большей части петли по дороге идут враги', () => {

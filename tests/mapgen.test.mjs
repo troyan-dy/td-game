@@ -1,4 +1,4 @@
-// node --test tests/ — генератор карты: годность на 1000 сидах, детерминизм, проверка карты.
+// node --test tests/*.test.mjs — генератор карты: годность на 1000 сидах, детерминизм, проверка карты.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
