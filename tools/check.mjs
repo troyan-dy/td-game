@@ -147,7 +147,14 @@ function parseArgs(argv) {
   }
   if (!Number.isInteger(o.port) || o.port < 0 || o.port > 65535) die('--port должен быть целым 0…65535');
   if (!(o.timeout > 0)) die('--timeout должен быть положительным числом секунд');
-  if (o.page !== null && !/^\/[^\s]*$/.test(o.page)) die('--page — путь на этом сервере, начинается с /, например /site/index.html');
+  if (o.page !== null) {
+    // Git Bash превращает «/site/index.html» в «C:/Program Files/Git/site/index.html» — возвращаем как было.
+    const msys = /^[A-Za-z]:[\\/].*?[\\/]Git[\\/](.*)$/.exec(o.page);
+    if (msys) o.page = msys[1];
+    else if (path.isAbsolute(o.page) && path.resolve(o.page).startsWith(ROOT + path.sep)) o.page = path.relative(ROOT, path.resolve(o.page));
+    o.page = '/' + o.page.replace(/\\/g, '/').replace(/^\/+/, '');
+    if (/\s/.test(o.page)) die('--page — путь на этом сервере, например /site/index.html или site/index.html');
+  }
   const frames = path.join(ROOT, 'frames');
   o.outAbs = path.resolve(ROOT, o.out);
   if (!o.outAbs.startsWith(frames + path.sep)) die(`--out должен быть подкаталогом frames/ (например frames/check2), а не ${o.out}`);
@@ -240,7 +247,13 @@ function runTestFile(file, live) {
     const buf = [];
     ch.stdout.on('data', (d) => buf.push(d)); ch.stderr.on('data', (d) => buf.push(d));
     ch.on('error', (e) => resolve({ file, log: '', code: -1, pass: 0, fail: 1, skipped: 0, failed: [`${file}: node --test не запустился: ${e.message}`] }));
-    ch.on('close', (code) => { live.children.delete(ch); const log = Buffer.concat(buf).toString('utf8'); resolve({ file, log, code, ...parseTap(log) }); });
+    ch.on('close', (code) => {
+      live.children.delete(ch); const log = Buffer.concat(buf).toString('utf8'), r = { file, log, code, ...parseTap(log) };
+      // Файл без единого теста node --test показывает как один пройденный «тест» с именем самого файла — это не тест.
+      const asFile = log.split(/\r?\n/).filter((l) => { const m = /^ok \d+ - (.*)$/.exec(l); return m && m[1].replace(/\\+/g, '/') === file; }).length;
+      r.pass = Math.max(0, r.pass - asFile);
+      resolve(r);
+    });
   });
 }
 function parseTap(log) {
@@ -309,7 +322,7 @@ async function runBrowser(chromium, game, base, OUT, live, res, written, pagePat
       const ctx = {
         page, vw, base, pagePath, file: sc.file,
         Skip, skip: (why) => { throw new Skip(why); },
-        goto: (p) => page.goto(base + p),
+        goto: async (p) => { const x = await page.goto(base + p); if (x && x.status() >= 400) throw new Error(`страница ${p} не открылась: HTTP ${x.status()}`); return x; },
         wait: (ms) => page.waitForTimeout(ms),
         eval: (fn, arg) => page.evaluate(fn, arg),
         // Нужный элемент: нет за timeout мс — провал шага с понятной причиной.
@@ -381,7 +394,7 @@ function summary(res, { OUT, secs, port, code }) {
   const w = res.browser;
   if (!w) { L.push('Браузер:  ' + unfinished); failed = true; }
   else {
-    const bad = w.steps.filter((s) => !s.ok), probs = [...bad.map((s) => `${s.vw} ${s.name}: ${s.error}`), ...w.problems];
+    const bad = w.steps.filter((s) => !s.ok), probs = [...w.problems, ...bad.map((s) => `${s.vw} ${s.name}: ${s.error}`)];
     L.push(`Браузер:  ${probs.length ? 'ПРОВАЛ' : 'ок'} — шагов пройдено ${w.steps.length - bad.length}, упало ${bad.length}, пропущено ${w.skips.length}${ab ? ' (прервано)' : ''}`);
     if (probs.length) { failed = true; L.push(...list(probs)); }
     if (w.skips.length) { L.push('  Пропущены (ctx.skip):'); L.push(...list(w.skips)); }
