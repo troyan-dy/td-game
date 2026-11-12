@@ -14,7 +14,8 @@
   const SOUL = '<span class="soul-ico"></span>';
   const PH = { bones: '#e6d9b8', spirits: '#6ff2e2', plague: '#8be04e', dark: '#c86bff' };
   const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд' };
-  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶' };
+  const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом' };
+  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡' };
   const UI = (window.UI = {});
   let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
   const seenEv = new Set();
@@ -32,10 +33,11 @@
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
     const cards = h('div', 'frame', ''); cards.id = 'cards';
-    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${img('tw_' + k + '_1', `<div class="ph" style="background:${PH[k]}"></div>`)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.cost[0]}</div>`);
+    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${img('tw_' + k + '_1', `<div class="ph" style="background:${PH[k]}"></div>`)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
     const panel = h('div', 'frame', ''); panel.id = 'panel'; root.append(panel);
+    panel.addEventListener('pointerdown', () => { pressed = true; }); addEventListener('pointerup', () => { pressed = false; }, true);
     const tip = h('div', 'frame', ''); tip.id = 'tip'; root.append(tip);
     const toasts = h('div', '', ''); toasts.id = 'toasts'; root.append(toasts);
     const coach = h('div', 'frame', ''); coach.id = 'coach'; root.append(coach);
@@ -54,7 +56,7 @@
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
       <b>Карта</b> каждый забег новая, её задаёт сид (он виден слева вверху).<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
-      <b>Улучшение:</b> нажми на башню, затем «Улучшить» (U). На 3-м уровне открывается выбор одного из двух перков.<br>
+      <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
       <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Прогресс сохраняется между волнами.</div></div>`; };
 
@@ -72,8 +74,9 @@
   const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
     ui.armed = ui.armed === type ? null : type; ui.sel = -1; renderPanel(true); };
-  const upgrade = () => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
-    if (tw.lvl < 3) { if (S.souls >= SIM.upgradeCost(tw)) APP.cmd({ k: 'upgrade', cell: ui.sel }); else { AUDIO.ui('deny'); flashPoor(); } } setTimeout(() => renderPanel(true), 30); };
+  const upgrade = (track) => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
+    const cu = SIM.canUpgrade(S, ui.sel, track);
+    if (cu.ok) APP.cmd({ k: 'upgrade', cell: ui.sel, track }); else { AUDIO.ui('deny'); if (cu.reason === 'souls') flashPoor(); } setTimeout(() => renderPanel(true), 30); };
   const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', cell: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
   const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
   const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
@@ -106,32 +109,48 @@
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
       const dg = /^Digit([1-4])$/.exec(k) || /^Numpad([1-4])$/.exec(k); if (dg) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
-      if (k === 'KeyU') upgrade(); else if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
+      const tk = { KeyQ: 'dmg', KeyW: 'range', KeyE: 'rate' }[k]; if (tk) { upgrade(tk); return; }
+      if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
       else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
     });
   };
 
   // ---------------------------------------------------------------- тултипы
-  const towerLines = (k, lvl) => { const d = T[k], i = lvl - 1, L = [];
-    if (k === 'plague') L.push(['Яд', `${d.dps[i]}/с · ${d.cloudTime} с`]); else L.push(['Атака', `${d.dmg[i]} · ${TIP_DESC[d.dmgType]}`]);
-    L.push(['Скорость', `${d.rate[i]} с`]); L.push(['Радиус', `${SIM.rangeTiles(d.range[i]).toFixed(1)} кл.`]);
-    if (k === 'spirits') L.push(['Замедление', `${Math.round(d.slow[i] * 100)}%`]);
-    if (k === 'dark') L.push(['По тяжёлым', `×${d.heavyMult}`]);
+  // подписи веток и строки характеристик. Числа — итоговые из логики (SIM.towerStats / SIM.buildStats), здесь только формат
+  const TRACK_NAME = { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' }, TRACK_KEY = { dmg: 'Q', range: 'W', rate: 'E' };
+  const trackName = (type, k) => (type === 'plague' && k === 'dmg' ? 'Яд' : TRACK_NAME[k]);
+  const num = (v) => String(v >= 100 ? Math.round(v) : Math.round(v * 10) / 10);
+  // [подпись, значение, ветка] — первые три строки по веткам C.TRACKS, дальше свои поля типа
+  const statLines = (type, st) => {
+    const L = [[trackName(type, 'dmg'), type === 'plague' ? `${num(st.dmg)}/с` : num(st.dmg), 'dmg'],
+      ['Дальность', `${SIM.rangeTiles(st.range).toFixed(1)} кл.`, 'range'], ['Скорость', `${(1 / st.rate).toFixed(2)}/с`, 'rate']];
+    if (st.slow !== undefined) L.push(['Замедление', `${Math.round(st.slow * 100)}% · ${st.slowTime} с`]);
+    if (st.cloudR !== undefined) L.push(['Облако', `${SIM.rangeTiles(st.cloudR).toFixed(1)} кл. · ${st.cloudTime} с`]);
+    if (st.heavy !== undefined) L.push(['По тяжёлым', `×${st.heavy}`]);
     return L; };
-  const tipAt = (html, x, y) => { const t = $('#tip'); t.innerHTML = html; t.classList.add('show'); t.style.left = x + 'px'; t.style.top = (y - t.offsetHeight) + 'px'; };
+  // подсказка у точки (x, y — левый нижний угол), не выходит за слой интерфейса
+  const tipAt = (html, x, y) => { const t = $('#tip'); t.innerHTML = html; t.classList.add('show');
+    t.style.left = Math.max(10, Math.min(1590 - t.offsetWidth, x)) + 'px'; t.style.top = Math.max(58, Math.min(890 - t.offsetHeight, y - t.offsetHeight)) + 'px'; };
   const hideTip = () => $('#tip').classList.remove('show');
-  const showCardTip = (c) => { const k = c.dataset.type, d = T[k];
-    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${towerLines(k, 1).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')}</div>`, c.offsetLeft + 10, 900 - 150); };
+  const showCardTip = (c) => { const k = c.dataset.type, d = T[k], st = SIM.buildStats(APP.play, -1, k);
+    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType]}</div>`, c.offsetLeft + 10, 900 - 150); };
 
   // ---------------------------------------------------------------- панель
-  let panelKey = '';
-  // панель открывается на стороне поля, противоположной выбранной клетке, и никогда не закрывает её
-  const panelLeft = (S) => SIM.cellXY(S, ui.sel)[0] >= SIM.VIEW.W / 2;
-  const tipBeside = () => { const p = $('#panel'), left = p.classList.contains('left'); return [left ? p.offsetLeft + p.offsetWidth + 10 : p.offsetLeft - 310, 900 - 220]; };
+  // Панель встаёт рядом с выбранной клеткой там, где меньше всего закрывает: дорогу, саму клетку с башней и плашки интерфейса
+  // (тот же подбор места, что у подсказок обучения). Клетки под панелью — не поле: клик по ним попадает в панель.
+  // pressed — кнопка мыши зажата над панелью: перерисовка ждёт отпускания, иначе клик, попавший между нажатием и
+  // отпусканием на перерисовку (во время волны души меняются с каждым убийством), теряется
+  let panelKey = '', pressed = false;
+  const placePanel = (S, p) => { const [x, y] = SIM.cellXY(S, ui.sel);
+    const [l, t] = panelPlace(S, x, y, p.offsetWidth, p.offsetHeight, { target: [x - 44, y - 140, 88, 180], busy: '#stats, #seedbox, #wavebtn, #cards, #title' });
+    p.style.left = l + 'px'; p.style.top = t + 'px'; };
+  // подсказка перка или ветки — сбоку от панели, где хватает места
+  const tipBeside = () => { const p = $('#panel'), right = p.offsetLeft + p.offsetWidth + 10;
+    return [right + 300 <= 1590 ? right : p.offsetLeft - 310, p.offsetTop + p.offsetHeight]; };
   // Панель собрана из кусков, каждый — своя функция (тикеты правят свой кусок, не соседний):
   //   buildMenu(S, p)                    — свободная клетка: меню постройки (покрытие дороги, подсказка)
-  //   towerHead(S, tw)                   — башня: картинка, имя, уровень, характеристики
-  //   towerGrowth(S, tw) / wireGrowth()  — башня: перки и улучшение
+  //   towerHead(S, tw)                   — башня: картинка, имя, прокачка, итоговые характеристики
+  //   towerGrowth(S, tw) / wireGrowth()  — башня: три ветки со ступенями и ценой следующей, выбор перка
   //   towerManage(S, tw) / wireManage()  — башня: управление (продажа)
   const closeBtn = '<button class="btn x">✕</button>';
   const buildMenu = (S, p) => {
@@ -139,27 +158,45 @@
     p.innerHTML = `${closeBtn}<div class="nm">Свободная клетка</div><div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
         <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
   };
+  const towerPic = (tw) => { const lk = SIM.look(tw), n = [3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
+    return img(n || 'tw_' + tw.type + '_' + lk, `<div class="ph" style="width:${30 + 6 * lk}px;height:${44 + 12 * lk}px;background:${PH[tw.type]}"></div>`); };
   const towerHead = (S, tw) => {
-    const d = T[tw.type], lines = towerLines(tw.type, tw.lvl), next = tw.lvl < 3 ? towerLines(tw.type, tw.lvl + 1) : null;
-    return `<div class="hd"><div class="pic">${img([3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((n) => has(n) && +n.slice(-1) <= tw.lvl) || 'tw_' + tw.type + '_' + tw.lvl, `<div class="ph" style="width:40px;height:60px;background:${PH[tw.type]}"></div>`)}</div>
-      <div><div class="nm">${d.short}</div><div class="lv">УРОВЕНЬ ${tw.lvl}</div></div></div>
-      <div class="st">${lines.map(([a, b], i) => `<div><span>${a}</span><span><b>${b}</b>${next && next[i][1] !== b ? `<span class="nx">→ ${next[i][1].split(' ·')[0]}</span>` : ''}</span></div>`).join('')}
-      <div><span>Убито</span><span><b>${tw.kills}</b></span></div></div>`;
+    const d = T[tw.type], st = SIM.towerStats(S, tw);
+    return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
+      <div><div class="nm">${d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap}</div><div class="dt">${DMG_KIND[d.dmgType]}</div></div></div>
+      <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
+      <div><span>Убито</span><b>${tw.kills}</b></div></div>`;
   };
+  // почему ступень или перк недоступны — словами (подсказка при наведении и строка в панели)
+  const trackWhy = (S, cu) => ({ max: 'Ветка прокачана до предела', souls: `Не хватает ${cu.cost - S.souls} душ`, ended: 'Забег окончен' }[cu.reason] || '');
+  const perkWhy = (S, cp) => ({ steps: `Откроется после ${C.PERK_AT} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
+    souls: `Цена ${cp.cost} душ — не хватает ${cp.cost - S.souls}`, ended: 'Забег окончен' }[cp.reason] || `Цена: <b>${cp.cost}</b> душ · выбор навсегда`);
   const towerGrowth = (S, tw) => {
-    const d = T[tw.type], upc = SIM.upgradeCost(tw);
-    return `<div class="perks">${Object.entries(d.perks).map(([pk, pd]) => { const ch = tw.perk === pk, lock = tw.lvl < 3 || (tw.perk && !ch);
-        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''}" data-p="${pk}"><span class="ic">${PERK_ICON[pk]}</span>${pd.name}${!tw.perk && tw.lvl === 3 ? `<span style="color:var(--soul)">${SOUL}${pd.cost}</span>` : ''}</button>`; }).join('')}</div>
-      ${tw.lvl < 3 ? `<button class="btn green up ${S.souls < upc ? 'off' : ''}">УЛУЧШИТЬ · ${SOUL} ${upc}</button>` : `<button class="btn up off">${tw.perk ? 'МАКСИМУМ' : 'ВЫБЕРИ ПЕРК'}</button>`}`;
+    const d = T[tw.type];
+    const rows = C.TRACKS.map((k) => { const cu = SIM.canUpgrade(S, tw.cell, k), nx = statLines(tw.type, SIM.towerStats(S, tw, k)).find((l) => l[2] === k)[1];
+      const pips = Array.from({ length: tw.cap }, (_, i) => `<i class="${i < tw.tracks[k] ? 'on' : ''}"></i>`).join('');
+      const label = cu.reason === 'max' ? 'МАКСИМУМ' : `→ ${nx} · <span class="pr">${SOUL}${cu.cost}</span>`;
+      return `<div class="tr ${k}"><span class="tn"><span class="key">${TRACK_KEY[k]}</span>${trackName(tw.type, k)}</span><span class="pips">${pips}</span>
+        <button class="btn tb ${cu.ok ? 'green' : cu.reason === 'souls' ? 'poor' : 'off'}" data-t="${k}">${label}</button></div>`; }).join('');
+    const perks = Object.keys(d.perks), cps = perks.map((pk) => SIM.canPerk(S, tw.cell, pk)), need = cps[0].need;
+    const state = tw.perk ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${C.PERK_AT} ступеней · ещё ${need}</span>` : '<span class="ok">выбери один — навсегда</span>';
+    return `<div class="tracks">${rows}</div><div class="ph">ПЕРК · ${state}</div>
+      <div class="perks">${perks.map((pk, i) => { const pd = d.perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = cp.reason === 'steps' || cp.reason === 'taken';
+        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}"><span class="ic">${PERK_ICON[pk]}</span>${pd.name}${cp.ok || cp.reason === 'souls' ? `<span class="pr">${SOUL}${pd.cost}</span>` : ''}</button>`; }).join('')}</div>
+      ${tw.perk ? `<div class="pdesc">${d.perks[tw.perk].desc}</div>` : ''}`;
   };
   const wireGrowth = (p, S, tw) => {
     const d = T[tw.type];
-    p.querySelector('.up').onclick = upgrade;
+    p.querySelectorAll('.tb').forEach((b) => { const k = b.dataset.t;
+      b.onclick = () => upgrade(k);
+      b.onmouseenter = () => { const cu = SIM.canUpgrade(APP.play, tw.cell, k), why = trackWhy(APP.play, cu);
+        tipAt(`<h4>${trackName(tw.type, k)} · ступень ${tw.tracks[k]} / ${tw.cap}</h4><div class="row">${why || `Следующая ступень: <b>${cu.cost}</b> душ · клавиша ${TRACK_KEY[k]}`}</div>`, ...tipBeside()); };
+      b.onmouseleave = hideTip; });
     p.querySelectorAll('.perk').forEach((b) => {
       const pk = b.dataset.p, pd = d.perks[pk];
-      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, ...tipBeside());
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
       b.onmouseleave = hideTip;
-      b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
+      b.onclick = () => { if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
     });
   };
   const towerManage = (S, tw) => `<button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
@@ -167,15 +204,16 @@
 
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
-    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].cost[0];
+    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].base.cost;
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
     if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
-    const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1)]);
-    if (!force && key === panelKey) return; panelKey = key;
-    p.classList.add('show'); p.classList.toggle('left', panelLeft(S));
+    const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.tracks, tw.cap, tw.perk, tw.invested, tw.kills], S.souls, S.phase]);
+    if (!force && (key === panelKey || pressed)) return; panelKey = key;
+    p.classList.add('show');
     if (!tw) buildMenu(S, p);
     else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
     p.querySelector('.x').onclick = () => select(-1);
+    placePanel(S, p);
   };
 
   // ---------------------------------------------------------------- тосты, новый враг, обучение
@@ -188,32 +226,39 @@
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
+  // непрокачанная башня, которой хватает душ на ступень; башня, которой открыт выбор перка
+  const raw = (S) => S.towers.find((t) => t && !SIM.steps(t) && C.TRACKS.some((k) => SIM.canUpgrade(S, t.cell, k).ok));
+  const perkReady = (S) => S.towers.find((t) => t && !t.perk && SIM.canPerk(S, t.cell, Object.keys(T[t.type].perks)[0]).need === 0);
   const COACH = [
     { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
       text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
     { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
       text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
-    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 1).cell),
-      text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни в стороне от дороги.' },
-    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 3 && !t.perk).cell),
-      text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
+    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && !!raw(S), at: (S) => SIM.cellXY(S, raw(S).cell),
+      text: 'Нажми на башню и прокачай её ветки: урон, дальность, скорость. Прокачка часто выгоднее новой башни в стороне от дороги.' },
+    { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
+      text: `В башню вложено ${C.PERK_AT} ступеней — выбери один из трёх перков. Выбор навсегда, читай подсказки.` },
   ];
-  // где поставить подсказку w×h рядом с точкой (x, y): перебираем места вокруг цели (сеткой до ~400 px) и берём то, что
-  // не закрывает дорогу, интерфейс и саму цель, а из таких — ближайшее. Результат кэшируется, пока не сменились цель и раскладка.
+  // где поставить окно w×h рядом с точкой (x, y): перебираем места вокруг цели (сеткой до ~400 px) и берём то, что
+  // не закрывает дорогу, интерфейс (o.busy) и саму цель (o.target), а из таких — ближайшее. У каждого окна свой подборщик
+  // (placer()): результат кэшируется, пока не сменились цель и раскладка. Им ставятся подсказки обучения и панель клетки.
   const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
   const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
-  let placed = { key: '', r: null };
-  const placeNear = (S, x, y, w, h) => {
-    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
-    if (placed.key === key) return placed.r;
-    const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]), target = [x - 40, y - 40, 80, 80];
-    let best = null, bestCost = Infinity;
-    for (let oy = -400; oy <= 400; oy += 24) for (let ox = -480; ox <= 480; ox += 24) {
-      const r = [Math.max(10, Math.min(1590 - w, x + ox - w / 2)), Math.max(58, Math.min(890 - h, y + oy - h / 2)), w, h];
-      let cost = 0; for (const q of road) cost += overlap(r, q); for (const q of busy) cost += 4 * overlap(r, q); cost += 8 * overlap(r, target);
-      cost += 3 * Math.hypot(r[0] + w / 2 - x, r[1] + h / 2 - y);
-      if (cost < bestCost) { bestCost = cost; best = r; } }
-    placed = { key, r: best }; return best; };
+  const placer = () => { let placed = { key: '', r: null };
+    return (S, x, y, w, h, o = {}) => {
+      const busy = rectsOf(o.busy || '#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), target = o.target || [x - 40, y - 40, 80, 80];
+      const key = [S.seed, x, y, w, h, target, JSON.stringify(busy)].join('|');
+      if (placed.key === key) return placed.r;
+      const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]);
+      let best = null, bestCost = Infinity;
+      for (let oy = -400; oy <= 400; oy += 24) for (let ox = -480; ox <= 480; ox += 24) {
+        const r = [Math.max(10, Math.min(1590 - w, x + ox - w / 2)), Math.max(58, Math.min(890 - h, y + oy - h / 2)), w, h];
+        let cost = 0; for (const q of road) cost += overlap(r, q); for (const q of busy) cost += 4 * overlap(r, q); cost += 8 * overlap(r, target);
+        cost += 3 * Math.hypot(r[0] + w / 2 - x, r[1] + h / 2 - y);
+        if (cost < bestCost) { bestCost = cost; best = r; } }
+      placed = { key, r: best }; return best; };
+  };
+  const placeNear = placer(), panelPlace = placer();
   let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
   const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, 3.4)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
@@ -222,7 +267,7 @@
     if (el.textContent !== c.text) el.textContent = c.text;
     el.classList.add('show');
     const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
-  const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && t.lvl > 1)) || (q.id === 'perk' && S.towers.some((t) => t && t.perk));
+  const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && SIM.steps(t) > 0)) || (q.id === 'perk' && S.towers.some((t) => t && t.perk));
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };

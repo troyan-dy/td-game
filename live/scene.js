@@ -24,7 +24,7 @@
     hpOk: [0.40, 0.85, 0.35], hpLow: [0.95, 0.30, 0.25], frost: [0.70, 0.95, 1.0], heal: [1.0, 0.85, 0.45],
   };
   const TCOL = { bones: COL.bone, spirits: COL.soul, plague: COL.poison, dark: COL.dark };
-  const TOWER_H = [86, 94, 104];                               // высота башни по уровням, view px
+  const TOWER_H = [86, 94, 104];                               // высота башни по виду 1..3 (SIM.look), view px
   const EH = { militia: 34, knight: 36, priest: 38, cart: 58, paladin: 72 };
   const HUD_SOULS = [1392, 27];                                // куда летят души (центр счётчика душ в ui.js)
 
@@ -41,39 +41,49 @@
   };
 
   // ---------------------------------------------------------------- башни
-  const towerName = (tw) => { for (let l = tw.lvl; l >= 1; l--) if (has(`tw_${tw.type}_${l}`)) return `tw_${tw.type}_${l}`; return `tw_${tw.type}_${tw.lvl}`; };
+  // вид башни 1..3 растёт с суммой ступеней веток (SIM.look); спрайта этого вида нет — берётся младший, крупнее
+  const towerName = (tw, lk) => { for (let l = lk; l >= 1; l--) if (has(`tw_${tw.type}_${l}`)) return `tw_${tw.type}_${l}`; return `tw_${tw.type}_${lk}`; };
+  const TRACK_COL = { dmg: [1, 0.42, 0.34], range: [0.45, 0.78, 1], rate: [1, 0.85, 0.35] };   // метки веток под башней
   const drawTower = (ST, tw, GT, t, sel) => {
-    const [x, y] = SIM.cellXY(ST, tw.cell), h = TOWER_H[tw.lvl - 1];
+    const [x, y] = SIM.cellXY(ST, tw.cell), lk = SIM.look(tw), room = y + 10 - C.VIEW_TOP;   // выше VIEW_TOP — плашки HUD
     const age = GT - tw.built, pop = age < 0.45 ? 1 + 0.18 * Math.sin(age / 0.45 * Math.PI) * (1 - age / 0.45) : 1;   // squash при постройке
     const kick = Math.max(0, 1 - (GT - tw.fireT) / 0.18);                                                          // отдача
+    const n = towerName(tw, lk);
+    let w = 0, h = Math.min(TOWER_H[lk - 1], room);
+    if (has(n)) {
+      let sh; [w, sh] = SZ(n, [L.hsz(n, TOWER_H[lk - 1]), TOWER_H[lk - 1]]); const miss = lk - +n.slice(-1);
+      if (miss > 0) { w *= 1 + 0.2 * miss; sh *= 1 + 0.2 * miss; }
+      const fit = Math.min(1, room / sh); w *= fit; h = sh * fit;                                       // верхний ряд: башня ужимается под HUD
+    }
     L.shadow(x, y + 4, 40, 13, 0.55);
     if (sel) L.glow(x, y - h * 0.45, h * 0.7, TCOL[tw.type], 0.30, 3.2);
-    const n = towerName(tw);
     if (has(n)) {
-      let [w, sh] = SZ(n, [L.hsz(n, h), h]); const miss = tw.lvl - +n.slice(-1);       // уровня нет в арте: тот же спрайт крупнее
-      if (miss > 0) { w *= 1 + 0.2 * miss; sh *= 1 + 0.2 * miss; }
       const face = tw.type === 'bones' && Math.cos(tw.aim) < 0 ? -1 : 1;                                       // баллиста смотрит в сторону цели
-      L.sprite(n, 0, 0, { m: M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick))), w, h: sh, pivot: [w / 2, sh] });
-    } else placeholderTower(tw, x, y, h * pop, kick, t);
+      L.sprite(n, 0, 0, { m: M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick))), w, h, pivot: [w / 2, h] });
+    } else placeholderTower(tw, x, y, h * pop, kick, t, lk);
     // живые детали поверх спрайта
-    if (tw.type === 'spirits') for (let i = 0; i < 1 + tw.lvl; i++) { const a = t * 1.3 + i * 6.283 / (1 + tw.lvl), r = 24 + 4 * tw.lvl;
+    if (tw.type === 'spirits') for (let i = 0; i < 1 + lk; i++) { const a = t * 1.3 + i * 6.283 / (1 + lk), r = 24 + 4 * lk;
       const gx = x + Math.cos(a) * r, gy = y - h * 0.62 + Math.sin(a) * r * 0.45 + 4 * Math.sin(t * 3 + i);
       L.glow(gx, gy, 16, COL.soul, 0.55); L.star(gx, gy, 5, COL.soul, 0.8); }
     if (tw.type === 'plague') for (let i = 0; i < 3; i++) { const k = (t * 0.6 + i / 3) % 1;
       L.puff(x + 8 * Math.sin(i * 2 + t), y - h * 0.62 - 50 * k, 9 + 14 * k, COL.poison, 0.35 * (1 - k), i + Math.floor(t * 0.6 + i / 3) * 3); }
-    if (tw.type === 'dark') { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + tw.cell); L.glow(x, y - h * 0.78, 34 + 8 * tw.lvl, COL.dark, 0.25 + 0.25 * p + 0.5 * kick); }
+    if (tw.type === 'dark') { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + tw.cell); L.glow(x, y - h * 0.78, 34 + 8 * lk, COL.dark, 0.25 + 0.25 * p + 0.5 * kick); }
     if (tw.type === 'spirits') L.glow(x, y - h * 0.58, 30, COL.soul, 0.35 + 0.3 * kick);
     if (tw.perk) L.glow(x, y - 8, 30, TCOL[tw.type], 0.25 + 0.1 * Math.sin(t * 3));
-    const [mx, my] = SIM.muzzle(ST, tw); L.anchor('muzzle_' + tw.type, [mx, my], [x, y - SIM.MUZZLE[tw.type] - (tw.lvl - 1) * 4], 2);
+    // ступени веток: строка меток на ветку под основанием; у выбранной и наведённой видны и пустые до потолка
+    C.TRACKS.forEach((k, r) => { const got = tw.tracks[k], all = sel ? tw.cap : got, x0 = x - (all * 7 - 2) / 2, yy = y + 15 + r * 5;
+      for (let i = 0; i < all; i++) L.solid(x0 + i * 7, yy, 5, 3, i < got ? TRACK_COL[k] : [0.2, 0.17, 0.28], 0, 0, 0, i < got ? 0.95 : 0.8); });
+    const [mx, my] = SIM.muzzle(ST, tw), off = SIM.MUZZLE[tw.type] + (lk - 1) * 4, fitH = Math.min(1, room / (off + 10));
+    L.anchor('muzzle_' + tw.type, [mx, my], [x, y + 10 - (off + 10) * fitH], 2);
   };
-  const placeholderTower = (tw, x, y, h, kick, t) => {
+  const placeholderTower = (tw, x, y, h, kick, t, lk) => {
     const c = TCOL[tw.type], dk = c.map((v) => v * 0.45);
     L.solid(x - 30, y - 16, 60, 18, [0.32, 0.29, 0.40]);                 // каменное основание
     if (tw.type === 'bones') { L.solid(x - 6, y - h * 0.7, 12, h * 0.6, dk); L.solid(x, y - h * 0.7, 56, 7, c, tw.aim, 28, 3.5); L.solid(x, y - h * 0.7, 30 - 6 * kick, 4, [0.6, 0.5, 0.4], tw.aim, 0, 2); }
     if (tw.type === 'spirits') { L.solid(x - 5, y - h * 0.9, 10, h * 0.8, [0.25, 0.22, 0.32]); L.solid(x - 14, y - h * 0.75, 28, 30, c, 0, 0, 0, 0.9); }
     if (tw.type === 'plague') { L.solid(x - 28, y - h * 0.55, 56, 36, [0.15, 0.13, 0.18]); L.solid(x - 24, y - h * 0.58, 48, 8, c); }
     if (tw.type === 'dark') { for (let i = 0; i < 10; i++) { const k = i / 10, w = 30 * (1 - k); L.solid(x - w / 2, y - 16 - h * 0.8 * (k + 0.1), w, h * 0.08 + 1, i % 3 ? dk : c); } }
-    for (let i = 0; i < tw.lvl; i++) L.solid(x - 12 + i * 9, y - 4, 6, 6, [1, 0.85, 0.4]);
+    for (let i = 0; i < lk; i++) L.solid(x - 12 + i * 9, y - 4, 6, 6, [1, 0.85, 0.4]);
   };
 
   // ---------------------------------------------------------------- враги
@@ -155,11 +165,11 @@
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
-      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.rangePx(selT), TCOL[selT.type], t); }
+      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.towerStats(ST, selT).rangePx, TCOL[selT.type], t); }
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), TCOL[pType], t, 0.8); }
       else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && SIM.canBuild(ST, ui.hover, ui.armed).reason !== 'road') {
         const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), TCOL[ui.armed], t, 0.7); }
-      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.rangePx(h), TCOL[h.type], t, 0.45); }
+      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.towerStats(ST, h).rangePx, TCOL[h.type], t, 0.45); }
     }
 
     // облака яда (на земле)
