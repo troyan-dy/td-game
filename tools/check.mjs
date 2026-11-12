@@ -316,6 +316,7 @@ async function runBrowser(chromium, game, base, OUT, live, res, written, pagePat
       if (sc.error) { r.steps.push({ vw, name: sc.file, ok: false, error: sc.error }); continue; }
       const page = await browser.newPage({ viewport: vp });            // свежий контекст: файлы экранов друг от друга не зависят
       page.setDefaultTimeout(15000);
+      page.setDefaultNavigationTimeout(60000);   // открытие и перезагрузка страницы: под нагрузкой (параллельные прогоны) 15 с не хватает
       const err = (s) => r.console.push(`${vw}: ${cut(s, 300)}`);
       page.on('pageerror', (e) => err('pageerror: ' + (e.message || e)));
       page.on('console', (m) => { const t = m.text(); if (m.type() === 'error' && !/favicon|^Failed to load resource/.test(t)) err(t); });
