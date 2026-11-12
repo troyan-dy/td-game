@@ -3,7 +3,7 @@
 // атмосфера → finish → полоски здоровья и всплывающие числа (чёткие, после грейда).
 // Если арта ещё нет (ASSETS[name] отсутствует), объект рисуется кодовым плейсхолдером.
 (function () {
-  const S = (window.SCENE = {}), L = LIB, M = L.M, W = SIM.VIEW.W, H = SIM.VIEW.H, C = SIM.CONFIG, UNIT = C.UNIT, TILE = C.GRID.tile;
+  const S = (window.SCENE = {}), L = LIB, M = L.M, W = SIM.VIEW.W, H = SIM.VIEW.H, C = SIM.CONFIG, TILE = C.GRID.tile;
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const SZ = (n, def) => (window.SIZES && window.SIZES[n]) || def;
   S.REPEAT = [];
@@ -156,9 +156,9 @@
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
       if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.rangePx(selT), TCOL[selT.type], t); }
-      else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, C.TOWERS[pType].range[0] * UNIT, TCOL[pType], t, 0.8); }
+      else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), TCOL[pType], t, 0.8); }
       else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && SIM.canBuild(ST, ui.hover, ui.armed).reason !== 'road') {
-        const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, C.TOWERS[ui.armed].range[0] * UNIT, TCOL[ui.armed], t, 0.7); }
+        const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), TCOL[ui.armed], t, 0.7); }
       if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.rangePx(h), TCOL[h.type], t, 0.45); }
     }
 
@@ -182,7 +182,7 @@
       else if (s.k === 'ghost') { const wob = Math.sin(GT * 14 + s.seed * 20) * 3;
         L.glow(s.x, s.y + wob, 22, COL.soul, 0.7); L.star(s.x, s.y + wob, 8, [0.8, 1, 1], 0.9);
         for (let j = 1; j < 4; j++) L.glow(s.x - (s.lx - s.x) * 0.02 * j, s.y + wob + j * 2, 12 - j * 2, COL.soul, 0.3 / j); }
-      else if (s.k === 'blob') { L.glow(s.x, s.y, 18, COL.poison, 0.6); L.puff(s.x, s.y, 9, COL.poison, 0.9, s.cell); }
+      else if (s.k === 'blob') { L.glow(s.x, s.y, 18, COL.poison, 0.6); L.puff(s.x, s.y, 9, COL.poison, 0.9, s.tw); }
     }
     // лучи тьмы
     for (const b of ST.beams) { const a = GT - b.t, k = 1 - a / 0.35; if (k <= 0) continue;

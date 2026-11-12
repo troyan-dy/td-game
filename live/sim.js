@@ -45,6 +45,12 @@
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола»
   const MUZZLE = { bones: 58, spirits: 70, plague: 44, dark: 92 };
   const muzzle = (S, tw) => { const [x, y] = cellXY(S, tw.cell); return [x, y - MUZZLE[tw.type] - (tw.lvl - 1) * 4]; };
+  // башня по id: снаряды, облака и яд помнят башню, а не клетку (перенос и слияние не путают, чей урон). Индекс строится лениво.
+  let IDX = null, IDX_S = null;
+  const towerOf = (S, id) => {
+    if (IDX_S !== S) { IDX = new Map(); for (const t of S.towers) if (t) IDX.set(t.id, t); IDX_S = S; }
+    return IDX.get(id) || null; };
+  const dropIndex = () => { IDX_S = null; };
   const upgradeCost = (tw) => (tw.lvl < 3 ? TW[tw.type].cost[tw.lvl] : null);
   const sellValue = (tw) => Math.floor(tw.invested * C.SELL_REFUND);
   const waveCount = () => C.WAVES.length;
@@ -64,11 +70,13 @@
   };
 
   // ---------------------------------------------------------------- ответы интерфейсу
-  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
+  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
+  // cost — цена постройки на этой клетке (её и списывает команда build)
   const canBuild = (S, cell, type) => {
     const def = TW[type], cost = def ? def.cost[0] : null, no = (reason) => ({ ok: false, reason, cost });
     if (!(cell >= 0 && cell < cellCount(S)) || cell !== Math.floor(cell)) return no('bounds');
     if (S.map.road.includes(cell)) return no('road');
+    if (MAPGEN.hud(S.map, cell)) return no('hud');
     if (S.towers[cell]) return no('occupied');
     if (!def) return no('type');
     if (S.unlocked && !S.unlocked.includes(type)) return no('locked');
@@ -76,12 +84,25 @@
     if (S.souls < cost) return no('souls');
     return { ok: true, reason: null, cost };
   };
+  // радиус будущей башни типа type на клетке cell, px (круг превью постройки)
+  const buildRangePx = (S, cell, type) => TW[type].range[0] * UNIT;
+  // годно ли состояние для продолжения (сейв, sessionStorage): текущая версия, годная карта, все поля на месте
+  const loadable = (S) => {
+    try {
+      if (!S || typeof S !== 'object' || S.v !== C.VERSION || !S.map || MAPGEN.validate(S.map).length) return false;
+      const num = (v) => typeof v === 'number' && Number.isFinite(v), arr = Array.isArray;
+      return num(S.seed) && num(S.dt) && S.dt > 0 && S.dt <= 0.1 && num(S.t) && num(S.rs) && num(S.souls) && num(S.hp) && num(S.wave) && num(S.nid)
+        && ['prep', 'wave', 'won', 'lost'].includes(S.phase) && arr(S.towers) && S.towers.length === cellCount(S)
+        && arr(S.enemies) && arr(S.shots) && arr(S.clouds) && arr(S.beams) && arr(S.ev) && arr(S.queue)
+        && !!S.stats && typeof S.stats === 'object' && !!S.seen && typeof S.seen === 'object';
+    } catch (e) { return false; }
+  };
   // длина дороги (px), которую башня на клетке накрывает радиусом units
   const coverage = (S, cell, units) => { const [x, y] = cellXY(S, cell), r = units * UNIT, L = pathLen(S); let n = 0;
     for (let d = 0; d < L; d += 4) { const p = posAt(S, d); if (Math.hypot(p.x - x, p.y - y) <= r) n += 4; } return n; };
   // свободные клетки по убыванию покрытия дороги (боты, демо, подсказки)
   const rankCells = (S, units) => { const out = [];
-    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i]) out.push([i, coverage(S, i, units)]);
+    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i)) out.push([i, coverage(S, i, units)]);
     return out.sort((a, b) => b[1] - a[1] || a[0] - b[0]).map((c) => c[0]); };
 
   // ---------------------------------------------------------------- команды игрока
@@ -89,12 +110,13 @@
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
   const doCmd = (S, c) => {
     if (S.phase === 'won' || S.phase === 'lost') return;
+    dropIndex();
     const tw = c.cell >= 0 && c.cell < cellCount(S) ? S.towers[c.cell] : null, at = tw ? cellXY(S, c.cell) : null;
     if (c.k === 'build') {
-      if (!canBuild(S, c.cell, c.type).ok) return;
-      const def = TW[c.type], [x, y] = cellXY(S, c.cell);
-      pay(S, def.cost[0]);
-      S.towers[c.cell] = { id: S.nid++, cell: c.cell, type: c.type, lvl: 1, perk: null, cd: 0.4, invested: def.cost[0], kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t };
+      const cb = canBuild(S, c.cell, c.type); if (!cb.ok) return;
+      const [x, y] = cellXY(S, c.cell);
+      pay(S, cb.cost);
+      S.towers[c.cell] = { id: S.nid++, cell: c.cell, type: c.type, lvl: 1, perk: null, cd: 0.4, invested: cb.cost, kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t };
       ev(S, 'build', { cell: c.cell, type: c.type, x, y });
     } else if (c.k === 'upgrade') {
       if (!tw || tw.lvl >= 3) return; const cost = upgradeCost(tw); if (!canAfford(S, cost)) return;
@@ -157,9 +179,9 @@
     for (const t of S.towers) if (t && t.type === 'dark' && t.perk === 'harvest') {
       const [sx, sy] = cellXY(S, t.cell); if (Math.hypot(e.x - sx, e.y - sy) <= rangePx(t)) { const g = TW.dark.perks.harvest.souls; S.souls += g; S.stats.earned += g; ev(S, 'harvest', { x: e.x, y: e.y, souls: g, cell: t.cell }); }
     }
-    for (const key in e.poison) { const p = e.poison[key], t = S.towers[p.cell];
+    for (const key in e.poison) { const p = e.poison[key], t = towerOf(S, p.tw);
       if (p.chain && t && t.type === 'plague' && t.perk === 'pestilence') { const pk = TW.plague.perks.pestilence;
-        S.clouds.push({ x: e.x, y: e.y, r: pk.cloudR * UNIT, t: pk.cloudTime, T: pk.cloudTime, dps: towerStat(t, 'dps'), cell: t.cell, chain: false, acid: false });
+        S.clouds.push({ x: e.x, y: e.y, r: pk.cloudR * UNIT, t: pk.cloudTime, T: pk.cloudTime, dps: towerStat(t, 'dps'), tw: t.id, chain: false, acid: false });
         ev(S, 'cloud', { x: e.x, y: e.y, small: true }); break; } }
     if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i)); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
   };
@@ -175,29 +197,29 @@
       const dmg = towerStat(tw, 'dmg');
       if (tw.perk === 'volley') {
         const pk = def.perks.volley, ts = cand.sort((a, b) => b.d - a.d).slice(0, pk.bolts);
-        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: dmg * pk.mult, sp: def.boltSpeed, cell: tw.cell, lx: e.x, ly: e.y, n: i }));
+        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: dmg * pk.mult, sp: def.boltSpeed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
         tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx);
       } else {
         const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
         if (tw.perk === 'pierce') {
           const fl = Math.hypot(e.x - mx, e.y - my) / def.boltSpeed, p = posAt(S, e.d + EN[e.type].speed * fl);
           const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
-          S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: rangePx(tw) * 1.3, dmg, sp: def.boltSpeed, cell: tw.cell, pierce: def.perks.pierce.targets, hit: [] });
-        } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg, sp: def.boltSpeed, cell: tw.cell, lx: e.x, ly: e.y });
+          S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: rangePx(tw) * 1.3, dmg, sp: def.boltSpeed, tw: tw.id, pierce: def.perks.pierce.targets, hit: [] });
+        } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg, sp: def.boltSpeed, tw: tw.id, lx: e.x, ly: e.y });
       }
     } else if (tw.type === 'spirits') {
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
-      S.shots.push({ k: 'ghost', x: mx, y: my, tid: e.id, dmg: towerStat(tw, 'dmg'), sp: def.ghostSpeed, cell: tw.cell, lx: e.x, ly: e.y,
+      S.shots.push({ k: 'ghost', x: mx, y: my, tid: e.id, dmg: towerStat(tw, 'dmg'), sp: def.ghostSpeed, tw: tw.id, lx: e.x, ly: e.y,
         bounces: tw.perk === 'pack' ? def.perks.pack.bounces : 0, hit: [], born: S.t, seed: rand(S) });
     } else if (tw.type === 'plague') {
       const e = firstOf(cand), fl = def.flight, p = posAt(S, e.d + EN[e.type].speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
-      S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, cell: tw.cell });
+      S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id });
     } else if (tw.type === 'dark') {
       const e = cand.reduce((b, x) => (!b || x.hp > b.hp ? x : b), null), heavy = EN[e.type].heavy ? def.heavyMult : 1;
       tw.aim = Math.atan2(e.y - my, e.x - mx);
       if (tw.perk === 'curse') e.curseT = def.perks.curse.time;
       damage(S, e, towerStat(tw, 'dmg') * heavy, 'magic', tw, { ignoreMres: true });
-      S.beams.push({ x0: mx, y0: my, x1: e.x, y1: e.y - 14, t: S.t, cell: tw.cell });
+      S.beams.push({ x0: mx, y0: my, x1: e.x, y1: e.y - 14, t: S.t, tw: tw.id });
     }
     tw.fireT = S.t; ev(S, 'fire', { cell: tw.cell, type: tw.type, x: mx, y: my });
     return true;
@@ -207,19 +229,23 @@
   const stepShots = (S) => {
     const keep = [], DT = S.dt;
     for (const s of S.shots) {
-      const tw = S.towers[s.cell];
+      const tw = towerOf(S, s.tw);
       if (s.k === 'blob') {
         s.T += DT; const u = Math.min(1, s.T / s.dur);
         s.x = s.x0 + (s.x1 - s.x0) * u; s.y = s.y0 + (s.y1 - s.y0) * u - Math.sin(Math.PI * u) * 70;
         if (u >= 1) { const def = TW.plague, dps = tw ? towerStat(tw, 'dps') : def.dps[0];
-          S.clouds.push({ x: s.x1, y: s.y1, r: def.cloudR * UNIT, t: def.cloudTime, T: def.cloudTime, dps, cell: s.cell, chain: true, acid: !!(tw && tw.perk === 'acid') });
+          S.clouds.push({ x: s.x1, y: s.y1, r: def.cloudR * UNIT, t: def.cloudTime, T: def.cloudTime, dps, tw: s.tw, chain: true, acid: !!(tw && tw.perk === 'acid') });
           ev(S, 'cloud', { x: s.x1, y: s.y1 }); continue; }
         keep.push(s); continue;
       }
       if (s.pierce !== undefined) {                                   // прямой пронзающий болт
-        const st = s.sp * DT; s.x += s.dx * st; s.y += s.dy * st; s.left -= st;
-        for (const e of S.enemies) if (!e.dead && s.hit.length < s.pierce && !s.hit.includes(e.id) && Math.hypot(e.x - s.x, e.y - 14 - s.y) < 18 + st / 2) {
-          damage(S, e, s.dmg * (1 - TW.bones.perks.pierce.falloff * s.hit.length), 'phys', tw); s.hit.push(e.id); ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'bolt' }); }
+        // крупный шаг дробится на отрезки не длиннее шага по умолчанию: при C.DT проверка та же, при 1/30 болт не проскакивает врага
+        const st = s.sp * DT, n = Math.max(1, Math.ceil(DT / C.DT - 1e-9)), sub = st / n;
+        for (let k = 0; k < n && s.hit.length < s.pierce; k++) {
+          s.x += s.dx * sub; s.y += s.dy * sub; s.left -= sub;
+          for (const e of S.enemies) if (!e.dead && s.hit.length < s.pierce && !s.hit.includes(e.id) && Math.hypot(e.x - s.x, e.y - 14 - s.y) < 18) {
+            damage(S, e, s.dmg * (1 - TW.bones.perks.pierce.falloff * s.hit.length), 'phys', tw); s.hit.push(e.id); ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'bolt' }); }
+        }
         if (s.left > 0 && s.hit.length < s.pierce && s.x > -50 && s.x < W + 50 && s.y > -50 && s.y < H + 50) keep.push(s);
         continue;
       }
@@ -274,7 +300,7 @@
       if (e.freezeT > 0) e.freezeT -= DT;
       if (e.curseT > 0) e.curseT -= DT;
       if (e.shredT > 0) { e.shredT -= DT; if (e.shredT <= 0) e.shred = 0; }
-      for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', S.towers[p.cell]); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
+      for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', towerOf(S, p.tw)); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
       if (e.dead) continue;
       if (def.heal) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = def.heal * C.HP_MULT(S.wave); let any = false;
         const hurt = S.enemies.filter((o) => !o.dead && !EN[o.type].boss && o.hp < o.max && S.t - (o.healedT || -9) >= def.healLock && Math.hypot(o.x - e.x, o.y - e.y) <= def.healR * UNIT)
@@ -288,10 +314,10 @@
     }
     // облака яда
     for (const c of S.clouds) {
-      c.t -= DT; const tw = S.towers[c.cell];
+      c.t -= DT; const tw = towerOf(S, c.tw);
       for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - c.x, (e.y - c.y) * 1.4) <= c.r) {
-        const key = 'p' + c.cell, old = e.poison[key];
-        e.poison[key] = { dps: Math.max(c.dps, old ? old.dps : 0), t: TW.plague.poisonLinger, cell: c.cell, chain: c.chain || (old ? old.chain : false) };
+        const key = 'p' + c.tw, old = e.poison[key];
+        e.poison[key] = { dps: Math.max(c.dps, old ? old.dps : 0), t: TW.plague.poisonLinger, tw: c.tw, chain: c.chain || (old ? old.chain : false) };
         if (c.acid) { e.shred = TW.plague.perks.acid.shred; e.shredT = TW.plague.perks.acid.shredTime; }
       }
       if (!tw && c.t > 0.5) c.t = 0.5;
@@ -343,9 +369,9 @@
   const selfCheck = (S) => MAPGEN.validate((S || create()).map);
 
   const SIM = {
-    DT: C.DT, VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
+    VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, MUZZLE,
-    canBuild, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
+    canBuild, buildRangePx, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
   };
   if (typeof module !== 'undefined') module.exports = SIM;

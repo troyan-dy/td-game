@@ -126,7 +126,10 @@
     return pts;
   };
 
-  const MAPGEN = { generate, validate, route, cellXY, cellAt };
+  // клетка под интерфейсом (HUD, кнопка волны, карточки башен): не игровая — ни дороги, ни построек
+  const hud = (m, i) => inKeepout(i % m.cols, Math.floor(i / m.cols));
+
+  const MAPGEN = { generate, validate, route, cellXY, cellAt, hud };
   if (typeof module !== 'undefined') module.exports = MAPGEN;
   if (typeof window !== 'undefined') window.MAPGEN = MAPGEN;
 })();
