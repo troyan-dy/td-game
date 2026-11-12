@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node tools/check.mjs *)",
+      "Bash(node --test tests/*)"
+    ]
+  }
+}
