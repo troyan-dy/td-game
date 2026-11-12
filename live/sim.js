@@ -351,17 +351,19 @@
     S.wave = 8; startWave(S); S.souls = 340; S.hp = 16; S.ev = [];
     return S;
   };
-  const LOOP = 60;
+  const LOOP = 60, WARM_ENEMIES = 10, WARM_MAX = 40;
+  // шаг демо: зачищенная волна сразу начинается заново (prepT = шаг: таймер дойдёт до нуля на следующем шаге), души и прочность не меняются
+  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = 8; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
   let cache = null;
   const at = (t) => {
     const loop = Math.floor(t / LOOP), lt = t - loop * LOOP;
-    const WARM = 46;                                   // прогрев: стартуем с середины волны, чтобы кадр был заполнен
-    if (!cache || cache.loop !== loop || cache.S.t - WARM > lt + 1e-9) {
-      const S0 = demoState(); while (S0.t < WARM) step(S0, null); S0.ev = [];
-      cache = { loop, S: S0 };
+    if (!cache || cache.loop !== loop || cache.S.t - cache.warm > lt + 1e-9) {
+      // прогрев: пока на дороге не наберётся WARM_ENEMIES врагов, чтобы первый кадр был заполнен
+      const S0 = demoState(); while (S0.t < WARM_MAX && S0.enemies.length < WARM_ENEMIES) demoStep(S0); S0.ev = [];
+      cache = { loop, S: S0, warm: S0.t };
     }
     const S = cache.S;
-    while (S.t - WARM + S.dt <= lt) { step(S, null); if (S.phase === 'prep') { S.prepT = 0.01; S.wave = 8; } S.souls = 340; S.hp = 16; }
+    while (S.t - cache.warm + S.dt <= lt) demoStep(S);
     return Object.assign({}, S, { loop });
   };
 

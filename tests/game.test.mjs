@@ -162,3 +162,10 @@ test('боты на клетках: без обороны проигрыш, ра
     assert.ok(r1.wave >= r0.wave + 8, `seed ${seed}: smart wave ${r1.wave}, idle ${r0.wave}`);
   }
 });
+
+test('титульное демо: на большей части петли по дороге идут враги', () => {
+  let busy = 0, n = 0;
+  for (let t = 0.25; t < 2 * SIM.L; t += 0.5) { const S = SIM.at(t); n++; if (S.enemies.length >= 3) busy++;
+    assert.ok(S.map.road.length >= 45 && S.demo); }
+  assert.ok(busy / n >= 0.85, `враги в кадре только в ${busy} из ${n} моментов`);
+});
