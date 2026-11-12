@@ -151,7 +151,7 @@ const perkFight = (type, p, enemy, n = 1, sec = 3) => {
   const clouds = []; for (let i = 0; i < sec / S.dt; i++) { SIM.step(S, null); for (const c of S.clouds) if (!clouds.includes(c)) clouds.push(c); }
   return { S, tw, es, clouds, st: SIM.towerStats(S, tw) };
 };
-test('новые перки: Бронебой, Могильный холод, Миазмы, Расщеплённый луч', () => {
+test('новые перки: Бронебой, Могильный холод, Миазмы, Двойной луч', () => {
   // Бронебой: болт по рыцарю теряет от брони вдвое меньше
   const plain = perkFight('bones', null, 'knight'), crush = perkFight('bones', 'crush', 'knight'), armor = C.ENEMIES.knight.armor;
   const ratio = hurt(crush.es[0]) / hurt(plain.es[0]);
@@ -166,7 +166,7 @@ test('новые перки: Бронебой, Могильный холод, М
   assert.ok(mi.clouds.length && ac.clouds.length);
   assert.ok(mi.clouds[0].r > ac.clouds[0].r && mi.clouds[0].T > ac.clouds[0].T);
   assert.equal(mi.clouds[0].r, mi.st.cloudR * C.UNIT); assert.equal(mi.clouds[0].T, mi.st.cloudTime);
-  // Расщеплённый луч: второй по живучести враг получает половину урона первого
+  // Двойной луч: второй по живучести враг получает половину урона первого
   const sl = perkFight('dark', 'split', 'militia', 2, 0.5), cu = perkFight('dark', 'curse', 'militia', 2, 0.5);   // один выстрел
   assert.ok(hurt(sl.es[0]) > 0 && hurt(sl.es[1]) > 0, 'луч не задел вторую цель');
   assert.equal(hurt(cu.es[1]), 0);
