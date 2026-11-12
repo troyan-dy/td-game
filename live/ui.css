@@ -100,6 +100,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #panel .up { width: 100%; height: 46px; font-size: 18px; white-space: nowrap; }
 #panel .sell { width: 100%; height: 32px; margin-top: 6px; font: 700 14px var(--title); }
 #panel .note { font: 14px/1.3 var(--body); color: var(--dim); }
+#panel .bonus { margin-top: 6px; padding: 4px 8px; font: 700 15px/1.3 var(--body); border-left: 3px solid currentColor; background: #1a1229; }
+#panel .bonus.mound { color: #ffb04f; }
+#panel .bonus.well { color: var(--soul); }
+#panel .bonus.cursed { color: #ff5a78; }
+#panel .prices b.poor { color: var(--bad); }
+#panel .prices .nx.up, .card .pr.up { color: #ff5a78; }
 
 /* тултип */
 #tip { position: absolute; max-width: 300px; padding: 10px 12px; font: 15px/1.35 var(--body); display: none; pointer-events: none; z-index: 5; }

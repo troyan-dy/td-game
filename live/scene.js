@@ -129,6 +129,25 @@
       if (i % 2 === 0) L.solid(px - 4, py - 1.5, 8, 3, col, an + Math.PI / 2, 4, 1.5, 0.9 * a); }
   };
 
+  // ---------------------------------------------------------------- особые клетки
+  // на клетке: слабая заливка, уголки по краям и свечение — край клетки виден из-под башни; в углу — значок (рисуется поверх всего)
+  const BLOCKED = ['road', 'obstacle'];                                   // на таких клетках подсветка красная, круга будущей башни нет
+  const SPC = { mound: [1.0, 0.68, 0.30], well: COL.soul, cursed: [1.0, 0.22, 0.36] };
+  const drawSpecialGround = (ST, t) => { const b = 3, l = 16;
+    for (const s of ST.map.specials || []) {
+      const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE, c = SPC[s.kind], p = 0.8 + 0.2 * Math.sin(t * 2 + s.cell);
+      L.solid(x + 2, y + 2, TILE - 4, TILE - 4, c, 0, 0, 0, 0.13 * p);
+      for (const [cx, cy, sx, sy] of [[x + 2, y + 2, 1, 1], [x + TILE - 2, y + 2, -1, 1], [x + 2, y + TILE - 2, 1, -1], [x + TILE - 2, y + TILE - 2, -1, -1]]) {
+        L.solid(sx > 0 ? cx : cx - l, sy > 0 ? cy : cy - b, l, b, c, 0, 0, 0, 0.9 * p); L.solid(sx > 0 ? cx : cx - b, sy > 0 ? cy : cy - l, b, l, c, 0, 0, 0, 0.9 * p); }
+      L.glow(x + TILE / 2, y + TILE / 2, TILE * 0.62, c, 0.16 + 0.06 * Math.sin(t * 1.5 + s.cell));
+    } };
+  // значок 22×22 с центром (x, y): курган — холм, источник — капля души, проклятая земля — череп
+  const badge = (kind, x, y) => { const c = SPC[kind], q = (i, j, w, h, col) => L.solid(x - 8 + i * 2, y - 8 + j * 2, w * 2, h * 2, col);
+    L.solid(x - 11, y - 11, 22, 22, [0.04, 0.03, 0.08], 0, 0, 0, 0.92); L.solid(x - 11, y - 11, 22, 2, c); L.solid(x - 11, y + 9, 22, 2, c); L.solid(x - 11, y - 9, 2, 18, c); L.solid(x + 9, y - 9, 2, 18, c);
+    if (kind === 'mound') { q(3, 3, 2, 1, c); q(2, 4, 4, 1, c); q(1, 5, 6, 1, c); q(0, 6, 8, 2, [0.62, 0.42, 0.20]); q(3, 0, 2, 2, [1, 0.95, 0.75]); }
+    else if (kind === 'well') { q(3, 0, 2, 1, c); q(2, 1, 4, 2, c); q(1, 3, 6, 3, c); q(2, 6, 4, 1, c); q(2, 2, 1, 2, [0.85, 1, 1]); }
+    else { q(1, 0, 6, 5, [0.92, 0.88, 0.80]); q(2, 5, 4, 2, [0.92, 0.88, 0.80]); q(2, 2, 1, 2, c); q(5, 2, 1, 2, c); q(3, 6, 1, 1, [0.1, 0.05, 0.1]); q(4, 6, 1, 1, [0.1, 0.05, 0.1]); } };
+
   // ---------------------------------------------------------------- рендер
   S.render = (t) => {
     const ST = S.state || SIM.at(t), GT = ST.t, rnd = L.rnd, ui = S.ui;
@@ -150,14 +169,15 @@
     S.LIGHTS.forEach(([lx, ly, kind], i) => { const [c, r, a] = LIGHT[kind], fl = kind === 'water' || kind === 'crypt' ? Math.sin(t * 0.9 + i) * 0.3 : Math.sin(t * 11 + i * 2.3) * Math.sin(t * 7.3 + i) * 0.35;
       L.glow(lx + ox, ly + oy, r, c, a * (1 + fl)); });
 
+    drawSpecialGround(ST, t);
     // клетки: выбранная и под курсором; круг дальности выбранной башни или будущей башни (на выбранной клетке или под курсором)
     if (!ST.demo) {
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
-      if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
+      if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, BLOCKED.includes(SIM.canBuild(ST, ui.hover, pType).reason) ? 'no' : 'ok', t);
       if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.rangePx(ST, selT), TCOL[selT.type], t); }
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), TCOL[pType], t, 0.8); }
-      else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && SIM.canBuild(ST, ui.hover, ui.armed).reason !== 'road') {
+      else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && !BLOCKED.includes(SIM.canBuild(ST, ui.hover, ui.armed).reason)) {
         const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), TCOL[ui.armed], t, 0.7); }
       if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.rangePx(ST, h), TCOL[h.type], t, 0.45); }
     }
@@ -222,6 +242,9 @@
 
     L.finish(t, { bloom: [0.20, 0.18], vignette: 0.9, warm: 0.25, roll: 0.6, dither: 1 });
 
+    // значки особых клеток — поверх всего (и башен): метка видна, даже когда на клетке стоит башня
+    for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + TILE - 13); }
+
     // полоски здоровья (как на референсе: тонкая полоса над головой)
     for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 24;
       const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 10);
@@ -230,7 +253,7 @@
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
-      if ((e.k === 'die' || e.k === 'harvest') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
+      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'leak') { const q = a / 1.1; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
   };
 
