@@ -2,6 +2,7 @@
 // Числа берутся из live/config.js, карта — из live/mapgen.js по сиду забега. Состояние — простой JSON (сейв и sessionStorage).
 // Шаг времени — параметр забега (S.dt), по умолчанию C.DT. Клетка адресуется индексом i = y * cols + x.
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
+// Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const MAPGEN = (typeof window !== 'undefined' && window.MAPGEN) || require('./mapgen.js');
@@ -71,20 +72,43 @@
   };
 
   // ---------------------------------------------------------------- ответы интерфейсу
+  // можно ли поставить башню на клетку — сама клетка, без типа и цены (общее для постройки и переноса):
+  // null — можно, иначе причина 'bounds' | 'road' | 'hud' | 'occupied'
+  const cellBlock = (S, cell) => {
+    if (!(cell >= 0 && cell < cellCount(S)) || cell !== Math.floor(cell)) return 'bounds';
+    if (S.map.road.includes(cell)) return 'road';
+    if (MAPGEN.hud(S.map, cell)) return 'hud';
+    if (S.towers[cell]) return 'occupied';
+    return null;
+  };
   // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
   // cost — цена постройки на этой клетке (её и списывает команда build)
   const canBuild = (S, cell, type) => {
     const def = TW[type], cost = def ? def.cost[0] : null, no = (reason) => ({ ok: false, reason, cost });
-    if (!(cell >= 0 && cell < cellCount(S)) || cell !== Math.floor(cell)) return no('bounds');
-    if (S.map.road.includes(cell)) return no('road');
-    if (MAPGEN.hud(S.map, cell)) return no('hud');
-    if (S.towers[cell]) return no('occupied');
+    const blk = cellBlock(S, cell); if (blk) return no(blk);
     if (!def) return no('type');
     if (S.unlocked && !S.unlocked.includes(type)) return no('locked');
     if (S.phase === 'won' || S.phase === 'lost') return no('ended');
     if (S.souls < cost) return no('souls');
     return { ok: true, reason: null, cost };
   };
+  // можно ли перенести башню с клетки from: { ok, reason: null | 'none' | 'ended' | 'phase' } — без to (кнопка в панели);
+  // с to — ещё и на клетку to: та же проверка клетки, что у постройки (cellBlock), плюс 'same'. Перенос бесплатный, души не нужны.
+  const canMove = (S, from, to) => {
+    const no = (reason) => ({ ok: false, reason });
+    if (!(from >= 0 && from < cellCount(S)) || !S.towers[from]) return no('none');
+    if (S.phase === 'won' || S.phase === 'lost') return no('ended');
+    if (S.phase !== 'prep') return no('phase');                         // только в паузе между волнами
+    if (to === undefined) return { ok: true, reason: null };
+    if (to === from) return no('same');
+    const blk = cellBlock(S, to); return blk ? no(blk) : { ok: true, reason: null };
+  };
+  // все клетки, куда можно перенести башню с from (подсветка в интерфейсе); пусто, если переносить нельзя
+  const moveCells = (S, from) => { const out = [];
+    if (canMove(S, from).ok) for (let i = 0; i < cellCount(S); i++) if (canMove(S, from, i).ok) out.push(i);
+    return out; };
+  // радиус башни с клетки from, если перенести её на to, px (круг превью переноса)
+  const moveRangePx = (S, from, to) => rangePx(Object.assign({}, S.towers[from], { cell: to }));
   // радиус будущей башни типа type на клетке cell, px (круг превью постройки)
   const buildRangePx = (S, cell, type) => TW[type].range[0] * UNIT;
   // годно ли состояние для продолжения (сейв, sessionStorage): текущая версия, годная карта, все поля на месте
@@ -130,6 +154,11 @@
     } else if (c.k === 'sell') {
       if (!tw) return; const v = sellValue(tw); S.souls += v; S.towers[c.cell] = null;
       ev(S, 'sell', { cell: c.cell, souls: v, type: tw.type, x: at[0], y: at[1] });
+    } else if (c.k === 'move') {
+      // башня переезжает целиком, тем же объектом: меняется только клетка, всё остальное (прокачка, перк, счётчики) едет с ней
+      if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
+      S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to;
+      ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'call') {
       if (S.phase === 'prep' && S.wave < waveCount()) startWave(S);
     }
@@ -377,6 +406,7 @@
     create, step, at, selfCheck, doCmd, waveCount, MUZZLE,
     canBuild, buildRangePx, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
+    canMove, moveCells, moveRangePx,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;
