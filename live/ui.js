@@ -204,7 +204,7 @@
   const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
   let placed = { key: '', r: null };
   const placeNear = (S, x, y, w, h) => {
-    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
+    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title, #scout.show, #scout-panel.show'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
     if (placed.key === key) return placed.r;
     const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]), target = [x - 40, y - 40, 80, 80];
     let best = null, bestCost = Infinity;
