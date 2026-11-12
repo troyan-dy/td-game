@@ -7,6 +7,7 @@ const MAPGEN = require('../live/mapgen.js');
 
 const COLS = 25, ROWS = 14;
 const xy = (i) => [i % COLS, Math.floor(i / COLS)];
+const MAPS = new Map(), mapOf = (seed) => MAPS.get(seed) || MAPS.set(seed, MAPGEN.generate(seed)).get(seed);   // 1000 карт строятся один раз на все тесты
 const turnsOf = (road) => { let n = 0;
   for (let k = 2; k < road.length; k++) { const [a, b, c] = [xy(road[k - 2]), xy(road[k - 1]), xy(road[k])];
     if (b[0] - a[0] !== c[0] - b[0] || b[1] - a[1] !== c[1] - b[1]) n++; }
@@ -23,7 +24,7 @@ test('карта: поле 25×14, вход на краю, дорога из с�
 
 test('генератор на 1000 сидах: длина 45–70, не меньше 8 поворотов, без самопересечений и касаний витков', () => {
   for (let seed = 1; seed <= 1000; seed++) {
-    const m = MAPGEN.generate(seed), road = m.road;
+    const m = mapOf(seed), road = m.road;
     assert.deepEqual(MAPGEN.validate(m), [], 'сид ' + seed);
     assert.ok(road.length >= 45 && road.length <= 70, `сид ${seed}: длина ${road.length}`);
     assert.ok(turnsOf(road) >= 8, `сид ${seed}: поворотов ${turnsOf(road)}`);
@@ -34,6 +35,48 @@ test('генератор на 1000 сидах: длина 45–70, не мень
         if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue; const j = at.get(ny * COLS + nx);
         if (j !== undefined) assert.equal(Math.abs(j - k), 1, `сид ${seed}: витки ${k} и ${j} касаются боками`); } }
   }
+});
+
+test('генератор на 1000 сидах: вход не ближе 8 клеток к склепу, склеп не ближе 2 клеток к краю', () => {
+  for (let seed = 1; seed <= 1000; seed++) {
+    const road = mapOf(seed).road, [gx, gy] = xy(road[0]), [kx, ky] = xy(road[road.length - 1]);
+    assert.ok(Math.hypot(gx - kx, gy - ky) >= 8, `сид ${seed}: вход ${gx},${gy} — склеп ${kx},${ky}`);
+    assert.ok(Math.min(kx, COLS - 1 - kx, ky, ROWS - 1 - ky) >= 2, `сид ${seed}: склеп у края ${kx},${ky}`);
+  }
+});
+
+// метрики качества по 1000 сидам (как у критика: пустая клетка — дальше 2 клеток от дороги по Чебышёву)
+let memo = null;
+const quality = () => memo || (memo = (() => {
+  let sq6 = 0, edge4 = 0, row1 = 0, long8 = 0, seg2 = 0, segs = 0;
+  for (let seed = 1; seed <= 1000; seed++) {
+    const road = mapOf(seed).road, cells = road.map(xy);
+    const sq = new Array(COLS * ROWS).fill(0); let big = 0;
+    for (let i = 0; i < COLS * ROWS; i++) { const x = i % COLS, y = Math.floor(i / COLS);
+      if (cells.some(([a, b]) => Math.max(Math.abs(a - x), Math.abs(b - y)) <= 2)) continue;
+      sq[i] = x && y ? 1 + Math.min(sq[i - 1], sq[i - COLS], sq[i - COLS - 1]) : 1; big = Math.max(big, sq[i]); }
+    if (big >= 6) sq6++;
+    if (cells.filter(([x, y]) => x === 0 || y === 0 || x === COLS - 1 || y === ROWS - 1).length >= 4) edge4++;
+    if (cells.filter(([, y]) => y === 1).length >= 3) row1++;
+    let run = 1, mx = 0;
+    for (let k = 2; k <= road.length; k++) {
+      if (k === road.length || road[k - 1] - road[k - 2] !== road[k] - road[k - 1]) { segs++; if (run === 2) seg2++; mx = Math.max(mx, run); run = 1; } else run++; }
+    if (mx >= 8) long8++;
+  }
+  return { sq6: sq6 / 1000, edge4: edge4 / 1000, row1: row1 / 1000, long8: long8 / 1000, seg2: seg2 / segs };
+})());
+
+test('качество карт: мало пустых углов и дороги у края экрана и вплотную под HUD', () => {
+  const q = quality();
+  assert.ok(q.sq6 <= 0.10, 'пустой квадрат 6×6+ на доле карт ' + q.sq6);
+  assert.ok(q.edge4 <= 0.15, '4+ клеток дороги на краю на доле карт ' + q.edge4);
+  assert.ok(q.row1 <= 0.20, '3+ клеток дороги вплотную под HUD на доле карт ' + q.row1);
+});
+
+test('качество карт: есть длинные прямые, коротких ступенек немного', () => {
+  const q = quality();
+  assert.ok(q.long8 >= 0.25, 'доля карт с прямой 8+ клеток ' + q.long8);
+  assert.ok(q.seg2 <= 0.20, 'доля отрезков в 2 клетки ' + q.seg2);
 });
 
 test('один сид — одна и та же карта, разные сиды — разные карты', () => {
@@ -62,6 +105,10 @@ test('проверка карты возвращает список наруше
   const w = MAPGEN.validate({ cols: COLS, rows: ROWS, road: straight });
   assert.ok(w.some((s) => /поворот/.test(s)), 'мало поворотов не замечено');
   assert.ok(w.some((s) => /вход/.test(s)), 'вход не на краю не замечен');
+  // склеп в двух клетках от входа и у края поля
+  const nv = MAPGEN.validate({ cols: COLS, rows: ROWS, road: [13 * COLS + 5, 12 * COLS + 5, 11 * COLS + 5, 11 * COLS + 6, 11 * COLS + 7, 12 * COLS + 7] });
+  assert.ok(nv.some((s) => /склеп/.test(s) && /вход/.test(s)), 'склеп у входа не замечен: ' + nv.join('; '));
+  assert.ok(nv.some((s) => /склеп/.test(s) && /кра/.test(s)), 'склеп у края не замечен: ' + nv.join('; '));
   // дорога по верхней строке уходит под HUD
   const top = []; for (let x = 0; x < 20; x++) top.push(x);
   assert.ok(MAPGEN.validate({ cols: COLS, rows: ROWS, road: top }).some((s) => /HUD/.test(s)), 'дорога под HUD не замечена');

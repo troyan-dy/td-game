@@ -1,5 +1,5 @@
 // live/mapgen.js — генератор карты забега: клетчатое поле и одна дорога под прямыми углами от входа на краю до склепа.
-// Чистые функции от сида, без DOM. Карта — простой JSON: { v, seed, cols, rows, road: [индексы клеток от входа до склепа] }.
+// Чистые функции от сида, без DOM. Карта — простой JSON: { v, seed, style, cols, rows, road: [индексы клеток от входа до склепа] }.
 // Клетка адресуется индексом i = y * cols + x. Склеп — последняя клетка дороги.
 // MAPGEN.generate(seed) → карта (всегда годная); MAPGEN.validate(map) → [нарушения]; MAPGEN.route(map) → маршрут врагов в px.
 (function () {
@@ -8,30 +8,38 @@
   const MP = C.MAP, G = C.GRID;
   const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 
+  // порядок перебора по весам без повторов (ключ −ln(u)/w: чем больше вес, тем раньше)
+  const weighted = (pairs, R) => pairs.map(([v, w]) => [v, -Math.log(1 - R()) / w]).sort((a, b) => a[1] - b[1]).map((p) => p[0]);
   const shuffle = (a, R) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   const inKeepout = (x, y) => MP.keepout.some(([kx, ky, kw, kh]) => x >= kx && y >= ky && x < kx + kw && y < ky + kh);
+  const onEdge = (x, y, cols, rows) => x === 0 || y === 0 || x === cols - 1 || y === rows - 1;
+  const nearUi = (x, y) => { for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && inKeepout(x + dx, y + dy)) return true; return false; };
   const turnsOf = (road) => { let n = 0;
     for (let k = 2; k < road.length; k++) { const a = road[k - 2], b = road[k - 1], c = road[k]; if (b - a !== c - b) n++; }
     return n; };
-  // склеп: не у края (здание шире клетки) и враги входят не сверху (иначе дорога ушла бы под крышу)
-  const cryptOK = (road, cols, rows) => { const e = road[road.length - 1], p = road[road.length - 2], x = e % cols, y = Math.floor(e / cols);
-    return x >= 1 && x <= cols - 2 && y >= 2 && p !== e - cols; };
+  // склеп: не ближе cryptEdge к краю (здание шире клетки), далеко от входа, враги входят не сверху (иначе дорога ушла бы под крышу)
+  const cryptProblems = (road, cols, rows) => { const f = [], e = road[road.length - 1], p = road[road.length - 2], x = e % cols, y = Math.floor(e / cols);
+    const g = road[0], gx = g % cols, gy = Math.floor(g / cols);
+    if (Math.min(x, cols - 1 - x, y, rows - 1 - y) < MP.cryptEdge) f.push(`склеп ближе ${MP.cryptEdge} клеток к краю поля: ${x},${y}`);
+    if (Math.hypot(x - gx, y - gy) < MP.gateCryptMin) f.push(`склеп ближе ${MP.gateCryptMin} клеток ко входу: ${x},${y} и ${gx},${gy}`);
+    if (p === e - cols) f.push('к склепу дорога подходит сверху');
+    return f; };
 
   // ---------------------------------------------------------------- одна попытка: поиск в глубину по прямым отрезкам
-  const attempt = (R) => {
+  const attempt = (R, style) => {
     const cols = G.cols, rows = G.rows, target = MP.targetMin + Math.floor(R() * (MP.targetMax - MP.targetMin + 1));
-    // вход: клетка на краю (не в углу и не под HUD), первое направление — внутрь поля
+    // вход: клетка на краю (не в углу, не под HUD и не вплотную к нему), первое направление — внутрь поля
     const starts = [];
     for (let x = 1; x < cols - 1; x++) { starts.push([x, 0, 0, 1], [x, rows - 1, 0, -1]); }
     for (let y = 1; y < rows - 1; y++) { starts.push([0, y, 1, 0], [cols - 1, y, -1, 0]); }
-    const ok = starts.filter(([x, y]) => !inKeepout(x, y));
+    const ok = starts.filter(([x, y, dx, dy]) => !inKeepout(x, y) && !nearUi(x, y) && !inKeepout(x + dx, y + dy));
     const [sx, sy, sdx, sdy] = ok[Math.floor(R() * ok.length)];
     const road = [sy * cols + sx], used = new Set(road);
     let budget = 3000;
-    // можно ли положить клетку (x, y) следующей: внутри поля, свободна, не касается чужих витков ни боком, ни углом
+    // можно ли положить клетку (x, y) следующей: внутри поля и не на его краю, свободна, не касается чужих витков ни боком, ни углом
     const free = (x, y) => {
-      if (x < 0 || y < 0 || x >= cols || y >= rows || inKeepout(x, y)) return false;
+      if (x < 0 || y < 0 || x >= cols || y >= rows || inKeepout(x, y) || onEdge(x, y, cols, rows)) return false;
       const i = y * cols + x; if (used.has(i)) return false;
       const prev = road[road.length - 1], prev2 = road.length > 1 ? road[road.length - 2] : -1;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue;
@@ -40,12 +48,11 @@
         if (j === prev2 && dx && dy) continue;                       // угол поворота: соседство по диагонали со своей же клеткой
         return false; }
       return true; };
-    const done = () => road.length >= target && turnsOf(road) >= MP.minTurns && cryptOK(road, cols, rows);
+    const done = () => road.length >= target && turnsOf(road) >= MP.minTurns && !cryptProblems(road, cols, rows).length;
     const grow = (dx, dy, first) => {
       if (--budget < 0) return false;
-      const opts = [];
-      for (let L = first ? 1 : MP.segMin; L <= MP.segMax; L++) opts.push(L);
-      for (const L of shuffle(opts, R)) {
+      const lens = first ? shuffle([1, 2, 3, 4], R) : weighted(style.segs, R);
+      for (const L of lens) {
         const added = []; let x = road[road.length - 1] % cols, y = Math.floor(road[road.length - 1] / cols), fail = false;
         for (let s = 0; s < L; s++) { x += dx; y += dy; if (!free(x, y)) { fail = true; break; }
           const i = y * cols + x; road.push(i); used.add(i); added.push(i);
@@ -66,9 +73,12 @@
     if (road.length < MP.roadMin || road.length > MP.roadMax) f.push(`длина дороги ${road.length}, нужно ${MP.roadMin}–${MP.roadMax}`);
     for (const i of road) if (!(i >= 0 && i < cols * rows) || i !== Math.floor(i)) { f.push('клетка дороги вне поля: ' + i); return f; }
     const xy = (i) => [i % cols, Math.floor(i / cols)];
-    if (road.length) { const [x, y] = xy(road[0]); if (!(x === 0 || y === 0 || x === cols - 1 || y === rows - 1)) f.push(`вход не на краю карты: ${x},${y}`); }
+    if (road.length) { const [x, y] = xy(road[0]); if (!onEdge(x, y, cols, rows)) f.push(`вход не на краю карты: ${x},${y}`); }
     const hidden = road.filter((i) => inKeepout(...xy(i)));
     if (hidden.length) f.push(`дорога под HUD: ${hidden.length} клеток`);
+    const edge = road.slice(1).filter((i) => onEdge(...xy(i), cols, rows));
+    if (edge.length) f.push(`дорога по краю поля: ${edge.length} клеток`);
+    if (road.length >= 2) f.push(...cryptProblems(road, cols, rows));
     for (let k = 1; k < road.length; k++) { const [a, b] = [xy(road[k - 1]), xy(road[k])];
       if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) f.push(`разрыв дороги между ${k - 1} и ${k}`); }
     const at = new Map();
@@ -82,27 +92,33 @@
     return f;
   };
 
-  // ---------------------------------------------------------------- генерация: попытки с производным сидом
+  // ---------------------------------------------------------------- генерация: характер от сида, попытки с производными потоками, лучший кандидат
   const generate = (seed) => {
     seed = seed >>> 0;
-    let best = null, bestScore = -1, found = 0;
+    const style = MP.styles[Math.floor(RNG.stream(seed, 'map-style')() * MP.styles.length)];
+    let best = null, bestScore = -Infinity, found = 0;
     for (let a = 0; a < MP.attempts && found < MP.candidates; a++) {
-      const road = attempt(RNG.stream(seed, 'map', a));          // у каждой попытки свой поток от сида забега
+      const road = attempt(RNG.stream(seed, 'map', a), style);   // у каждой попытки свой поток от сида забега
       if (!road) continue;
-      const m = { v: 1, seed, cols: G.cols, rows: G.rows, road };
+      const m = { v: 1, seed, style: style.name, cols: G.cols, rows: G.rows, road };
       if (validate(m).length) continue;
-      found++; const sc = spread(m);
+      found++; const sc = score(m);
       if (sc > bestScore) { best = m; bestScore = sc; }
     }
     if (!best) throw new Error('mapgen: нет годной карты для сида ' + seed);
     return best;
   };
-  // насколько дорога раскинута по полю: число клеток в пределах двух клеток от дороги
-  const spread = (m) => { const near = new Set();
-    for (const c of m.road) { const x = c % m.cols, y = Math.floor(c / m.cols);
+  // оценка кандидата: охват поля (клетки в пределах двух от дороги) минус штрафы за дорогу вплотную к интерфейсу и за большой пустой квадрат
+  const score = (m) => {
+    const cols = m.cols, rows = m.rows, near = new Uint8Array(cols * rows); let cover = 0, ui = 0;
+    for (const c of m.road) { const x = c % cols, y = Math.floor(c / cols); if (nearUi(x, y)) ui++;
       for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const nx = x + dx, ny = y + dy;
-        if (nx >= 0 && ny >= 0 && nx < m.cols && ny < m.rows) near.add(ny * m.cols + nx); } }
-    return near.size; };
+        if (nx >= 0 && ny >= 0 && nx < cols && ny < rows && !near[ny * cols + nx]) { near[ny * cols + nx] = 1; cover++; } } }
+    const sq = new Uint8Array(cols * rows); let big = 0;                 // самый большой квадрат клеток дальше двух от дороги
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) { const i = y * cols + x; if (near[i]) continue;
+      sq[i] = x && y ? 1 + Math.min(sq[i - 1], sq[i - cols], sq[i - cols - 1]) : 1; if (sq[i] > big) big = sq[i]; }
+    return cover - MP.score.nearUi * ui - MP.score.empty * Math.max(0, big - MP.score.emptyFrom);
+  };
 
   // ---------------------------------------------------------------- геометрия
   const cellXY = (m, i) => [(i % m.cols + 0.5) * G.tile, (Math.floor(i / m.cols) + 0.5) * G.tile];
