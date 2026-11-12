@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 20
       - name: Tests
-        run: node --test tests/game.test.mjs
+        run: node --test tests/
       - name: Build
         run: python3 tools/build_site.py site
       - uses: actions/configure-pages@v5
