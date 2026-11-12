@@ -70,6 +70,8 @@
     for (const i of road) if (!(i >= 0 && i < cols * rows) || i !== Math.floor(i)) { f.push('клетка дороги вне поля: ' + i); return f; }
     const xy = (i) => [i % cols, Math.floor(i / cols)];
     if (road.length) { const [x, y] = xy(road[0]); if (!(x === 0 || y === 0 || x === cols - 1 || y === rows - 1)) f.push(`вход не на краю карты: ${x},${y}`); }
+    const hidden = road.filter((i) => inKeepout(...xy(i)));
+    if (hidden.length) f.push(`дорога под HUD: ${hidden.length} клеток`);
     for (let k = 1; k < road.length; k++) { const [a, b] = [xy(road[k - 1]), xy(road[k])];
       if (Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) !== 1) f.push(`разрыв дороги между ${k - 1} и ${k}`); }
     const at = new Map();

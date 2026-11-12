@@ -62,4 +62,7 @@ test('проверка карты возвращает список наруше
   const w = MAPGEN.validate({ cols: COLS, rows: ROWS, road: straight });
   assert.ok(w.some((s) => /поворот/.test(s)), 'мало поворотов не замечено');
   assert.ok(w.some((s) => /вход/.test(s)), 'вход не на краю не замечен');
+  // дорога по верхней строке уходит под HUD
+  const top = []; for (let x = 0; x < 20; x++) top.push(x);
+  assert.ok(MAPGEN.validate({ cols: COLS, rows: ROWS, road: top }).some((s) => /HUD/.test(s)), 'дорога под HUD не замечена');
 });

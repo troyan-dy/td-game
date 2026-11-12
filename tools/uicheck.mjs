@@ -39,13 +39,14 @@ for (const vw of [1280, 1920]) {
   await p.evaluate(() => { document.getElementById('m-new').click(); APP.play.souls = 99999; APP.play.hp = 20; APP.play.wave = 24; APP.play.phase = 'prep'; APP.play.prepT = 9.4; APP.paused = false; });
   await check('hud');
   const types = SIMTYPES();
+  const cells = await p.evaluate(() => SIM.rankCells(APP.play, 3.4).slice(0, 5));   // свободные клетки у дороги
   for (const [i, t] of types.entries()) for (const lvl of [1, 3]) {
-    await p.evaluate(([slot, t, lvl, perk]) => { const S = APP.play; S.towers[slot] = null; APP.cmd({ k: 'build', slot, type: t }); }, [5 + i, t, lvl]);
+    await p.evaluate(([cell, t]) => { const S = APP.play; S.towers[cell] = null; APP.cmd({ k: 'build', cell, type: t }); }, [cells[i], t]);
     await p.waitForTimeout(60);
-    await p.evaluate(([slot, lvl, perk]) => { for (let l = 1; l < lvl; l++) APP.cmd({ k: 'upgrade', slot }); if (perk) APP.cmd({ k: 'perk', slot, p: perk }); SCENE.ui.sel = slot; }, [5 + i, lvl, lvl === 3 ? PERK1[t] : null]);
+    await p.evaluate(([cell, lvl, perk]) => { for (let l = 1; l < lvl; l++) APP.cmd({ k: 'upgrade', cell }); if (perk) APP.cmd({ k: 'perk', cell, p: perk }); SCENE.ui.sel = cell; }, [cells[i], lvl, lvl === 3 ? PERK1[t] : null]);
     await check(`panel_${t}_${lvl}`);
   }
-  await p.evaluate(() => { SCENE.ui.sel = 0; }); await check('panel_empty');
+  await p.evaluate((cell) => { SCENE.ui.sel = cell; }, cells[4]); await check('panel_empty');
   await p.evaluate(() => { SCENE.ui.sel = -1; document.querySelector('.card').dispatchEvent(new PointerEvent('pointerover', { bubbles: true })); }); await check('cardtip');
   await p.evaluate(() => { APP.play.ev.push({ k: 'newEnemy', type: 'paladin', t: APP.play.t }); }); await check('newenemy');
   await p.keyboard.press('Enter');
