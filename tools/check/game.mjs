@@ -43,7 +43,8 @@ export async function newGame(ctx) {
 export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = 24; S.phase = 'prep'; S.prepT = 9.4; APP.paused = false; });
 // Типы башен в порядке карточек.
 export const towerTypes = (ctx) => ctx.eval(() => SIM.CONFIG.TOWER_ORDER.slice());
-// Места под постройку: индексы свободных клеток, где можно строить, по убыванию покрытия дороги (первые — у дороги,
+// Места под постройку: индексы свободных клеток (не дорога, не препятствие, не под интерфейсом; особые клетки входят — там
+// постройка может быть дороже), где можно строить, по убыванию покрытия дороги (первые — у дороги,
 // там башня сразу стреляет). Их понимают build/upgrade/perk/select.
 export async function spots(ctx) {
   const ids = await ctx.eval(() => (window.SIM && APP.play ? SIM.rankCells(APP.play, 3.4) : null));

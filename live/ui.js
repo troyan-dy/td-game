@@ -137,8 +137,8 @@
   const closeBtn = '<button class="btn x">✕</button>';
   // меню свободной клетки: особая клетка (вид и бонус), покрытие дороги, итоговые цены башен на этой клетке (с наценкой)
   const buildMenu = (S, p) => {
-    const cov = SIM.coverage(S, ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
-    const b = SIM.cellBonus(S, ui.sel), prices = C.TOWER_ORDER.map((k) => { const cost = SIM.canBuild(S, ui.sel, k).cost, extra = cost - T[k].cost[0];
+    const b = SIM.cellBonus(S, ui.sel), cov = SIM.coverage(S, ui.sel, 3.4 + ((b && b.range) || 0)), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
+    const prices = C.TOWER_ORDER.map((k) => { const cost = SIM.canBuild(S, ui.sel, k).cost, extra = cost - T[k].cost[0];
       return `<div><span>${T[k].name}</span><span><b class="${S.souls < cost ? 'poor' : ''}">${cost}</b>${extra ? `<span class="nx up">+${extra}</span>` : ''}</span></div>`; }).join('');
     p.innerHTML = `${closeBtn}<div class="nm">${b ? b.name : 'Свободная клетка'}</div>
         ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}

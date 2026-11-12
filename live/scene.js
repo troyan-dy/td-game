@@ -130,7 +130,8 @@
   };
 
   // ---------------------------------------------------------------- особые клетки
-  // на клетке: слабая заливка, уголки по краям и свечение — край клетки виден из-под башни; в углу — значок (рисуется поверх всего)
+  // на клетке: слабая заливка, уголки по краям и свечение — край клетки виден из-под башни; в правом верхнем углу — значок
+  // (рисуется поверх всего; нижний угол клеток над карточками башен закрыт интерфейсом)
   const BLOCKED = ['road', 'obstacle'];                                   // на таких клетках подсветка красная, круга будущей башни нет
   const SPC = { mound: [1.0, 0.68, 0.30], well: COL.soul, cursed: [1.0, 0.22, 0.36] };
   const drawSpecialGround = (ST, t) => { const b = 3, l = 16;
@@ -243,7 +244,7 @@
     L.finish(t, { bloom: [0.20, 0.18], vignette: 0.9, warm: 0.25, roll: 0.6, dither: 1 });
 
     // значки особых клеток — поверх всего (и башен): метка видна, даже когда на клетке стоит башня
-    for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + TILE - 13); }
+    for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + 13); }
 
     // полоски здоровья (как на референсе: тонкая полоса над головой)
     for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 24;
