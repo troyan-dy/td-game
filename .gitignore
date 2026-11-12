@@ -8,3 +8,4 @@ art/requests/
 art/fonts_src/*.ttf
 node_modules/
 __pycache__/
+.claude/settings.local.json
