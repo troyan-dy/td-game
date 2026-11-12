@@ -101,8 +101,8 @@ async function main() {
   try { game = await import(GAME); } catch (e) { res.fatal.push('tools/check/game.mjs не загрузился: ' + firstLine(e)); }
 
   const parts = await Promise.allSettled([
-    runTests(OUT, live, written).then((r) => { res.tests = r; }),
-    runBots(live).then((r) => { res.bots = r; }),
+    runTests(OUT, live, written).then((r) => { if (!res.aborted) res.tests = r; }),   // после прерывания итог убитых процессов — шум
+    runBots(live).then((r) => { if (!res.aborted) res.bots = r; }),
     game ? runBrowser(chromium, game, base, OUT, live, res, written, opt.page || game.PAGE) : null,
   ]);
   if (res.aborted) return;                    // сводка уже напечатана, ошибки закрытых процессов — шум
