@@ -11,16 +11,14 @@
 // Правила шагов: нет нужного элемента (ctx.need/ctx.click) или упал код шага — провал шага. Пропуск — только явный
 // ctx.skip('причина'). В каждом окне должен пройти хотя бы один шаг и сняться хотя бы один скриншот.
 //
-// Переход на клетчатую карту (тикет #2) правит здесь помощники spots/build/upgrade/perk/select (сейчас они про
-// площадки SIM.CONFIG.SLOTS и команды со slot) и, если поменяется, open(); экраны их только вызывают. Ожидания ботов —
-// в tests/runs.mjs. Пока помощники не перенесены, шаги панелей и боя падают — так и задумано.
+// Здесь только общее для нескольких экранов. Помощник, нужный одному экрану, живёт в файле этого экрана.
 
 // ---------------------------------------------------------------- боты
 // Партии и ожидания — tests/runs.mjs (их же читает tests/game.test.mjs). Импорт ленивый: сломанный модуль ботов
 // роняет только ботов, а не сценарий в браузере.
 export async function bots() {
-  const { RUNS, playRun, describe } = await import('../../tests/runs.mjs');
-  return RUNS.map((R) => ({ name: R.name, run: () => { const r = playRun(R); return { line: describe(r), problem: R.ok(r) ? null : 'ждали: ' + R.want }; } }));
+  const { RUNS, resultOf, results, describe } = await import('../../tests/runs.mjs');
+  return RUNS.map((R) => ({ name: R.name, run: () => { const r = resultOf(R.name); return { line: describe(r), problem: R.ok(r, results) ? null : 'ждали: ' + R.want }; } }));
 }
 
 // ---------------------------------------------------------------- страница
@@ -45,22 +43,20 @@ export async function newGame(ctx) {
 export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = 24; S.phase = 'prep'; S.prepT = 9.4; APP.paused = false; });
 // Типы башен в порядке карточек.
 export const towerTypes = (ctx) => ctx.eval(() => SIM.CONFIG.TOWER_ORDER.slice());
-// Места под постройку: идентификаторы, которые понимают build/upgrade/perk/select; первыми — места у дороги,
-// где башня сразу стреляет (для боя).
-const GOOD = [11, 5, 6, 7];
+// Места под постройку: индексы свободных клеток, где можно строить, по убыванию покрытия дороги (первые — у дороги,
+// там башня сразу стреляет). Их понимают build/upgrade/perk/select.
 export async function spots(ctx) {
-  const ids = await ctx.eval((good) => (window.SIM && SIM.CONFIG.SLOTS
-    ? [...good, ...SIM.CONFIG.SLOTS.map((s, i) => i).filter((i) => !good.includes(i))].filter((i) => i < SIM.CONFIG.SLOTS.length) : null), GOOD);
-  if (!ids || !ids.length) throw new Error('нет мест под постройку (SIM.CONFIG.SLOTS) — перенеси помощники в tools/check/game.mjs на новую постройку');
+  const ids = await ctx.eval(() => (window.SIM && APP.play ? SIM.rankCells(APP.play, 3.4) : null));
+  if (!ids || !ids.length) throw new Error('нет свободных клеток под постройку (SIM.rankCells) — сначала новая партия');
   return ids;
 }
-export const build = (ctx, spot, type) => ctx.eval(([slot, type]) => { APP.play.towers[slot] = null; APP.cmd({ k: 'build', slot, type }); }, [spot, type]).then(() => ctx.wait(60));
-export const upgrade = (ctx, spot, times = 1) => ctx.eval(([slot, n]) => { for (let i = 0; i < n; i++) APP.cmd({ k: 'upgrade', slot }); }, [spot, times]).then(() => ctx.wait(30));
+export const build = (ctx, cell, type) => ctx.eval(([cell, type]) => { APP.play.towers[cell] = null; APP.cmd({ k: 'build', cell, type }); }, [cell, type]).then(() => ctx.wait(60));
+export const upgrade = (ctx, cell, times = 1) => ctx.eval(([cell, n]) => { for (let i = 0; i < n; i++) APP.cmd({ k: 'upgrade', cell }); }, [cell, times]).then(() => ctx.wait(30));
 // Перк с самым длинным текстом — худший случай для панели.
 export const longestPerk = (ctx, type) => ctx.eval((t) => { const P = SIM.CONFIG.TOWERS[t].perks;
   return Object.keys(P).sort((a, b) => (P[b].name + P[b].desc).length - (P[a].name + P[a].desc).length)[0]; }, type);
-export const perk = (ctx, spot, p) => ctx.eval(([slot, p]) => { APP.cmd({ k: 'perk', slot, p }); }, [spot, p]).then(() => ctx.wait(30));
-export const select = (ctx, spot) => ctx.eval((s) => { SCENE.ui.sel = s; }, spot);
+export const perk = (ctx, cell, p) => ctx.eval(([cell, p]) => { APP.cmd({ k: 'perk', cell, p }); }, [cell, p]).then(() => ctx.wait(30));
+export const select = (ctx, cell) => ctx.eval((c) => { SCENE.ui.sel = c; }, cell);
 export const pushEvent = (ctx, ...evs) => ctx.eval((evs) => { for (const e of evs) APP.play.ev.push(Object.assign({ t: APP.play.t }, e)); }, evs);
 
 // ---------------------------------------------------------------- вёрстка (бывший tools/uicheck.mjs)

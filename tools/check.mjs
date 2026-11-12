@@ -305,9 +305,12 @@ async function runBrowser(chromium, game, base, OUT, live, res, written, pagePat
   const r = res.browser = { steps: [], skips: [], shots: [], console: [], layout: [], problems: [] };
   const screens = await loadScreens();
   if (!screens.length) { r.problems.push(`нет файлов экранов в ${rel(SCREENS)}/`); return; }
-  const browser = live.browser = await chromium.launch({ args: ['--use-angle=default', '--enable-gpu', '--ignore-gpu-blocklist'] });
+  // сигналы обрабатывает команда (сводка при Ctrl+C), а не Playwright: иначе он закрывает браузер и выходит раньше
+  const browser = live.browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false,
+    args: ['--use-angle=default', '--enable-gpu', '--ignore-gpu-blocklist'] });
   const viewports = game.VIEWPORTS && game.VIEWPORTS.length ? game.VIEWPORTS : [{ width: 1280, height: 720 }];
-  await Promise.all(viewports.map(async (vp) => {
+  // allSettled: падение одного окна вне шага не обрывает другое и не засоряет сводку его шумом
+  const settled = await Promise.allSettled(viewports.map(async (vp) => {
     const vw = vp.width, shotNames = new Set();
     for (const sc of screens) {
       if (sc.error) { r.steps.push({ vw, name: sc.file, ok: false, error: sc.error }); continue; }
@@ -365,6 +368,7 @@ async function runBrowser(chromium, game, base, OUT, live, res, written, pagePat
     if (!r.steps.some((s) => s.vw === vw && s.ok)) r.problems.push(`${vw}: не прошёл ни один шаг`);
     if (!shotNames.size) r.problems.push(`${vw}: не снято ни одного скриншота`);
   }));
+  settled.forEach((x, i) => { if (x.status === 'rejected' && !res.aborted) r.problems.push(`${viewports[i].width}: окно упало вне шага — ${cut(firstLine(x.reason), 200)}`); });
 }
 
 // ---------------------------------------------------------------- сводка

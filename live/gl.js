@@ -32,6 +32,7 @@
     im.onerror = () => rej(new Error('failed to load ' + url)); im.src = url;
   });
   G.canvasTex = (name, cv) => {
+    if (texs[name]) gl.deleteTexture(texs[name].t);                 // перестройка (фон новой карты): старую текстуру освобождаем
     const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, cv); gl.generateMipmap(gl.TEXTURE_2D);

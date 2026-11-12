@@ -13,7 +13,7 @@
 const V = Date.now(), STATIC = !!window.__STATIC__;
 const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src + '?v=' + V; s.onload = res; s.onerror = () => rej(new Error('failed ' + src)); document.head.appendChild(s); });
 (async () => {
-  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'sim.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js']) await load(f);
+  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'sim.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js']) await load(f);
   const q = new URLSearchParams(location.search), render = q.has('render');
   const VW = SIM.VIEW.W, VH = SIM.VIEW.H, stage = document.getElementById('stage'), cv = document.getElementById('c');
   const fit = () => { const k = Math.min(innerWidth / VW, innerHeight / VH); stage.style.width = VW * k + 'px'; stage.style.height = VH * k + 'px';
@@ -32,11 +32,12 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   const dev = document.getElementById('dev'), flash = document.getElementById('flash');
   const APP = window.APP = { play: null, speed: 1, paused: false, simT: 0, cmds: [], devSpeed: 1 };
   APP.cmd = (c) => APP.cmds.push(c);
-  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? (Date.now() & 0xffff) : seed); APP.paused = false; APP.speed = 1; };
-  APP.load = (S) => { APP.play = Object.assign(SIM.create(), S); APP.paused = false; };
+  // новый забег: сид — случайное число 1..999999 (виден в HUD), карта генерируется от него
+  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * 999999) : seed); APP.paused = false; APP.speed = 1; };
+  APP.load = (S) => { if (!SIM.loadable(S)) return false; APP.play = S; APP.paused = false; return true; };   // негодное или старое состояние не грузим
   APP.toMenu = () => { APP.play = null; };
   try { const sv = JSON.parse(sessionStorage.getItem('live') || 'null');
-    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play) APP.load(sv.play); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
+    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play && !APP.load(sv.play)) sessionStorage.removeItem('live'); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
   const saveLive = () => { try { sessionStorage.setItem('live', JSON.stringify({ simT: APP.simT, speed: APP.speed, paused: APP.paused, play: APP.play })); } catch (e) {} };
   let stepOnce = false;
   addEventListener('keydown', (e) => {
@@ -55,8 +56,9 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
     if (APP.play) {
       const frozen = APP.paused && !stepOnce;
       acc += frozen ? 0 : (stepOnce ? 1 / 60 : wall * APP.speed * APP.devSpeed); stepOnce = false;
-      if (APP.cmds.length) { SIM.step(APP.play, { cmds: APP.cmds.splice(0) }); acc = Math.max(0, acc - SIM.DT); }
-      let n = 0; while (acc >= SIM.DT && n++ < 600) { SIM.step(APP.play, null); acc -= SIM.DT; }
+      const dt = APP.play.dt;                                                                // шаг времени — параметр забега
+      if (APP.cmds.length) { SIM.step(APP.play, { cmds: APP.cmds.splice(0) }); acc = Math.max(0, acc - dt); }
+      let n = 0; while (acc >= dt && n++ < 600) { SIM.step(APP.play, null); acc -= dt; }
       SCENE.state = APP.play;
     } else SCENE.state = null;
     try { SCENE.render(APP.simT); } catch (e) { if (!window.__renderErr) { window.__renderErr = e; console.error(e); } }
@@ -66,7 +68,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   };
   loop();
   if (STATIC) { dev.style.display = 'none'; return; }
-  const WATCH = ['index.html', 'scene.js', 'sim.js', 'bgmap.js', 'config.js', 'ui.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
+  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'sim.js', 'bgmap.js', 'config.js', 'ui.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
   const poll = async () => {
     for (const f of WATCH) {
       try { const r = await fetch(f + '?poll=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified') + r.headers.get('content-length');
@@ -78,7 +80,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   poll();
 })().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', '<pre style="color:#f88;position:absolute;top:0;left:0;background:#000c;padding:12px;font:13px monospace;white-space:pre-wrap">' + e.stack + '</pre>');
   if (window.__STATIC__) return;
-  const f = ['scene.js', 'sim.js', 'config.js', 'ui.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
+  const f = ['scene.js', 'rng.js', 'mapgen.js', 'sim.js', 'config.js', 'ui.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
   setInterval(async () => { for (const x of f) { try { const r = await fetch(x + '?p=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified');
     if (st[x] && st[x] !== m) location.reload(); st[x] = m; } catch (e) {} } }, 800); });
 </script></body></html>

@@ -1,12 +1,14 @@
-// live/ui.js — DOM-интерфейс «Некрополиса»: HUD, карточки, панель башни, выбор площадок, тосты, обучение, меню, сейв.
+// live/ui.js — DOM-интерфейс «Некрополиса»: HUD, карточки, панель башни, выбор клеток, тосты, обучение, меню, сейв.
 // Состояние партии живёт в симе (APP.play); здесь только выбор игрока (SCENE.ui) и показ. Команды уходят через APP.cmd().
 (function () {
-  const C = SIM.CONFIG, T = C.TOWERS, EN = C.ENEMIES, CELL = C.CELL;
-  const SAVE_KEY = 'necropolis.save.v1', PREF_KEY = 'necropolis.prefs.v1';
+  const C = SIM.CONFIG, T = C.TOWERS, EN = C.ENEMIES;
+  const SAVE_KEY = 'necropolis.save.v2', PREF_KEY = 'necropolis.prefs.v1';
   const $ = (s, r = document) => r.querySelector(s);
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+  // сейв продолжаем, только если логика признала состояние годным (версия, карта, поля); негодный выбрасываем
+  const saved = () => { const sv = store.get(SAVE_KEY); if (sv && sv.S && SIM.loadable(sv.S)) return sv; if (sv) store.del(SAVE_KEY); return null; };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
   const SOUL = '<span class="soul-ico"></span>';
@@ -22,6 +24,7 @@
   const build = () => {
     const root = $('#ui'); root.innerHTML = '';
     root.append(h('div', 'pass', '<div id="title">НЕКРОПОЛИС</div>'));
+    const seed = h('div', 'frame box', 'СИД <span id="s-seed"></span>'); seed.id = 'seedbox'; seed.title = 'Сид забега: та же карта при том же сиде'; root.append(seed);
     const stats = h('div', '', ''); stats.id = 'stats';
     stats.innerHTML = `<button class="btn ibtn" id="b-speed" title="Скорость (F)">▶</button><button class="btn ibtn" id="b-pause" title="Пауза (Пробел)">❚❚</button>
       <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 25</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
@@ -43,12 +46,13 @@
       <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
     wire();
   };
-  const menuHTML = () => { const sv = store.get(SAVE_KEY);
+  const menuHTML = () => { const sv = saved();
     return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
       <div class="col">${sv ? `<button class="btn green" id="m-cont">Продолжить · волна ${sv.S.wave + 1}</button>` : ''}
       <button class="btn ${sv ? '' : 'green'}" id="m-new">Новая игра</button><button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи 25 волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
-      <b>Строительство:</b> нажми на площадку «+», затем на карточку башни внизу слева (или клавиши 1–4).<br>
+      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
+      <b>Карта</b> каждый забег новая, её задаёт сид (он виден слева вверху).<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Улучшение:</b> нажми на башню, затем «Улучшить» (U). На 3-м уровне открывается выбор одного из двух перков.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
@@ -56,33 +60,32 @@
 
   // ---------------------------------------------------------------- события ввода
   const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
-  const hitSlot = (x, y) => { const S = APP.play; if (!S) return -1; let best = -1, bd = 1e9;
-    C.SLOTS.forEach((s, i) => { const tw = S.towers[i];
-      const inside = tw ? (Math.abs(x - s.x) < 40 && y > s.y - 108 && y < s.y + 18) : ((x - s.x) ** 2 / 44 ** 2 + (y - s.y) ** 2 / 30 ** 2 <= 1);
-      const d = Math.hypot(x - s.x, y - (tw ? s.y - 40 : s.y)); if (inside && d < bd) { bd = d; best = i; } });
-    return best; };
+  // клетка под курсором; клетки под интерфейсом не игровые — для них -1 (без подсветки и выбора)
+  const hitCell = (x, y) => { const S = APP.play; if (!S) return -1; const i = SIM.MAPGEN.cellAt(S.map, x, y); return i >= 0 && !SIM.MAPGEN.hud(S.map, i) ? i : -1; };
+  const isRoad = (cell) => SIM.canBuild(APP.play, cell, 'bones').reason === 'road';
   const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; renderPanel(true); };
-  const tryBuild = (slot, type) => { const S = APP.play; if (!S || S.towers[slot]) return false;
-    if (S.souls < T[type].cost[0]) { flashPoor(type); AUDIO.ui('deny'); return false; }
-    APP.cmd({ k: 'build', slot, type }); ui.armed = null; ui.preview = null; ui.sel = slot; setTimeout(() => renderPanel(true), 30); return true; };
+  const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
+    if (!cb.ok) { if (cb.reason === 'souls') flashPoor(type); AUDIO.ui('deny'); return false; }
+    APP.cmd({ k: 'build', cell, type }); ui.last = type; ui.armed = null; ui.preview = null; ui.sel = cell; setTimeout(() => renderPanel(true), 30); return true; };
   const flashPoor = (type) => { const c = $(`.card[data-type="${type}"]`); if (c) { c.animate([{ transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 220 }); }
     const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
   const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
     ui.armed = ui.armed === type ? null : type; ui.sel = -1; renderPanel(true); };
   const upgrade = () => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
-    if (tw.lvl < 3) { if (S.souls >= SIM.upgradeCost(tw)) APP.cmd({ k: 'upgrade', slot: ui.sel }); else { AUDIO.ui('deny'); flashPoor(); } } setTimeout(() => renderPanel(true), 30); };
-  const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', slot: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
+    if (tw.lvl < 3) { if (S.souls >= SIM.upgradeCost(tw)) APP.cmd({ k: 'upgrade', cell: ui.sel }); else { AUDIO.ui('deny'); flashPoor(); } } setTimeout(() => renderPanel(true), 30); };
+  const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', cell: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
   const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
   const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
   UI.autoPause = () => togglePause(true);
 
   const wire = () => {
-    cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitSlot(x, y); cv.style.cursor = ui.hover >= 0 ? 'pointer' : 'default'; });
+    cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitCell(x, y); cv.style.cursor = ui.hover >= 0 && !isRoad(ui.hover) ? 'pointer' : 'default'; });
     cv.addEventListener('pointerleave', () => { ui.hover = -1; });
-    cv.addEventListener('pointerdown', (e) => { AUDIO.unlock(); if (!APP.play || ended()) return; const [x, y] = toView(e), i = hitSlot(x, y);
+    cv.addEventListener('pointerdown', (e) => { AUDIO.unlock(); if (!APP.play || ended()) return; const [x, y] = toView(e), i = hitCell(x, y);
       if (i >= 0 && ui.armed && !APP.play.towers[i]) { tryBuild(i, ui.armed); return; }
-      if (i >= 0) { select(ui.sel === i && APP.play.towers[i] ? -1 : i); AUDIO.ui('click'); } else { select(-1); } });
+      if (i >= 0 && isRoad(i)) { AUDIO.ui('deny'); select(-1); return; }
+      if (i >= 0) { select(ui.sel === i ? -1 : i); AUDIO.ui('click'); } else { select(-1); } });
     addEventListener('pointerdown', () => AUDIO.unlock(), { once: true });
     $('#cards').addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) { AUDIO.ui('click'); cardAction(c.dataset.type); } });
     $('#cards').addEventListener('pointerover', (e) => { const c = e.target.closest('.card'); if (!c) return; showCardTip(c); if (ui.sel >= 0 && APP.play && !APP.play.towers[ui.sel]) ui.preview = c.dataset.type; });
@@ -111,7 +114,7 @@
   // ---------------------------------------------------------------- тултипы
   const towerLines = (k, lvl) => { const d = T[k], i = lvl - 1, L = [];
     if (k === 'plague') L.push(['Яд', `${d.dps[i]}/с · ${d.cloudTime} с`]); else L.push(['Атака', `${d.dmg[i]} · ${TIP_DESC[d.dmgType]}`]);
-    L.push(['Скорость', `${d.rate[i]} с`]); L.push(['Радиус', `${d.range[i]} кл.`]);
+    L.push(['Скорость', `${d.rate[i]} с`]); L.push(['Радиус', `${SIM.rangeTiles(d.range[i]).toFixed(1)} кл.`]);
     if (k === 'spirits') L.push(['Замедление', `${Math.round(d.slow[i] * 100)}%`]);
     if (k === 'dark') L.push(['По тяжёлым', `×${d.heavyMult}`]);
     return L; };
@@ -122,6 +125,46 @@
 
   // ---------------------------------------------------------------- панель
   let panelKey = '';
+  // панель открывается на стороне поля, противоположной выбранной клетке, и никогда не закрывает её
+  const panelLeft = (S) => SIM.cellXY(S, ui.sel)[0] >= SIM.VIEW.W / 2;
+  const tipBeside = () => { const p = $('#panel'), left = p.classList.contains('left'); return [left ? p.offsetLeft + p.offsetWidth + 10 : p.offsetLeft - 310, 900 - 220]; };
+  // Панель собрана из кусков, каждый — своя функция (тикеты правят свой кусок, не соседний):
+  //   buildMenu(S, p)                    — свободная клетка: меню постройки (покрытие дороги, подсказка)
+  //   towerHead(S, tw)                   — башня: картинка, имя, уровень, характеристики
+  //   towerGrowth(S, tw) / wireGrowth()  — башня: перки и улучшение
+  //   towerManage(S, tw) / wireManage()  — башня: управление (продажа)
+  const closeBtn = '<button class="btn x">✕</button>';
+  const buildMenu = (S, p) => {
+    const cov = SIM.coverage(S, ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
+    p.innerHTML = `${closeBtn}<div class="nm">Свободная клетка</div><div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
+        <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
+  };
+  const towerHead = (S, tw) => {
+    const d = T[tw.type], lines = towerLines(tw.type, tw.lvl), next = tw.lvl < 3 ? towerLines(tw.type, tw.lvl + 1) : null;
+    return `<div class="hd"><div class="pic">${img([3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((n) => has(n) && +n.slice(-1) <= tw.lvl) || 'tw_' + tw.type + '_' + tw.lvl, `<div class="ph" style="width:40px;height:60px;background:${PH[tw.type]}"></div>`)}</div>
+      <div><div class="nm">${d.short}</div><div class="lv">УРОВЕНЬ ${tw.lvl}</div></div></div>
+      <div class="st">${lines.map(([a, b], i) => `<div><span>${a}</span><span><b>${b}</b>${next && next[i][1] !== b ? `<span class="nx">→ ${next[i][1].split(' ·')[0]}</span>` : ''}</span></div>`).join('')}
+      <div><span>Убито</span><span><b>${tw.kills}</b></span></div></div>`;
+  };
+  const towerGrowth = (S, tw) => {
+    const d = T[tw.type], upc = SIM.upgradeCost(tw);
+    return `<div class="perks">${Object.entries(d.perks).map(([pk, pd]) => { const ch = tw.perk === pk, lock = tw.lvl < 3 || (tw.perk && !ch);
+        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''}" data-p="${pk}"><span class="ic">${PERK_ICON[pk]}</span>${pd.name}${!tw.perk && tw.lvl === 3 ? `<span style="color:var(--soul)">${SOUL}${pd.cost}</span>` : ''}</button>`; }).join('')}</div>
+      ${tw.lvl < 3 ? `<button class="btn green up ${S.souls < upc ? 'off' : ''}">УЛУЧШИТЬ · ${SOUL} ${upc}</button>` : `<button class="btn up off">${tw.perk ? 'МАКСИМУМ' : 'ВЫБЕРИ ПЕРК'}</button>`}`;
+  };
+  const wireGrowth = (p, S, tw) => {
+    const d = T[tw.type];
+    p.querySelector('.up').onclick = upgrade;
+    p.querySelectorAll('.perk').forEach((b) => {
+      const pk = b.dataset.p, pd = d.perks[pk];
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, ...tipBeside());
+      b.onmouseleave = hideTip;
+      b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
+    });
+  };
+  const towerManage = (S, tw) => `<button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
+  const wireManage = (p, S, tw) => { p.querySelector('.sell').onclick = sell; };
+
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
     document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].cost[0];
@@ -129,29 +172,10 @@
     if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1)]);
     if (!force && key === panelKey) return; panelKey = key;
-    p.classList.add('show');
-    if (!tw) { const s = C.SLOTS[ui.sel], cov = SIM.coverage(ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по двум участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : 'короткий участок дороги';
-      p.innerHTML = `<button class="btn x">✕</button><div class="nm">Площадка</div><div class="note" style="margin-top:6px">${{ start: 'У ворот', mid: 'В центральных петлях', end: 'У склепа' }[s.zone]}: ${q}.</div>
-        <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
-      p.querySelector('.x').onclick = () => select(-1); return; }
-    const d = T[tw.type], lines = towerLines(tw.type, tw.lvl), next = tw.lvl < 3 ? towerLines(tw.type, tw.lvl + 1) : null, upc = SIM.upgradeCost(tw);
-    p.innerHTML = `<button class="btn x">✕</button><div class="hd"><div class="pic">${img([3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((n) => has(n) && +n.slice(-1) <= tw.lvl) || 'tw_' + tw.type + '_' + tw.lvl, `<div class="ph" style="width:40px;height:60px;background:${PH[tw.type]}"></div>`)}</div>
-      <div><div class="nm">${d.short}</div><div class="lv">УРОВЕНЬ ${tw.lvl}</div></div></div>
-      <div class="st">${lines.map(([a, b], i) => `<div><span>${a}</span><span><b>${b}</b>${next && next[i][1] !== b ? `<span class="nx">→ ${next[i][1].split(' ·')[0]}</span>` : ''}</span></div>`).join('')}
-      <div><span>Убито</span><span><b>${tw.kills}</b></span></div></div>
-      <div class="perks">${Object.entries(d.perks).map(([pk, pd]) => { const ch = tw.perk === pk, lock = tw.lvl < 3 || (tw.perk && !ch);
-        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''}" data-p="${pk}"><span class="ic">${PERK_ICON[pk]}</span>${pd.name}${!tw.perk && tw.lvl === 3 ? `<span style="color:var(--soul)">${SOUL}${pd.cost}</span>` : ''}</button>`; }).join('')}</div>
-      ${tw.lvl < 3 ? `<button class="btn green up ${S.souls < upc ? 'off' : ''}">УЛУЧШИТЬ · ${SOUL} ${upc}</button>` : `<button class="btn up off">${tw.perk ? 'МАКСИМУМ' : 'ВЫБЕРИ ПЕРК'}</button>`}
-      <button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
+    p.classList.add('show'); p.classList.toggle('left', panelLeft(S));
+    if (!tw) buildMenu(S, p);
+    else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
     p.querySelector('.x').onclick = () => select(-1);
-    p.querySelector('.up').onclick = upgrade;
-    p.querySelector('.sell').onclick = sell;
-    p.querySelectorAll('.perk').forEach((b) => {
-      const pk = b.dataset.p, pd = d.perks[pk];
-      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, 1600 - 560, 900 - 200);
-      b.onmouseleave = hideTip;
-      b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', slot: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
-    });
   };
 
   // ---------------------------------------------------------------- тосты, новый враг, обучение
@@ -165,27 +189,51 @@
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
   const COACH = [
-    { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: () => { const s = C.SLOTS[11]; return [s.x + 50, s.y - 40]; }, text: 'Нажми на площадку «+» у дороги, затем выбери башню внизу слева. Узловые площадки внутри петель бьют сразу по двум участкам дороги.' },
-    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => [222, 152], text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
-    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: () => [1000, 640], text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни на слабой площадке.' },
-    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: () => [1000, 600], text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
+    { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
+      text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
+    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
+      text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
+    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 1).cell),
+      text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни в стороне от дороги.' },
+    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 3 && !t.perk).cell),
+      text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
   ];
+  // где поставить подсказку w×h рядом с точкой (x, y): перебираем места вокруг цели (сеткой до ~400 px) и берём то, что
+  // не закрывает дорогу, интерфейс и саму цель, а из таких — ближайшее. Результат кэшируется, пока не сменились цель и раскладка.
+  const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
+  const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
+  let placed = { key: '', r: null };
+  const placeNear = (S, x, y, w, h) => {
+    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
+    if (placed.key === key) return placed.r;
+    const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]), target = [x - 40, y - 40, 80, 80];
+    let best = null, bestCost = Infinity;
+    for (let oy = -400; oy <= 400; oy += 24) for (let ox = -480; ox <= 480; ox += 24) {
+      const r = [Math.max(10, Math.min(1590 - w, x + ox - w / 2)), Math.max(58, Math.min(890 - h, y + oy - h / 2)), w, h];
+      let cost = 0; for (const q of road) cost += overlap(r, q); for (const q of busy) cost += 4 * overlap(r, q); cost += 8 * overlap(r, target);
+      cost += 3 * Math.hypot(r[0] + w / 2 - x, r[1] + h / 2 - y);
+      if (cost < bestCost) { bestCost = cost; best = r; } }
+    placed = { key, r: best }; return best; };
+  let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
+  const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, 3.4)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
     if (!c || APP.paused) { el.classList.remove('show'); return; }
-    const [x, y] = c.at(); el.textContent = c.text; el.style.left = Math.min(1600 - 340, x) + 'px'; el.style.top = y + 'px'; el.classList.add('show'); };
+    if (el.textContent !== c.text) el.textContent = c.text;
+    el.classList.add('show');
+    const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
   const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && t.lvl > 1)) || (q.id === 'perk' && S.towers.some((t) => t && t.perk));
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
   const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
-    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = store.get(SAVE_KEY); if (sv) { APP.load(sv.S); resetRun(); showOverlay('menu', false); } };
+    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S)) { resetRun(); showOverlay('menu', false); } };
     $('#m-new').onclick = () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
   const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
       <p>${won ? 'Последний паладин рассыпался в прах. Некрополис спит спокойно.' : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`}</p>
-      <div class="stats"><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
+      <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
       <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
     showOverlay('end', true); store.del(SAVE_KEY);
@@ -200,9 +248,9 @@
   let lastSouls = -1, lastHp = -1, wasEnded = false;
   UI.frame = (A, t) => {
     const S = A.play;
-    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden';
+    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
-    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${C.WAVES.length}`;
+    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${C.WAVES.length}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
     $('#b-pause').classList.toggle('on', A.paused); $('#b-speed').textContent = A.speed === 2 ? '▶▶' : '▶'; $('#b-speed').classList.toggle('on', A.speed === 2);
