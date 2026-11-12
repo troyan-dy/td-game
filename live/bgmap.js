@@ -66,30 +66,23 @@
       set(x, y, c);
       if (d > RW - 1.2) set(x, y, P.curb, 0.45);                       // мягкий бордюр внутри
     }
-    // ---- мелкий декор только на земле: дорога, вход и склеп свободны
+    // ---- плоский декор только на земле (листья, свечи): ничего объёмного, что можно спутать с препятствием; дорога, вход и склеп свободны
     const [gx, gy] = R.gate, [kx, ky] = R.crypt;
     const blocked = (x, y, r) => dAt(x, y) < RW + 3 + r || Math.hypot(x - gx / K, y - gy / K) < 26 + r || Math.hypot(x - kx / K, y - ky / K + 6) < 24 + r;
     const items = [];                                                 // [y, draw] — рисуем по y (дальние раньше)
     const outlineRect = (x, y, w, h, c) => { for (let i = -1; i <= w; i++) { set(x + i, y - 1, P.ol); set(x + i, y + h, P.ol); } for (let j = 0; j < h; j++) { set(x - 1, y + j, P.ol); set(x + w, y + j, P.ol); }
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) set(x + i, y + j, c); };
-    const grave = (x, y, kind) => items.push([y, () => {
-      for (let i = -2; i <= 3; i++) set(x + i, y + 1, P.g0, 0.6);                                       // контактная тень
-      if (kind === 0) { outlineRect(x - 1, y - 4, 3, 5, P.st1); set(x - 1, y - 4, P.st0); set(x, y - 4, P.st0); set(x - 1, y - 3, P.st0); set(x + 1, y - 1, P.st2);
-        if (hash(x, y) > 0.6) set(x - 1, y, P.moss); }
-      else if (kind === 1) { outlineRect(x, y - 6, 1, 7, P.st1); outlineRect(x - 1, y - 4, 3, 1, P.st0); }
-      else { outlineRect(x - 2, y - 2, 5, 3, P.st1); for (let i = 0; i < 5; i++) set(x - 2 + i, y - 2, P.st0); }
-    }]);
-    const bush = (x, y, r) => items.push([y, () => {
-      for (let yy = -r; yy <= 1; yy++) for (let xx = -r - 1; xx <= r + 1; xx++) { const d = Math.hypot(xx, (yy + r * 0.3) * 1.4); if (d > r + 1) continue;
-        if (d > r) { set(x + xx, y + yy, P.ol); continue; } const l = (-xx * 0.6 - yy) / r, h2 = hash(x + xx, y + yy);
-        set(x + xx, y + yy, hash(x, y) > 0.5 ? (l > 0.4 ? P.c2 : h2 > 0.5 ? P.c1 : P.c0) : (l > 0.4 ? P.gr2 : h2 > 0.5 ? P.gr1 : P.g2)); }
+    const leaves = (x, y) => items.push([y, () => {                  // опавшие листья: россыпь пикселей без контура и тени
+      for (let k = 0; k < 6; k++) { const px = x + Math.round((hash(x + k, y) - 0.5) * 8), py = y + Math.round((hash(x, y + k) - 0.5) * 4);
+        set(px, py, [P.c0, P.c1, P.moss][k % 3], 0.8); }
     }]);
     const candle = (x, y) => items.push([y, () => { set(x, y, P.candle); set(x, y - 1, P.candle); set(x, y - 2, P.flame); lights.push([x * K + 1, (y - 2) * K, 'candle']); }]);
 
     // ---- вход: две колонны с факелами по бокам дороги у края карты и тёплое свечение проёма
     items.push([gy / K + 8, () => {
       const cx = Math.round(gx / K), cy = Math.round(gy / K), horiz = map.road[0] % map.cols === 0 || map.road[0] % map.cols === map.cols - 1;
-      const posts = horiz ? [[cx - 2, cy - 14], [cx - 2, cy + 12]] : [[cx - 15, cy + 2], [cx + 12, cy + 2]];
+      // колонна рисуется вверх от основания на 18 low-res пикселей: нижнюю при боковом входе ставим так, чтобы она целиком была ниже дороги
+      const below = Math.ceil(RW) + 21, posts = horiz ? [[cx - 2, cy - 14], [cx - 2, cy + below]] : [[cx - 15, cy + 2], [cx + 12, cy + 2]];
       for (const [px, py] of posts) { outlineRect(px, py - 14, 4, 14, P.wall1); for (let j = 0; j < 14; j++) set(px, py - 14 + j, P.wall2);
         outlineRect(px - 1, py - 16, 6, 2, P.wall2); set(px + 1, py - 17, P.flame); set(px + 2, py - 17, P.win); set(px + 1, py - 18, P.flame);
         outlineRect(px + 1, py - 10, 2, 5, P.red); lights.push([(px + 1.5) * K, (py - 17) * K, 'torch']); }
@@ -111,18 +104,18 @@
 
     const tryPlace = (n, r, fn) => { let placed = 0;
       for (let i = 0; i < n * 30 && placed < n; i++) { const x = rnd() * LW, y = rnd() * LH; if (blocked(x, y, r)) continue; fn(Math.round(x), Math.round(y)); placed++; } };
-    tryPlace(40, 3, (x, y) => grave(x, y, rnd() < 0.55 ? 0 : rnd() < 0.5 ? 1 : 2));
-    tryPlace(26, 3, (x, y) => bush(x, y, 1 + (rnd() * 2 | 0)));
+    tryPlace(60, 3, (x, y) => leaves(x, y));
     tryPlace(10, 2, (x, y) => candle(x, y));
     items.sort((a, b) => a[0] - b[0]).forEach((it) => it[1]());
     g.putImageData(img, 0, 0);
     const big = document.createElement('canvas'); big.width = 1600; big.height = 900;
     const bg = big.getContext('2d'); bg.imageSmoothingEnabled = false; bg.drawImage(cv, 0, 0, LW * K, LH * K);
-    // ---- сетка клеток: тонкие тёмные линии по краям клеток вне дороги (поле читается по клеткам)
-    bg.fillStyle = 'rgba(8, 6, 20, 0.22)';
+    // ---- сетка клеток: тонкие тёмные линии по краям игровых клеток (поле читается по клеткам);
+    // клетки под интерфейсом (HUD, кнопка волны, карточки) затемнены и без сетки — на них не строят
     for (let i = 0; i < map.cols * map.rows; i++) { if (road.has(i)) continue;
       const x = (i % map.cols) * TILE, y = Math.floor(i / map.cols) * TILE;
-      bg.fillRect(x, y, TILE, 1); bg.fillRect(x, y, 1, TILE); }
+      if (SIM.MAPGEN.hud(map, i)) { bg.fillStyle = 'rgba(5, 4, 12, 0.55)'; bg.fillRect(x, y, TILE, TILE); continue; }
+      bg.fillStyle = 'rgba(8, 6, 20, 0.22)'; bg.fillRect(x, y, TILE, 1); bg.fillRect(x, y, 1, TILE); }
     return { canvas: big, lights };
   }
   window.BGMAP = { build: BGMAP_build };

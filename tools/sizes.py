@@ -4,7 +4,7 @@ import json, re
 s = open('live/assets.js', encoding='utf-8').read(); A = json.loads(s[s.index('{'):s.rindex('}') + 1])
 TOWER_L3 = {'bones': 108, 'spirits': 116, 'plague': 108, 'dark': 128}
 ENEMY_H = {'militia': 34, 'knight': 36, 'priest': 38, 'cart': 58, 'paladin': 72}
-FIXED_W = {'pad': 74}
+FIXED_W = {}                       # спрайты с фиксированной шириной на экране (имя: ширина, view px)
 out = {}
 for t, h3 in TOWER_L3.items():
     if f'tw_{t}_3' in A: k = h3 / A[f'tw_{t}_3']['h']

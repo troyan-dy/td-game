@@ -18,8 +18,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
   font-family: var(--body); color: var(--text); user-select: none; -webkit-user-select: none; pointer-events: none; }
 #ui > * { pointer-events: auto; }
 #ui .pass { pointer-events: none; }
-#dev { position: absolute; left: 10px; bottom: 8px; font: 12px ui-monospace, Menlo, monospace; color: #fff; background: #0008; padding: 5px 8px; border-radius: 6px; opacity: .55; white-space: pre; display: none; }
-#flash { position: absolute; right: 12px; bottom: 10px; font: 600 13px sans-serif; color: #9f9; background: #000a; padding: 4px 10px; border-radius: 6px; opacity: 0; transition: opacity .6s; }
+#dev { pointer-events: none; position: absolute; left: 10px; bottom: 8px; font: 12px ui-monospace, Menlo, monospace; color: #fff; background: #0008; padding: 5px 8px; border-radius: 6px; opacity: .55; white-space: pre; display: none; }
+#flash { pointer-events: none; position: absolute; right: 12px; bottom: 10px; font: 600 13px sans-serif; color: #9f9; background: #000a; padding: 4px 10px; border-radius: 6px; opacity: 0; transition: opacity .6s; }
 
 /* каменная панель с двойной рамкой (как плашки на референсе) */
 .frame { background: linear-gradient(180deg, var(--panel2), var(--panel) 60%, #1b1430);
@@ -79,6 +79,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 
 /* панель башни */
 #panel { position: absolute; right: 12px; bottom: 12px; width: 262px; padding: 10px 12px 12px; display: none; }
+#panel.left { right: auto; left: 12px; bottom: 156px; }          /* выбранная клетка справа: панель слева, над карточками */
 #panel.show { display: block; }
 #panel .x { position: absolute; right: 6px; top: 6px; width: 30px; height: 30px; padding: 0; font: 700 18px var(--body); }
 #panel .hd { display: flex; gap: 10px; align-items: center; }

@@ -34,10 +34,10 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   APP.cmd = (c) => APP.cmds.push(c);
   // новый забег: сид — случайное число 1..999999 (виден в HUD), карта генерируется от него
   APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * 999999) : seed); APP.paused = false; APP.speed = 1; };
-  APP.load = (S) => { if (!S || S.v !== SIM.CONFIG.VERSION) return false; APP.play = S; APP.paused = false; return true; };   // старые версии состояния не грузим
+  APP.load = (S) => { if (!SIM.loadable(S)) return false; APP.play = S; APP.paused = false; return true; };   // негодное или старое состояние не грузим
   APP.toMenu = () => { APP.play = null; };
   try { const sv = JSON.parse(sessionStorage.getItem('live') || 'null');
-    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play) APP.load(sv.play); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
+    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play && !APP.load(sv.play)) sessionStorage.removeItem('live'); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
   const saveLive = () => { try { sessionStorage.setItem('live', JSON.stringify({ simT: APP.simT, speed: APP.speed, paused: APP.paused, play: APP.play })); } catch (e) {} };
   let stepOnce = false;
   addEventListener('keydown', (e) => {

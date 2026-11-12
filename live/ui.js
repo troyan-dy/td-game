@@ -7,7 +7,8 @@
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
-  const saved = () => { const sv = store.get(SAVE_KEY); return sv && sv.S && sv.S.v === C.VERSION ? sv : null; };   // сейв старой версии не продолжаем
+  // сейв продолжаем, только если логика признала состояние годным (версия, карта, поля); негодный выбрасываем
+  const saved = () => { const sv = store.get(SAVE_KEY); if (sv && sv.S && SIM.loadable(sv.S)) return sv; if (sv) store.del(SAVE_KEY); return null; };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
   const SOUL = '<span class="soul-ico"></span>';
@@ -59,7 +60,8 @@
 
   // ---------------------------------------------------------------- события ввода
   const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
-  const hitCell = (x, y) => { const S = APP.play; return S ? SIM.MAPGEN.cellAt(S.map, x, y) : -1; };
+  // клетка под курсором; клетки под интерфейсом не игровые — для них -1 (без подсветки и выбора)
+  const hitCell = (x, y) => { const S = APP.play; if (!S) return -1; const i = SIM.MAPGEN.cellAt(S.map, x, y); return i >= 0 && !SIM.MAPGEN.hud(S.map, i) ? i : -1; };
   const isRoad = (cell) => SIM.canBuild(APP.play, cell, 'bones').reason === 'road';
   const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; renderPanel(true); };
   const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
@@ -123,6 +125,9 @@
 
   // ---------------------------------------------------------------- панель
   let panelKey = '';
+  // панель открывается на стороне поля, противоположной выбранной клетке, и никогда не закрывает её
+  const panelLeft = (S) => SIM.cellXY(S, ui.sel)[0] >= SIM.VIEW.W / 2;
+  const tipBeside = () => { const p = $('#panel'), left = p.classList.contains('left'); return [left ? p.offsetLeft + p.offsetWidth + 10 : p.offsetLeft - 310, 900 - 220]; };
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
     document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].cost[0];
@@ -130,7 +135,7 @@
     if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1)]);
     if (!force && key === panelKey) return; panelKey = key;
-    p.classList.add('show');
+    p.classList.add('show'); p.classList.toggle('left', panelLeft(S));
     if (!tw) { const cov = SIM.coverage(S, ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
       p.innerHTML = `<button class="btn x">✕</button><div class="nm">Свободная клетка</div><div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
         <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
@@ -149,7 +154,7 @@
     p.querySelector('.sell').onclick = sell;
     p.querySelectorAll('.perk').forEach((b) => {
       const pk = b.dataset.p, pd = d.perks[pk];
-      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, 1600 - 560, 900 - 200);
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${pd.desc}</div><div class="row" style="margin-top:6px">${tw.lvl < 3 ? 'Откроется на 3-м уровне' : tw.perk ? (tw.perk === pk ? 'Выбрано' : 'Выбран другой перк') : `Цена: <b>${pd.cost}</b> душ · выбор навсегда`}</div>`, ...tipBeside());
       b.onmouseleave = hideTip;
       b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
     });
@@ -166,17 +171,39 @@
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
   const COACH = [
-    { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => { const [x, y] = SIM.cellXY(S, bestCell(S)); return [x + 40, y - 30]; }, text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
-    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => [222, 152], text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
-    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: () => [1000, 640], text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни на слабой площадке.' },
-    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: () => [1000, 600], text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
+    { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
+      text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
+    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
+      text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
+    { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && S.towers.some((t) => t && t.lvl === 1) && S.souls >= 110, at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 1).cell),
+      text: 'Нажми на башню, чтобы улучшить её. Прокачка часто выгоднее новой башни в стороне от дороги.' },
+    { id: 'perk', when: (S) => S.towers.some((t) => t && t.lvl === 3 && !t.perk), at: (S) => SIM.cellXY(S, S.towers.find((t) => t && t.lvl === 3 && !t.perk).cell),
+      text: 'Башня 3-го уровня может взять один из двух перков. Выбор навсегда — читай подсказки.' },
   ];
+  // где поставить подсказку w×h рядом с точкой (x, y): перебираем места вокруг цели (сеткой до ~400 px) и берём то, что
+  // не закрывает дорогу, интерфейс и саму цель, а из таких — ближайшее. Результат кэшируется, пока не сменились цель и раскладка.
+  const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
+  const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
+  let placed = { key: '', r: null };
+  const placeNear = (S, x, y, w, h) => {
+    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
+    if (placed.key === key) return placed.r;
+    const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]), target = [x - 40, y - 40, 80, 80];
+    let best = null, bestCost = Infinity;
+    for (let oy = -400; oy <= 400; oy += 24) for (let ox = -480; ox <= 480; ox += 24) {
+      const r = [Math.max(10, Math.min(1590 - w, x + ox - w / 2)), Math.max(58, Math.min(890 - h, y + oy - h / 2)), w, h];
+      let cost = 0; for (const q of road) cost += overlap(r, q); for (const q of busy) cost += 4 * overlap(r, q); cost += 8 * overlap(r, target);
+      cost += 3 * Math.hypot(r[0] + w / 2 - x, r[1] + h / 2 - y);
+      if (cost < bestCost) { bestCost = cost; best = r; } }
+    placed = { key, r: best }; return best; };
   let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
   const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, 3.4)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
     if (!c || APP.paused) { el.classList.remove('show'); return; }
-    const [x, y] = c.at(S); el.textContent = c.text; el.style.left = Math.min(1600 - 340, x) + 'px'; el.style.top = y + 'px'; el.classList.add('show'); };
+    if (el.textContent !== c.text) el.textContent = c.text;
+    el.classList.add('show');
+    const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
   const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && t.lvl > 1)) || (q.id === 'perk' && S.towers.some((t) => t && t.perk));
 
   // ---------------------------------------------------------------- оверлеи
