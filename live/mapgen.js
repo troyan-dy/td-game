@@ -4,13 +4,10 @@
 // MAPGEN.generate(seed) → карта (всегда годная); MAPGEN.validate(map) → [нарушения]; MAPGEN.route(map) → маршрут врагов в px.
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
+  const RNG = (typeof window !== 'undefined' && window.RNG) || require('./rng.js');
   const MP = C.MAP, G = C.GRID;
   const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 
-  // mulberry32: своя последовательность для каждой попытки
-  const rng = (seed) => { let s = seed >>> 0; return () => { let t = (s = (s + 0x6D2B79F5) >>> 0); t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
-  const derive = (seed, k) => { let h = (seed >>> 0) ^ Math.imul(k + 1, 0x9E3779B1); h = Math.imul(h ^ (h >>> 16), 0x85EBCA6B); h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35); return (h ^ (h >>> 16)) >>> 0; };
   const shuffle = (a, R) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(R() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
   const inKeepout = (x, y) => MP.keepout.some(([kx, ky, kw, kh]) => x >= kx && y >= ky && x < kx + kw && y < ky + kh);
@@ -90,7 +87,7 @@
     seed = seed >>> 0;
     let best = null, bestScore = -1, found = 0;
     for (let a = 0; a < MP.attempts && found < MP.candidates; a++) {
-      const road = attempt(rng(derive(seed, a)));
+      const road = attempt(RNG.stream(seed, 'map', a));          // у каждой попытки свой поток от сида забега
       if (!road) continue;
       const m = { v: 1, seed, cols: G.cols, rows: G.rows, road };
       if (validate(m).length) continue;

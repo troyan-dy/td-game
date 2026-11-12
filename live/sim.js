@@ -5,6 +5,7 @@
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const MAPGEN = (typeof window !== 'undefined' && window.MAPGEN) || require('./mapgen.js');
+  const RNG = (typeof window !== 'undefined' && window.RNG) || require('./rng.js');
   const UNIT = C.UNIT, W = 1600, H = 900;
 
   // ---------------------------------------------------------------- маршрут врагов: полилиния карты с длиной дуги (кэш по объекту карты)
@@ -31,8 +32,8 @@
     return { x: a[0] + (b[0] - a[0]) * u, y: a[1] + (b[1] - a[1]) * u, tx: x / l, ty: y / l };
   };
 
-  // ---------------------------------------------------------------- случайность (mulberry32, состояние в S.rs)
-  const rand = (S) => { let t = (S.rs = (S.rs + 0x6D2B79F5) >>> 0); t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+  // ---------------------------------------------------------------- случайность боя: поток 'battle' от сида забега, состояние в S.rs
+  const rand = (S) => RNG.next(S, 'rs');
 
   // ---------------------------------------------------------------- помощники
   const TW = C.TOWERS, EN = C.ENEMIES;
@@ -55,7 +56,7 @@
     const map = MAPGEN.generate(seed);
     return {
       v: C.VERSION, seed, dt: opts.dt || C.DT, unlocked: opts.unlocked || null, map,
-      t: 0, rs: (seed ^ 0x5bd1e995) >>> 0,
+      t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {},
