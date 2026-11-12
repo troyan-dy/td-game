@@ -344,8 +344,10 @@ async function runBrowser(chromium, game, base, OUT, live, res, written, pagePat
       // Шаг: явный ctx.skip → пропуск со строкой в сводке; любая другая ошибка → провал шага, следующие шаги идут дальше.
       // service — служебный шаг (открыть, подготовить): в счёт пройденных не идёт, но его провал виден.
       const step = async (name, fn, service = false) => {
+        if (res.aborted) return false;                                  // прервано: браузер закрывается, ошибки шагов — шум
         try { await fn(); if (!service) r.steps.push({ vw, name, ok: true }); return true; }
         catch (e) {
+          if (res.aborted) return false;
           if (e instanceof Skip) { r.skips.push(`${vw} ${name}: ${e.message}`); return false; }
           r.steps.push({ vw, name, ok: false, error: cut(firstLine(e), 200) }); return false;
         }
@@ -395,7 +397,7 @@ function summary(res, { OUT, secs, port, code }) {
   if (!w) { L.push('Браузер:  ' + unfinished); failed = true; }
   else {
     const bad = w.steps.filter((s) => !s.ok), probs = [...w.problems, ...bad.map((s) => `${s.vw} ${s.name}: ${s.error}`)];
-    L.push(`Браузер:  ${probs.length ? 'ПРОВАЛ' : 'ок'} — шагов пройдено ${w.steps.length - bad.length}, упало ${bad.length}, пропущено ${w.skips.length}${ab ? ' (прервано)' : ''}`);
+    L.push(`Браузер:  ${probs.length ? 'ПРОВАЛ' : ab ? 'не закончен — прервано' : 'ок'} — шагов пройдено ${w.steps.length - bad.length}, упало ${bad.length}, пропущено ${w.skips.length}`);
     if (probs.length) { failed = true; L.push(...list(probs)); }
     if (w.skips.length) { L.push('  Пропущены (ctx.skip):'); L.push(...list(w.skips)); }
     const byVw = {};
