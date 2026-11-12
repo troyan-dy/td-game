@@ -7,7 +7,7 @@
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const SZ = (n, def) => (window.SIZES && window.SIZES[n]) || def;
   S.REPEAT = [];
-  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones' };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток
+  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones', move: -1 };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток; move — клетка переносимой башни (-1 — не переносим)
   S.programs = () => { L.init(W, H); L.glyphs(); L.SUN = [W * 0.15, -300]; };
   S.LIGHTS = [];
   // фон перестраивается, когда в кадре другая карта (новый забег, титульное демо)
@@ -122,6 +122,21 @@
     L.solid(x, y, TILE, b, col, 0, 0, 0, a); L.solid(x, y + TILE - b, TILE, b, col, 0, 0, 0, a);
     L.solid(x, y + b, b, TILE - 2 * b, col, 0, 0, 0, a); L.solid(x + TILE - b, y + b, b, TILE - 2 * b, col, 0, 0, 0, a);
   };
+  // сетка игровых клеток (не дорога, не интерфейс): линии между клетками, слитые в отрезки — десятки квадов, а не сотни
+  let gridKey = '', gridSegs = [];
+  const gridOf = (ST) => { const m = ST.map, key = m.seed + ':' + m.road.join(','); if (key === gridKey) return gridSegs;
+    const road = new Set(m.road), play = (x, y) => x >= 0 && y >= 0 && x < m.cols && y < m.rows && !road.has(y * m.cols + x) && !SIM.MAPGEN.hud(m, y * m.cols + x), out = [];
+    for (let r = 0; r <= m.rows; r++) for (let x = 0; x < m.cols;) { if (!(play(x, r - 1) || play(x, r))) { x++; continue; }
+      const x0 = x; while (x < m.cols && (play(x, r - 1) || play(x, r))) x++; out.push([x0 * TILE, r * TILE - 1, (x - x0) * TILE, 2]); }
+    for (let c = 0; c <= m.cols; c++) for (let y = 0; y < m.rows;) { if (!(play(c - 1, y) || play(c, y))) { y++; continue; }
+      const y0 = y; while (y < m.rows && (play(c - 1, y) || play(c, y))) y++; out.push([c * TILE - 1, y0 * TILE, 2, (y - y0) * TILE]); }
+    gridKey = key; gridSegs = out; return out; };
+  const drawGrid = (ST, a) => { for (const [x, y, w, h] of gridOf(ST)) L.solid(x, y, w, h, [0.78, 0.74, 0.95], 0, 0, 0, a); };
+  // клетки списка cells залить цветом col: подряд идущие в строке — одной полосой
+  const fillCells = (ST, cells, col, a) => { const n = ST.map.cols; let run = null;
+    const flush = () => { if (run) L.solid((run[0] % n) * TILE + 3, Math.floor(run[0] / n) * TILE + 3, run[1] * TILE - 6, TILE - 6, col, 0, 0, 0, a); run = null; };
+    for (const c of cells) { if (run && c === run[0] + run[1] && Math.floor(c / n) === Math.floor(run[0] / n)) run[1]++; else { flush(); run = [c, 1]; } }
+    flush(); };
   const drawRange = (x, y, r, col, t, a = 1) => {                // пунктирный круг дальности (как на референсе)
     L.ring(x, y, r, r * 0.92, col, 0.35 * a, 0.012);
     const n = Math.round(r / 7);
@@ -150,8 +165,24 @@
     S.LIGHTS.forEach(([lx, ly, kind], i) => { const [c, r, a] = LIGHT[kind], fl = kind === 'water' || kind === 'crypt' ? Math.sin(t * 0.9 + i) * 0.3 : Math.sin(t * 11 + i * 2.3) * Math.sin(t * 7.3 + i) * 0.35;
       L.glow(lx + ox, ly + oy, r, c, a * (1 + fl)); });
 
+    // сетка проявляется в паузе между волнами и при выбранной башне; при переносе ярче, допустимые клетки подсвечены
+    const moving = !ST.demo && ui.move >= 0 && !!ST.towers[ui.move];
+    if (!ST.demo && (moving || ST.phase === 'prep' || (ui.sel >= 0 && ST.towers[ui.sel]))) drawGrid(ST, moving ? 0.26 : 0.12);
+    if (moving) {
+      const mt = ST.towers[ui.move], col = TCOL[mt.type], cells = SIM.moveCells(ST, ui.move), ok = ui.hover >= 0 && cells.includes(ui.hover);
+      fillCells(ST, cells, [0.86, 0.94, 1.0], 0.17 + 0.05 * Math.sin(t * 4));        // светлая заливка: бирюза сливается с травой фона
+      drawCell(ST, ui.move, 'sel', t);
+      if (ui.hover >= 0 && ui.hover !== ui.move) drawCell(ST, ui.hover, ok ? 'ok' : 'no', t);
+      if (ok) { const [x, y] = SIM.cellXY(ST, ui.hover), [fx, fy] = SIM.cellXY(ST, ui.move), d = Math.hypot(x - fx, y - fy), ang = Math.atan2(y - fy, x - fx);
+        const lc = col.map((v) => v + (1 - v) * 0.45);                   // цвет башни, разбавленный белым: тёмные башни видно на тёмном фоне
+        for (let k = 18; k < d - 18; k += 22) L.solid(fx + Math.cos(ang) * k, fy + Math.sin(ang) * k, 12, 4, lc, ang, 6, 2, 0.9);   // пунктир «откуда — куда»
+        // превью радиуса на новой клетке: мягкая кайма и линия ровно по радиусу (кольцо L.ring лежит на 0.85 своего квада),
+        // пунктир круга — не ярче пунктира «откуда — куда»
+        const r = SIM.moveRangePx(ST, ui.move, ui.hover), R = r / 0.85;
+        L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); }
+    }
     // клетки: выбранная и под курсором; круг дальности выбранной башни или будущей башни (на выбранной клетке или под курсором)
-    if (!ST.demo) {
+    if (!ST.demo && !moving) {
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
@@ -205,6 +236,9 @@
         L.ring(e.x, e.y, 30 + 50 * q, (30 + 50 * q) * 0.5, c, 0.9 * (1 - q), 0.15);
         for (let j = 0; j < 6; j++) L.puff(e.x + (j - 2.5) * 12 * (1 + q), e.y - 4 - 14 * q, 7 + 8 * q, [0.5, 0.45, 0.6], 0.4 * (1 - q), j + e.t);
         if (e.k !== 'build') for (let j = 0; j < 7; j++) { const an = j * 0.9 + e.t, rr = 20 + 50 * q; L.star(e.x + Math.cos(an) * rr, e.y - 50 - 40 * q + Math.sin(an) * rr * 0.5, 9, c, 1 - q); } }
+      if (e.k === 'move' && a < 0.6) { const q = a / 0.6;                // перенос: пыль на старой клетке, кольцо на новой
+        for (let j = 0; j < 6; j++) L.puff(e.fx + (j - 2.5) * 10, e.fy - 8 - 24 * q, 9 + 9 * q, [0.5, 0.45, 0.6], 0.45 * (1 - q), j + 3);
+        L.ring(e.x, e.y, 26 + 40 * q, (26 + 40 * q) * 0.5, COL.soul, 0.8 * (1 - q), 0.15); }
       if (e.k === 'sell' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 8; j++) L.puff(e.x + (j - 3.5) * 9, e.y - 10 - 30 * q, 10 + 10 * q, [0.5, 0.45, 0.6], 0.5 * (1 - q), j); }
       if (e.k === 'heal' && e.any && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y - 14, 20 + 50 * q, (20 + 50 * q) * 0.55, COL.heal, 0.7 * (1 - q), 0.12); }
       if (e.k === 'freeze' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 4; j++) L.star(e.x + (j - 1.5) * 8, e.y - 20 - 10 * q, 8, COL.frost, 1 - q); }
