@@ -1,7 +1,8 @@
-// node --test tests/ — уровень, детерминизм, баланс.
+// node --test tests/*.test.mjs — уровень, детерминизм, баланс (ожидания ботов — tests/runs.mjs), команды, сейв.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM, play, smart, spamBones, idle } from './bots.mjs';
+import { SIM, play, smart } from './bots.mjs';
+import { RUNS, playRun, describe } from './runs.mjs';
 const C = SIM.CONFIG;
 
 test('уровень: путь до склепа, 18 площадок вне дороги, 25 волн', () => {
@@ -18,17 +19,8 @@ test('детерминизм: тот же seed — тот же итог', () => 
   const a = play(smart, 7, 900), b = play(smart, 7, 900);
   assert.deepEqual([a.wave, a.hp, a.kills, a.souls], [b.wave, b.hp, b.kills, b.souls]);
 });
-test('без обороны проигрыш к 4-й волне', () => {
-  const r = play(idle, 1); assert.equal(r.phase, 'lost'); assert.ok(r.wave <= 4, 'wave ' + r.wave);
-});
-test('разумная оборона побеждает с запасом 2–14 HP за 35–55 минут игрового времени', () => {
-  for (const seed of [1, 2, 3]) { const r = play(smart, seed);
-    assert.equal(r.phase, 'won', `seed ${seed}: ${r.phase} на волне ${r.wave}`);
-    assert.ok(r.hp >= 2 && r.hp <= 14, `seed ${seed}: hp ${r.hp}`);
-    assert.ok(r.t >= 35 * 60 && r.t <= 55 * 60, `seed ${seed}: t ${r.t}`); }
-});
-test('одна башня спамом проигрывает между 12 и 23 волной', () => {
-  const r = play(spamBones, 1); assert.equal(r.phase, 'lost'); assert.ok(r.wave >= 12 && r.wave <= 23, 'wave ' + r.wave);
+for (const R of RUNS) test(`бот ${R.name}: ${R.want}`, () => {        // партии и ожидания — tests/runs.mjs
+  const r = playRun(R); assert.ok(R.ok(r), `${R.name}: ${describe(r)}`);
 });
 test('команды: нельзя строить без душ, продажа возвращает 70%', () => {
   const S = SIM.create(); S.souls = 50; SIM.step(S, { cmds: [{ k: 'build', slot: 0, type: 'bones' }] }); assert.equal(S.towers[0], null);
