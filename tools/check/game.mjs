@@ -68,7 +68,8 @@ export async function inspect(page) {
     for (const el of root.querySelectorAll('*')) {
       const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden' || !el.offsetParent) continue;
       const b = el.getBoundingClientRect(); if (!b.width) continue;
-      if (el.scrollWidth > el.clientWidth + 2 && cs.overflow !== 'visible' && el.clientWidth) out.push('overflow-x ' + (el.id || el.className) + ' ' + el.textContent.slice(0, 30));
+      // поле ввода длинный текст прокручивает внутри своей рамки — это не переполнение
+      if (el.scrollWidth > el.clientWidth + 2 && cs.overflow !== 'visible' && el.clientWidth && !el.matches('input, textarea')) out.push('overflow-x ' + (el.id || el.className) + ' ' + el.textContent.slice(0, 30));
       if (el.children.length === 0 && el.textContent.trim()) {                 // текстовый лист: внутри родительской рамки
         const par = el.closest(BOX); if (par) { const pb = par.getBoundingClientRect();
           if (b.right > pb.right + 1 || b.left < pb.left - 1 || b.bottom > pb.bottom + 1 || b.top < pb.top - 1) out.push('text-out ' + (par.id || par.className) + ': ' + el.textContent.trim().slice(0, 30)); }

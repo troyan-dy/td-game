@@ -32,8 +32,8 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   const dev = document.getElementById('dev'), flash = document.getElementById('flash');
   const APP = window.APP = { play: null, speed: 1, paused: false, simT: 0, cmds: [], devSpeed: 1 };
   APP.cmd = (c) => APP.cmds.push(c);
-  // новый забег: сид — случайное число 1..999999 (виден в HUD), карта генерируется от него
-  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * 999999) : seed); APP.paused = false; APP.speed = 1; };
+  // новый забег: сид введённый (SIM.parseSeed) или случайный 1..CONFIG.SEED.random (виден в HUD), карта генерируется от него
+  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * SIM.CONFIG.SEED.random) : seed); APP.paused = false; APP.speed = 1; };
   APP.load = (S) => { if (!SIM.loadable(S)) return false; APP.play = S; APP.paused = false; return true; };   // негодное или старое состояние не грузим
   APP.toMenu = () => { APP.play = null; };
   try { const sv = JSON.parse(sessionStorage.getItem('live') || 'null');
