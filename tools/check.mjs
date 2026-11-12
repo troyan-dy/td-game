@@ -79,7 +79,9 @@ async function main() {
   process.on('unhandledRejection', (e) => abort('сбой команды проверки: ' + (e && e.stack || e), 1));
   const timer = setTimeout(() => abort(`превышен общий предел времени ${opt.timeout} с`, 1), opt.timeout * 1000);
 
+  let finished = false;
   const finish = (forced) => {
+    if (finished) return; finished = true;   // abort и обычный путь могут прийти оба: сводка печатается один раз
     clearTimeout(timer);
     const { text, failed } = summary(res, { OUT: rel(OUT), secs: (Date.now() - t0) / 1000, port: opt.portUsed });
     try { fs.writeFileSync(path.join(OUT, 'report.json'), JSON.stringify(res, null, 1)); } catch (e) {}
@@ -166,15 +168,22 @@ function runTests(OUT, live) {
       try { fs.writeFileSync(path.join(OUT, 'tests.log'), log); } catch (e) {}
       const num = (k) => { const m = new RegExp('^# ' + k + ' (\\d+)', 'm').exec(log); return m ? +m[1] : 0; };
       const lines = log.split(/\r?\n/), failed = [];
+      let prevDepth = -1;
       lines.forEach((l, i) => {
         const m = /^(\s*)not ok \d+ - (.*)$/.exec(l); if (!m) return;
-        if (lines.slice(i + 1).some((x) => x.startsWith(m[1] + '    not ok'))) return;   // родитель упавшего подтеста: покажем сам подтест
-        let why = '';
-        for (let j = i + 1; j < Math.min(lines.length, i + 40); j++) {
-          const e = /^\s*error: (.*)$/.exec(lines[j]); if (!e) continue;
-          why = /^\|/.test(e[1]) ? (lines[j + 1] || '').trim() : e[1].replace(/^'|'$/g, ''); break;
+        const depth = m[1].length, parent = prevDepth > depth; prevDepth = depth;
+        if (parent) return;                       // подтесты печатаются перед родителем: показываем сам упавший подтест
+        let why = '', where = '';
+        for (let j = i + 1; j < Math.min(lines.length, i + 60); j++) {
+          if (/^\s*(not )?ok \d+ /.test(lines[j])) break;
+          const loc = /^\s*location: '.*?([^\\/]+:\d+):\d+'$/.exec(lines[j]); if (loc) where = loc[1];
+          const e = /^(\s*)error: (.*)$/.exec(lines[j]); if (!e) continue;
+          if (!/^\|/.test(e[2])) { why = e[2].replace(/^'|'$/g, ''); continue; }
+          const body = [];
+          for (let k = j + 1; k < lines.length && (lines[k].length - lines[k].trimStart().length > e[1].length || !lines[k].trim()); k++) if (lines[k].trim()) body.push(lines[k].trim());
+          why = body.join(' ');
         }
-        failed.push(m[2].replace(/^"(.*)"$/, '$1') + (why ? ' — ' + why : ''));
+        failed.push(m[2].replace(/^"(.*)"$/, '$1') + (where ? ` (${where})` : '') + (why ? ' — ' + why : ''));
       });
       const r = { pass: num('pass'), fail: num('fail') + num('cancelled'), skipped: num('skipped') + num('todo'), failed, files, code };
       if (code !== 0 && !r.fail) { r.fail = 1; r.failed.push(`node --test завершился с кодом ${code}`); }
@@ -292,8 +301,12 @@ function summary(res, { OUT, secs, port }) {
   L.push(failed ? 'ИТОГ: ПРОВАЛ (код 1)' : 'ИТОГ: ОК (код 0)');
   return { text: L.join('\n'), failed };
 }
-function dedupe(arr) { const m = new Map(); for (const x of arr) { const k = x.replace(/^\d+: /, ''); const e = m.get(k); if (e) e.n++; else m.set(k, { x, n: 1 }); }
-  return [...m.values()].map((e) => e.n > 1 ? `${e.x} (×${e.n})` : e.x); }
+// Одинаковые ошибки из разных окон и перезагрузок — одной строкой: «1280,1920: текст (×4)».
+function dedupe(arr) {
+  const m = new Map();
+  for (const x of arr) { const [, vw, k] = /^(\d+): ([\s\S]*)$/.exec(x) || [, '?', x]; const e = m.get(k) || { vws: new Set(), n: 0 }; e.vws.add(vw); e.n++; m.set(k, e); }
+  return [...m].map(([k, e]) => `${[...e.vws].join(',')}: ${k}${e.n > 1 ? ` (×${e.n})` : ''}`);
+}
 function wrap(head, words, width) {
   const out = []; let line = head;
   for (const w of words) { if (line.length + w.length + 1 > width && line.trim().length > head.trim().length) { out.push(line.trimEnd()); line = ' '.repeat(head.length); } line += w + ' '; }
