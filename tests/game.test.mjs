@@ -182,6 +182,8 @@ test('титульное демо: на большей части петли п�
 const veteran = (seed, type, perk) => {
   const S = SIM.create(seed); S.souls = 1e5; const cell = SIM.rankCells(S, 3.4)[0];
   SIM.step(S, { cmds: [{ k: 'build', cell, type }, { k: 'upgrade', cell }, { k: 'upgrade', cell }, { k: 'perk', cell, p: perk }, { k: 'call' }] });
+  const tw = S.towers[cell];                                        // подготовка сработала: иначе тесты «сохраняет прокачку» проверят пустую башню
+  assert.ok(tw && tw.perk === perk && tw.invested > T[type].cost[0], `прокачка не применилась: ${JSON.stringify(tw)}`);
   for (let i = 0; i < 120 * 300 && S.phase === 'wave'; i++) SIM.step(S, null);
   return { S, cell };
 };
@@ -246,21 +248,30 @@ test('перенос переживает облака, снаряды и яд: 
   assert.ok(fired > 0 && poisoned > 0, `котёл с новой клетки не воевал: выстрелов ${fired}, отравлений ${poisoned}`);
   assert.ok(tw.dmg > dmg0, 'урон после переноса не идёт в счёт башни');
 });
-test('перенесённая башня — как построенная на новой клетке: те же радиус, точка выстрела и характеристики, клетке ничего не платится', () => {
+test('перенесённая башня — как построенная на новой клетке, на любой допустимой клетке; перенос не стоит душ', () => {
   // особые клетки (курган, источник, проклятая земля) берутся от клетки башни: башня не хранит ничего клеточного, кроме самой клетки,
-  // а перенос не списывает души — поэтому бонус новой клетки приходит сам, а наценка постройки не взимается
+  // а перенос не списывает души — поэтому бонус новой клетки приходит сам, а наценка постройки не взимается.
+  // Обход всех клеток moveCells: после появления особых клеток тест сам покрывает и их.
+  // own — поля башни без тех, что у построенной и перенесённой законно разные (id, таймеры, вложено: наценка клетки)
+  const own = (t) => { const o = Object.assign({}, t); for (const k of ['id', 'cd', 'fireT', 'built', 'invested']) delete o[k]; return o; };
   for (const type of C.TOWER_ORDER) {
-    const A = SIM.create(6); A.souls = 1e5; const [x, y] = SIM.rankCells(A, 3.4), B = JSON.parse(JSON.stringify(A));
+    const A = SIM.create(6); A.souls = 1e5; const x = SIM.rankCells(A, 3.4)[0], B = JSON.parse(JSON.stringify(A));
     const perk = Object.keys(T[type].perks)[0], grow = (cell) => [{ k: 'build', cell, type }, { k: 'upgrade', cell }, { k: 'upgrade', cell }, { k: 'perk', cell, p: perk }];
-    SIM.step(A, { cmds: grow(x) }); SIM.step(B, { cmds: grow(y) });
-    const souls = A.souls, preview = SIM.moveRangePx(A, x, y); SIM.step(A, { cmds: [{ k: 'move', cell: x, to: y }] });
-    assert.equal(A.souls, souls, 'перенос стоил душ');
-    const ta = A.towers[y], tb = B.towers[y];
-    assert.equal(SIM.rangePx(ta), SIM.rangePx(tb)); assert.deepEqual(SIM.muzzle(A, ta), SIM.muzzle(B, tb));
-    assert.equal(preview, SIM.rangePx(tb), 'превью радиуса до переноса — радиус на новой клетке');
-    for (const k of ['dmg', 'dps', 'rate', 'range']) assert.equal(SIM.towerStat(ta, k), SIM.towerStat(tb, k), `${type}.${k}`);
-    const own = (t) => { const o = Object.assign({}, t); for (const k of ['id', 'cd', 'fireT', 'built']) delete o[k]; return o; };
-    assert.deepEqual(own(ta), own(tb));
+    const grown = (t) => assert.ok(t && t.perk === perk && t.invested > T[type].cost[0], `прокачка не применилась: ${JSON.stringify(t)}`);
+    SIM.step(A, { cmds: grow(x) }); const tw = A.towers[x]; grown(tw);
+    const invested = tw.invested, cells = SIM.moveCells(A, x); let cur = x;
+    assert.ok(cells.length > 100, 'мало клеток для переноса: ' + cells.length);
+    for (const c of cells) {
+      SIM.step(B, { cmds: grow(c) }); const tb = B.towers[c]; grown(tb);     // эталон: такая же башня, построенная прямо на c
+      const souls = A.souls, preview = SIM.moveRangePx(A, cur, c);
+      SIM.step(A, { cmds: [{ k: 'move', cell: cur, to: c }] }); cur = c;
+      assert.equal(A.towers[c], tw, `${type}: перенос на ${c} не прошёл`);
+      assert.equal(A.souls, souls, `${type}: перенос на ${c} стоил душ`); assert.equal(tw.invested, invested, `${type}: перенос на ${c} изменил вложенное`);
+      assert.equal(preview, SIM.rangePx(tb), `${type}: превью радиуса на ${c} не равно радиусу построенной там башни`);
+      assert.equal(SIM.rangePx(tw), SIM.rangePx(tb), `${type}: радиус на ${c}`); assert.deepEqual(SIM.muzzle(A, tw), SIM.muzzle(B, tb));
+      assert.deepEqual(own(tw), own(tb), `${type}: на ${c} перенесённая башня отличается от построенной`);
+      SIM.step(B, { cmds: [{ k: 'sell', cell: c }] });
+    }
   }
 });
 test('состояние после переноса сериализуется без потерь', () => {

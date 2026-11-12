@@ -174,8 +174,12 @@
       drawCell(ST, ui.move, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.move) drawCell(ST, ui.hover, ok ? 'ok' : 'no', t);
       if (ok) { const [x, y] = SIM.cellXY(ST, ui.hover), [fx, fy] = SIM.cellXY(ST, ui.move), d = Math.hypot(x - fx, y - fy), ang = Math.atan2(y - fy, x - fx);
-        for (let k = 18; k < d - 18; k += 22) L.solid(fx + Math.cos(ang) * k, fy + Math.sin(ang) * k, 10, 3, col, ang, 5, 1.5, 0.7);   // пунктир «откуда — куда»
-        drawRange(x, y, SIM.moveRangePx(ST, ui.move, ui.hover), col, t, 0.85); }
+        const lc = col.map((v) => v + (1 - v) * 0.45);                   // цвет башни, разбавленный белым: тёмные башни видно на тёмном фоне
+        for (let k = 18; k < d - 18; k += 22) L.solid(fx + Math.cos(ang) * k, fy + Math.sin(ang) * k, 12, 4, lc, ang, 6, 2, 0.9);   // пунктир «откуда — куда»
+        // превью радиуса на новой клетке: мягкая кайма и линия ровно по радиусу (кольцо L.ring лежит на 0.85 своего квада),
+        // пунктир круга — не ярче пунктира «откуда — куда»
+        const r = SIM.moveRangePx(ST, ui.move, ui.hover), R = r / 0.85;
+        L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); }
     }
     // клетки: выбранная и под курсором; круг дальности выбранной башни или будущей башни (на выбранной клетке или под курсором)
     if (!ST.demo && !moving) {
