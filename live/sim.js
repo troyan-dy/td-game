@@ -40,7 +40,11 @@
   const cellXY = (S, i) => MAPGEN.cellXY(S.map, i);
   const cellCount = (S) => S.map.cols * S.map.rows;
   const towerStat = (tw, key) => { const v = TW[tw.type][key]; return Array.isArray(v) ? v[tw.lvl - 1] : v; };
-  const rangePx = (tw) => towerStat(tw, 'range') * UNIT;
+  // бонус особой клетки: { kind, name, desc, range?, souls?, dmg?, cost? } или null. Всегда от клетки, где башня стоит сейчас
+  const cellBonus = (S, cell) => { const k = MAPGEN.special(S.map, cell); return k ? Object.assign({ kind: k }, C.SPECIAL[k]) : null; };
+  const bonusOf = (S, cell, key) => { const b = cellBonus(S, cell); return (b && b[key]) || 0; };
+  // итоговый радиус башни (с бонусом клетки), px
+  const rangePx = (S, tw) => (towerStat(tw, 'range') + bonusOf(S, tw.cell, 'range')) * UNIT;
   const rangeTiles = (units) => units * UNIT / C.GRID.tile;          // радиус в клетках сетки (для подписей)
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола»
   const MUZZLE = { bones: 58, spirits: 70, plague: 44, dark: 92 };
@@ -71,13 +75,15 @@
   };
 
   // ---------------------------------------------------------------- ответы интерфейсу
-  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
-  // cost — цена постройки на этой клетке (её и списывает команда build)
+  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'obstacle' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
+  // cost — цена постройки на этой клетке с наценкой особой клетки (её и списывает команда build)
   const canBuild = (S, cell, type) => {
-    const def = TW[type], cost = def ? def.cost[0] : null, no = (reason) => ({ ok: false, reason, cost });
-    if (!(cell >= 0 && cell < cellCount(S)) || cell !== Math.floor(cell)) return no('bounds');
+    const def = TW[type], inside = cell >= 0 && cell < cellCount(S) && cell === Math.floor(cell);
+    const cost = def ? Math.round(def.cost[0] * (1 + (inside ? bonusOf(S, cell, 'cost') : 0))) : null, no = (reason) => ({ ok: false, reason, cost });
+    if (!inside) return no('bounds');
     if (S.map.road.includes(cell)) return no('road');
     if (MAPGEN.hud(S.map, cell)) return no('hud');
+    if (MAPGEN.obstacle(S.map, cell)) return no('obstacle');
     if (S.towers[cell]) return no('occupied');
     if (!def) return no('type');
     if (S.unlocked && !S.unlocked.includes(type)) return no('locked');
@@ -86,7 +92,7 @@
     return { ok: true, reason: null, cost };
   };
   // радиус будущей башни типа type на клетке cell, px (круг превью постройки)
-  const buildRangePx = (S, cell, type) => TW[type].range[0] * UNIT;
+  const buildRangePx = (S, cell, type) => (TW[type].range[0] + bonusOf(S, cell, 'range')) * UNIT;
   // годно ли состояние для продолжения (сейв, sessionStorage): текущая версия, годная карта, все поля на месте
   const loadable = (S) => {
     try {
@@ -103,7 +109,7 @@
     for (let d = 0; d < L; d += 4) { const p = posAt(S, d); if (Math.hypot(p.x - x, p.y - y) <= r) n += 4; } return n; };
   // свободные клетки по убыванию покрытия дороги (боты, демо, подсказки)
   const rankCells = (S, units) => { const out = [];
-    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i)) out.push([i, coverage(S, i, units)]);
+    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i) && !MAPGEN.obstacle(S.map, i)) out.push([i, coverage(S, i, units)]);
     return out.sort((a, b) => b[1] - a[1] || a[0] - b[0]).map((c) => c[0]); };
 
   // ---------------------------------------------------------------- команды игрока
@@ -165,6 +171,7 @@
   const damage = (S, e, amt, type, tw, opt) => {
     if (e.dead || amt <= 0) return 0;
     const def = EN[e.type];
+    if (tw) amt *= 1 + bonusOf(S, tw.cell, 'dmg');                    // проклятая земля: бонус урона любой атаки башни, включая яд
     if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, def.armor + e.aura - e.shred));
     else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - def.mres;
     if (e.curseT > 0) amt *= 1 + TW.dark.perks.curse.mult;
@@ -177,8 +184,10 @@
     e.dead = true; const def = EN[e.type];
     S.souls += e.bounty; S.stats.kills++; S.stats.earned += e.bounty; if (tw) tw.kills++;
     ev(S, 'die', { x: e.x, y: e.y, type: e.type, souls: e.bounty, face: e.face, boss: !!def.boss });
+    const well = tw ? bonusOf(S, tw.cell, 'souls') : 0;                // источник душ под башней-убийцей
+    if (well) { S.souls += well; S.stats.earned += well; const [wx, wy] = cellXY(S, tw.cell); ev(S, 'well', { x: wx, y: wy - 40, souls: well, cell: tw.cell }); }
     for (const t of S.towers) if (t && t.type === 'dark' && t.perk === 'harvest') {
-      const [sx, sy] = cellXY(S, t.cell); if (Math.hypot(e.x - sx, e.y - sy) <= rangePx(t)) { const g = TW.dark.perks.harvest.souls; S.souls += g; S.stats.earned += g; ev(S, 'harvest', { x: e.x, y: e.y, souls: g, cell: t.cell }); }
+      const [sx, sy] = cellXY(S, t.cell); if (Math.hypot(e.x - sx, e.y - sy) <= rangePx(S, t)) { const g = TW.dark.perks.harvest.souls; S.souls += g; S.stats.earned += g; ev(S, 'harvest', { x: e.x, y: e.y, souls: g, cell: t.cell }); }
     }
     for (const key in e.poison) { const p = e.poison[key], t = towerOf(S, p.tw);
       if (p.chain && t && t.type === 'plague' && t.perk === 'pestilence') { const pk = TW.plague.perks.pestilence;
@@ -188,7 +197,7 @@
   };
 
   // ---------------------------------------------------------------- башни
-  const inRange = (S, tw) => { const [sx, sy] = cellXY(S, tw.cell), r = rangePx(tw), out = [];
+  const inRange = (S, tw) => { const [sx, sy] = cellXY(S, tw.cell), r = rangePx(S, tw), out = [];
     for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - sx, e.y - sy) <= r) out.push(e); return out; };
   const firstOf = (list) => list.reduce((b, e) => (!b || e.d > b.d ? e : b), null);
   const fire = (S, tw) => {
@@ -205,7 +214,7 @@
         if (tw.perk === 'pierce') {
           const fl = Math.hypot(e.x - mx, e.y - my) / def.boltSpeed, p = posAt(S, e.d + EN[e.type].speed * fl);
           const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
-          S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: rangePx(tw) * 1.3, dmg, sp: def.boltSpeed, tw: tw.id, pierce: def.perks.pierce.targets, hit: [] });
+          S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: rangePx(S, tw) * 1.3, dmg, sp: def.boltSpeed, tw: tw.id, pierce: def.perks.pierce.targets, hit: [] });
         } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg, sp: def.boltSpeed, tw: tw.id, lx: e.x, ly: e.y });
       }
     } else if (tw.type === 'spirits') {
@@ -375,7 +384,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, MUZZLE,
-    canBuild, buildRangePx, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
+    canBuild, buildRangePx, cellBonus, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
   };
   if (typeof module !== 'undefined') module.exports = SIM;

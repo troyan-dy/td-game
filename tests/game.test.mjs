@@ -9,7 +9,8 @@ const MAPGEN = require('../live/mapgen.js');
 const C = SIM.CONFIG;
 
 const T = C.TOWERS;
-const freeCell = (S) => SIM.rankCells(S, 3)[0];
+// свободная клетка у дороги без бонуса особой клетки
+const freeCell = (S) => SIM.rankCells(S, 3).find((c) => !S.map.specials.some((s) => s.cell === c));
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 const hudCells = (S) => { const out = []; for (let i = 0; i < S.map.cols * S.map.rows; i++) { const x = i % S.map.cols, y = Math.floor(i / S.map.cols);
   if (C.MAP.keepout.some(([kx, ky, kw, kh]) => x >= kx && y >= ky && x < kx + kw && y < ky + kh)) out.push(i); } return out; };
@@ -68,7 +69,74 @@ test('радиусы башен в прежних единицах по 48 px; �
   const S = SIM.create(1), cell = freeCell(S); S.souls = 1000;
   for (const type of C.TOWER_ORDER) assert.equal(SIM.buildRangePx(S, cell, type), T[type].range[0] * 48);
   SIM.step(S, { cmds: [{ k: 'build', cell, type: 'bones' }] });
-  assert.equal(SIM.rangePx(S.towers[cell]), T.bones.range[0] * 48);
+  assert.equal(SIM.rangePx(S, S.towers[cell]), T.bones.range[0] * 48);
+});
+
+// ---- препятствия и особые клетки
+const specialCell = (S, kind) => S.map.specials.find((s) => s.kind === kind).cell;
+// башня type на клетке cell один раз бьёт неподвижного врага с огромным HP (hp — его HP); очередь волны держится непустой,
+// чтобы волна не закончилась. Возвращает { tw, e, S }
+const strike = (seed, cell, type, hp = 1e6) => {
+  const S = SIM.create(seed); S.souls = 1e4;
+  SIM.step(S, { cmds: [{ k: 'build', cell, type }, { k: 'call' }] }); SIM.step(S, null);
+  S.queue = [{ at: 1e9, e: 'militia' }]; S.qi = 0;
+  const tw = S.towers[cell], e = S.enemies[0], [x, y] = SIM.cellXY(S, cell);
+  const far = (d) => Math.hypot(SIM.posAt(S, d).x - x, SIM.posAt(S, d).y - y);   // враг — в ближайшей к башне точке дороги
+  let d = 0; for (let q = 0; q < SIM.pathLen(S); q += 4) if (far(q) < far(d)) d = q;
+  assert.ok(far(d) < SIM.rangePx(S, tw) - 20, 'дорога вне радиуса башни');
+  e.d = d; e.freezeT = 1e9; e.hp = e.max = hp; S.enemies = [e]; SIM.step(S, null);
+  for (let i = 0; i < 120 * 10 && (e.hp === e.max && !e.dead); i++) SIM.step(S, null);
+  return { tw, e, S };
+};
+
+test('постройка на препятствии отклоняется, препятствия не попадают в места под постройку', () => {
+  const S = SIM.create(5); S.souls = 1e4;
+  assert.ok(S.map.obstacles.length > 0);
+  for (const { cell } of S.map.obstacles) assert.equal(SIM.canBuild(S, cell, 'bones').reason, 'obstacle', 'клетка ' + cell);
+  SIM.step(S, { cmds: S.map.obstacles.map(({ cell }) => ({ k: 'build', cell, type: 'bones' })) });
+  assert.ok(S.towers.every((t) => !t)); assert.equal(S.souls, 1e4);
+  const ob = new Set(S.map.obstacles.map((o) => o.cell));
+  assert.ok(SIM.rankCells(S, 3).every((c) => !ob.has(c)));
+});
+
+test('курган: +1 единица дальности (48 px) башне и кругу будущей башни', () => {
+  const S = SIM.create(5), mound = specialCell(S, 'mound'), plain = freeCell(S); S.souls = 1e4;
+  assert.equal(SIM.buildRangePx(S, mound, 'bones'), (3.6 + 1) * 48);
+  assert.equal(SIM.buildRangePx(S, plain, 'bones'), 3.6 * 48);
+  SIM.step(S, { cmds: [{ k: 'build', cell: mound, type: 'bones' }, { k: 'build', cell: plain, type: 'dark' }] });
+  assert.equal(SIM.rangePx(S, S.towers[mound]), (3.6 + 1) * 48);
+  assert.equal(SIM.rangePx(S, S.towers[plain]), 3.2 * 48);
+  assert.equal(SIM.cellBonus(S, mound).kind, 'mound'); assert.equal(SIM.cellBonus(S, plain), null);
+});
+
+test('проклятая земля: постройка на 30% дороже и +25% урона', () => {
+  const S = SIM.create(5), cursed = specialCell(S, 'cursed'), plain = freeCell(S); S.souls = 1000;
+  assert.equal(SIM.canBuild(S, cursed, 'bones').cost, 130);
+  assert.equal(SIM.canBuild(S, cursed, 'dark').cost, 195);
+  assert.equal(SIM.canBuild(S, plain, 'dark').cost, 150);
+  SIM.step(S, { cmds: [{ k: 'build', cell: cursed, type: 'dark' }] });
+  assert.equal(S.souls, 1000 - 195); assert.equal(S.towers[cursed].invested, 195);
+  const P = SIM.create(5); P.souls = 194;
+  assert.equal(SIM.canBuild(P, cursed, 'dark').reason, 'souls'); assert.equal(SIM.canBuild(P, plain, 'dark').ok, true);
+  // луч Тьмы уровня 1 — 20 урона, по ополченцу без защиты
+  assert.equal(strike(5, cursed, 'dark').tw.dmg, 25);
+  assert.equal(strike(5, plain, 'dark').tw.dmg, 20);
+});
+
+test('источник душ: +1 душа за каждое убийство башней на этой клетке', () => {
+  const seed = 5, S0 = SIM.create(seed), well = specialCell(S0, 'well'), plain = freeCell(S0);
+  const gain = (cell) => { const r = strike(seed, cell, 'bones', 1);
+    assert.equal(r.e.dead, true, 'враг не убит'); assert.equal(r.tw.kills, 1); return r.S.stats.earned - r.e.bounty; };
+  assert.equal(gain(well), 1);
+  assert.equal(gain(plain), 0);
+});
+
+test('бонус особой клетки берётся от клетки, где башня стоит сейчас (перенос)', () => {
+  const S = SIM.create(5), mound = specialCell(S, 'mound'), plain = freeCell(S); S.souls = 1e4;
+  SIM.step(S, { cmds: [{ k: 'build', cell: plain, type: 'bones' }] });
+  const tw = S.towers[plain]; assert.equal(SIM.rangePx(S, tw), 3.6 * 48);
+  S.towers[plain] = null; S.towers[mound] = tw; tw.cell = mound;          // так башню переставит перенос — мимо doCmd
+  assert.equal(SIM.rangePx(S, tw), (3.6 + 1) * 48);
 });
 
 test('снаряды и облака помнят свою башню, а не клетку: продажа и новая башня на той же клетке', () => {

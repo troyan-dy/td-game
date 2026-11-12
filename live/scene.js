@@ -155,11 +155,11 @@
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
-      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.rangePx(selT), TCOL[selT.type], t); }
+      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.rangePx(ST, selT), TCOL[selT.type], t); }
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), TCOL[pType], t, 0.8); }
       else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && SIM.canBuild(ST, ui.hover, ui.armed).reason !== 'road') {
         const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), TCOL[ui.armed], t, 0.7); }
-      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.rangePx(h), TCOL[h.type], t, 0.45); }
+      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.rangePx(ST, h), TCOL[h.type], t, 0.45); }
     }
 
     // облака яда (на земле)
