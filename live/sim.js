@@ -61,11 +61,16 @@
     return o;
   };
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
+  // непрокачанная башня типа type на клетке cell. Поля башни: tracks — ступени веток, cap — потолок ступеней этой башни,
+  // perk — взятый перк; после постройки ещё id, invested (всё вложенное: постройка, ступени, перк), kills, dmg (нанесённый урон) и служебные
+  const fresh = (cell, type) => ({ cell, type, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, 0])), cap: C.TRACK_MAX, perk: null });
+  // итоговые характеристики будущей башни типа type на клетке cell (подсказка карточки, меню постройки); cell -1 — без клетки
+  const buildStats = (S, cell, type) => towerStats(S, fresh(cell, type));
   const rangeTiles = (units) => units * UNIT / C.GRID.tile;          // радиус в клетках сетки (для подписей)
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола»; выше с каждым видом,
   // но не выше линии HUD (C.VIEW_TOP), под которую сцена ужимает высокие башни верхнего ряда
   const MUZZLE = { bones: 58, spirits: 70, plague: 44, dark: 92 };
-  const muzzle = (S, tw) => { const [x, y] = cellXY(S, tw.cell); return [x, Math.max(C.VIEW_TOP + 10, y - MUZZLE[tw.type] - (look(tw) - 1) * 4)]; };
+  const muzzle = (S, tw) => { const [x, y] = cellXY(S, tw.cell); return [x, Math.max(C.VIEW_TOP, y - MUZZLE[tw.type] - (look(tw) - 1) * 4)]; };
   // башня по id: снаряды, облака и яд помнят башню, а не клетку (перенос и слияние не путают, чей урон). Индекс строится лениво
   // и сбрасывается в начале каждого шага и после каждой команды: башни, изменённые между шагами, в нём не залеживаются.
   let IDX = null, IDX_S = null;
@@ -161,9 +166,7 @@
       const cb = canBuild(S, c.cell, c.type); if (!cb.ok) return;
       const [x, y] = cellXY(S, c.cell);
       pay(S, cb.cost);
-      // tracks — ступени веток, cap — потолок ступеней этой башни, invested — всё вложенное (постройка, ступени, перк)
-      S.towers[c.cell] = { id: S.nid++, cell: c.cell, type: c.type, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, 0])), cap: C.TRACK_MAX,
-        perk: null, cd: 0.4, invested: cb.cost, kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t };
+      S.towers[c.cell] = Object.assign(fresh(c.cell, c.type), { id: S.nid++, cd: 0.4, invested: cb.cost, kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t });
       ev(S, 'build', { cell: c.cell, type: c.type, x, y });
     } else if (c.k === 'upgrade') {                                   // { k: 'upgrade', cell, track: 'dmg' | 'range' | 'rate' }
       const cu = canUpgrade(S, c.cell, c.track); if (!cu.ok) return;
@@ -426,7 +429,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, MUZZLE,
-    canBuild, buildRangePx, canUpgrade, canPerk, towerStats, steps, look, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
+    canBuild, buildRangePx, buildStats, canUpgrade, canPerk, towerStats, steps, look, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
   };
   if (typeof module !== 'undefined') module.exports = SIM;

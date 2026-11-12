@@ -127,8 +127,9 @@ const dummies = (S, cell, enemy, dists) => {
 const hurt = (e) => e.max - e.hp;
 
 test('итоговые характеристики башни отдаёт логика, и стреляет башня ровно ими', () => {
-  const S = SIM.create(2), cell = freeCell(S), tw = tower(S, cell, 'bones');
+  const S = SIM.create(2), cell = freeCell(S), future = SIM.buildStats(S, cell, 'bones'), tw = tower(S, cell, 'bones');
   const st0 = SIM.towerStats(S, tw), next = SIM.towerStats(S, tw, 'dmg');
+  assert.deepEqual(future, st0, 'характеристики будущей башни совпадают с построенной');
   for (const tr of C.TRACKS) SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: tr }, { k: 'upgrade', cell, track: tr }] });
   const st = SIM.towerStats(S, tw);
   assert.ok(st.dmg > st0.dmg && st.range > st0.range && st.rate < st0.rate, 'ветки не меняют характеристики');
@@ -171,6 +172,22 @@ test('новые перки: Бронебой, Могильный холод, М
   assert.equal(hurt(cu.es[1]), 0);
   const [a, b] = sl.es.map(hurt).sort((x, y) => y - x);
   assert.ok(Math.abs(b / a - T.dark.perks.split.mult) < 0.01, 'вторая цель: ' + (b / a).toFixed(3));
+});
+
+test('вид башни растёт с суммой ступеней, точка выстрела поднимается вместе с ним и не уходит под HUD', () => {
+  const S = SIM.create(8), cell = freeCell(S), tw = tower(S, cell, 'dark'), looks = [SIM.look(tw)], muz = [SIM.muzzle(S, tw)[1]];
+  for (let i = 0; i < C.TRACK_MAX * C.TRACKS.length; i++) { SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: C.TRACKS[i % C.TRACKS.length] }] });
+    looks.push(SIM.look(tw)); muz.push(SIM.muzzle(S, tw)[1]); }
+  assert.equal(looks[0], 1); assert.equal(looks[looks.length - 1], C.LOOK_AT.length + 1);
+  for (let i = 1; i < looks.length; i++) { assert.ok(looks[i] >= looks[i - 1]); assert.ok(muz[i] <= muz[i - 1]); }
+  for (const [n, lk] of C.LOOK_AT.map((n, i) => [n, i + 2])) assert.equal(looks[n], lk, `при ${n} ступенях вид ${lk}`);
+  // башня в верхнем ряду: выстрел не из-под плашек HUD
+  const top = SIM.create(8); top.souls = 1e6;
+  const c1 = Array.from({ length: top.map.cols }, (_, x) => top.map.cols + x).find((c) => SIM.canBuild(top, c, 'dark').ok);
+  SIM.step(top, { cmds: [{ k: 'build', cell: c1, type: 'dark' }] });
+  for (const k of C.TRACKS) for (let i = 0; i < C.TRACK_MAX; i++) SIM.step(top, { cmds: [{ k: 'upgrade', cell: c1, track: k }] });
+  assert.equal(SIM.look(top.towers[c1]), C.LOOK_AT.length + 1);
+  assert.ok(SIM.muzzle(top, top.towers[c1])[1] >= C.VIEW_TOP);
 });
 
 test('продажа возвращает 70% всего вложенного (постройка, ступени веток, перк) и освобождает клетку', () => {
