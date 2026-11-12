@@ -79,6 +79,58 @@ test('качество карт: есть длинные прямые, коро�
   assert.ok(q.seg2 <= 0.20, 'доля отрезков в 2 клетки ' + q.seg2);
 });
 
+// клетки под интерфейсом (HUD, кнопка волны, карточки) — не игровые, в «свободные» не входят
+const HUD = [[0, 0, 25, 1], [0, 2, 4, 2], [0, 12, 8, 2]];
+const isHud = (i) => { const [x, y] = xy(i); return HUD.some(([kx, ky, kw, kh]) => x >= kx && y >= ky && x < kx + kw && y < ky + kh); };
+const nearRoad = (road, i, r = 2) => { const [x, y] = xy(i); return road.some((c) => { const [a, b] = xy(c); return Math.max(Math.abs(a - x), Math.abs(b - y)) <= r; }); };
+
+test('препятствия на 1000 сидах: 8–15% свободных клеток, у дороги остаётся не меньше 40 свободных', () => {
+  let minShare = 1, maxShare = 0, minNear = Infinity;
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed), road = new Set(m.road), obst = m.obstacles.map((o) => o.cell);
+    const free = []; for (let i = 0; i < COLS * ROWS; i++) if (!road.has(i) && !isHud(i)) free.push(i);
+    assert.equal(new Set(obst).size, obst.length, `сид ${seed}: препятствия повторяются`);
+    for (const c of obst) assert.ok(free.includes(c), `сид ${seed}: препятствие ${c} на дороге или под интерфейсом`);
+    const share = obst.length / free.length; minShare = Math.min(minShare, share); maxShare = Math.max(maxShare, share);
+    assert.ok(share >= 0.08 && share <= 0.15, `сид ${seed}: препятствий ${(share * 100).toFixed(1)}%`);
+    const near = free.filter((i) => !obst.includes(i) && nearRoad(m.road, i)).length; minNear = Math.min(minNear, near);
+    assert.ok(near >= 40, `сид ${seed}: у дороги свободно ${near}`);
+  }
+  assert.ok(maxShare - minShare > 0.03, `доля препятствий не меняется от сида: ${minShare}–${maxShare}`);
+});
+
+test('особые клетки на 1000 сидах: 4–6 штук, все в пределах двух клеток от дороги, на свободных клетках, все три вида', () => {
+  const counts = new Set();
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed), road = new Set(m.road), obst = new Set(m.obstacles.map((o) => o.cell)), sp = m.specials;
+    counts.add(sp.length);
+    assert.ok(sp.length >= 4 && sp.length <= 6, `сид ${seed}: особых клеток ${sp.length}`);
+    assert.equal(new Set(sp.map((s) => s.cell)).size, sp.length, `сид ${seed}: особые клетки повторяются`);
+    for (const s of sp) {
+      assert.ok(['mound', 'well', 'cursed'].includes(s.kind), `сид ${seed}: вид ${s.kind}`);
+      assert.ok(!road.has(s.cell) && !obst.has(s.cell) && !isHud(s.cell), `сид ${seed}: особая клетка ${s.cell} не свободна`);
+      assert.ok(nearRoad(m.road, s.cell), `сид ${seed}: особая клетка ${s.cell} дальше двух клеток от дороги`);
+    }
+    assert.deepEqual(new Set(sp.map((s) => s.kind)), new Set(['mound', 'well', 'cursed']), `сид ${seed}: не все виды`);
+  }
+  assert.ok(counts.size >= 2, 'число особых клеток не меняется от сида');
+});
+
+test('проверка карты ловит неверные препятствия и особые клетки', () => {
+  const good = MAPGEN.generate(7), with_ = (o) => Object.assign({}, good, o);
+  const roadCell = good.road[5], hudCell = 0;
+  const has = (m, re) => MAPGEN.validate(m).some((s) => re.test(s));
+  assert.ok(has(with_({ obstacles: [...good.obstacles, { cell: roadCell, kind: 'tree' }] }), /препятствие/), 'препятствие на дороге');
+  assert.ok(has(with_({ obstacles: [...good.obstacles, { cell: hudCell, kind: 'tree' }] }), /препятствие/), 'препятствие под HUD');
+  assert.ok(has(with_({ obstacles: good.obstacles.slice(0, 3) }), /препятствий/), 'мало препятствий');
+  assert.ok(has(with_({ obstacles: [...good.obstacles, { cell: good.obstacles[0].cell, kind: 'tree' }] }), /препятствие/), 'повтор препятствия');
+  assert.ok(has(with_({ specials: good.specials.slice(0, 3) }), /особых/), 'мало особых клеток');
+  const far = []; for (let i = 0; i < COLS * ROWS; i++) if (!isHud(i) && !nearRoad(good.road, i)) far.push(i);
+  assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: far[0], kind: 'mound' }] }), /особая/), 'особая клетка вдали от дороги');
+  assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: good.obstacles[0].cell, kind: 'mound' }] }), /особая/), 'особая клетка на препятствии');
+  assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: good.specials[1].cell, kind: 'gold' }] }), /особая/), 'неизвестный вид');
+});
+
 test('один сид — одна и та же карта, разные сиды — разные карты', () => {
   assert.deepEqual(MAPGEN.generate(42), MAPGEN.generate(42));
   assert.deepEqual(JSON.parse(JSON.stringify(MAPGEN.generate(42))), MAPGEN.generate(42));

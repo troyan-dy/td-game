@@ -1,7 +1,10 @@
 // live/mapgen.js — генератор карты забега: клетчатое поле и одна дорога под прямыми углами от входа на краю до склепа.
-// Чистые функции от сида, без DOM. Карта — простой JSON: { v, seed, style, cols, rows, road: [индексы клеток от входа до склепа] }.
-// Клетка адресуется индексом i = y * cols + x. Склеп — последняя клетка дороги.
-// MAPGEN.generate(seed) → карта (всегда годная); MAPGEN.validate(map) → [нарушения]; MAPGEN.route(map) → маршрут врагов в px.
+// Чистые функции от сида, без DOM. Карта — простой JSON: { v, seed, style, cols, rows, road: [индексы клеток от входа до склепа],
+//   obstacles: [{ cell, kind: 'arch'|'tree'|'water'|'grave'|'ruin' }], specials: [{ cell, kind: 'mound'|'well'|'cursed' }] }.
+// Клетка адресуется индексом i = y * cols + x. Склеп — последняя клетка дороги. Препятствия и особые клетки ставятся после
+// выбора дороги из своих потоков ('map-obstacles', 'map-special'), поэтому дорога по сиду от них не зависит.
+// MAPGEN.generate(seed) → карта (всегда годная); MAPGEN.validate(map) → [нарушения]; MAPGEN.route(map) → маршрут врагов в px;
+// MAPGEN.obstacle(map, i), MAPGEN.special(map, i) → вид или null.
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const RNG = (typeof window !== 'undefined' && window.RNG) || require('./rng.js');
@@ -67,7 +70,9 @@
   };
 
   // ---------------------------------------------------------------- проверка карты: список нарушений (пустой — карта годна)
-  const validate = (m) => {
+  const validate = (m) => { const road = m.road || [], f = roadProblems(m);
+    return road.every((i) => i >= 0 && i < m.cols * m.rows && i === Math.floor(i)) ? f.concat(cellProblems(m)) : f; };
+  const roadProblems = (m) => {
     const f = [], cols = m.cols, rows = m.rows, road = m.road || [];
     if (cols !== G.cols || rows !== G.rows) f.push(`поле ${cols}×${rows}, ожидалось ${G.cols}×${G.rows}`);
     if (road.length < MP.roadMin || road.length > MP.roadMax) f.push(`длина дороги ${road.length}, нужно ${MP.roadMin}–${MP.roadMax}`);
@@ -92,6 +97,91 @@
     return f;
   };
 
+  // ---------------------------------------------------------------- препятствия и особые клетки
+  const OB = MP.obstacles, SP = MP.specials, OB_KINDS = ['arch', 'tree', 'water', 'grave', 'ruin'], SP_KINDS = Object.keys(C.SPECIAL);
+  const cheb = (m, a, b) => Math.max(Math.abs(a % m.cols - b % m.cols), Math.abs(Math.floor(a / m.cols) - Math.floor(b / m.cols)));
+  // расстояние каждой клетки до дороги по Чебышёву (в клетках)
+  const roadDist = (m) => { const d = new Array(m.cols * m.rows).fill(99);
+    for (const c of m.road) for (let i = 0; i < d.length; i++) { const v = cheb(m, i, c); if (v < d[i]) d[i] = v; }
+    return d; };
+  // свободные клетки: не дорога и не под интерфейсом (от них считается доля препятствий)
+  const freeCells = (m) => { const road = new Set(m.road), out = [];
+    for (let i = 0; i < m.cols * m.rows; i++) if (!road.has(i) && !inKeepout(i % m.cols, Math.floor(i / m.cols))) out.push(i);
+    return out; };
+  // столбы арки входа: две клетки по бокам от входа, поперёк направления дороги
+  const archCells = (m) => { const g = m.road[0], x = g % m.cols, y = Math.floor(g / m.cols), side = x === 0 || x === m.cols - 1;
+    return (side ? [[x, y - 1], [x, y + 1]] : [[x - 1, y], [x + 1, y]])
+      .filter(([a, b]) => a >= 0 && b >= 0 && a < m.cols && b < m.rows && !inKeepout(a, b)).map(([a, b]) => b * m.cols + a); };
+  const pickWeighted = (pairs, R) => { let s = 0; for (const p of pairs) s += p[1]; let u = R() * s;
+    for (const [v, w] of pairs) { u -= w; if (u < 0) return v; } return pairs[pairs.length - 1][0]; };
+
+  // расстановка после выбора дороги (дорога по сиду от неё не зависит): k — номер попытки, у каждой свои потоки
+  const decorate = (m, k) => {
+    const R = RNG.stream(m.seed, 'map-obstacles', k), dist = roadDist(m), free = freeCells(m), F = free.length, cols = m.cols;
+    const n = Math.max(Math.ceil(OB.min * F), Math.min(Math.floor(OB.max * F), Math.round(F * (OB.share[0] + R() * (OB.share[1] - OB.share[0])))));
+    const taken = new Map(), gate = m.road[0], crypt = m.road[m.road.length - 1];
+    for (const c of archCells(m)) taken.set(c, 'arch');
+    // у входа и склепа ничего не ставим: там арка и здание склепа
+    const ok = (i) => !taken.has(i) && cheb(m, i, gate) > 1 && cheb(m, i, crypt) > 1;
+    // лес: клетки дальше от дороги — раньше, у края поля — ещё раньше (густой край леса), с шумом от сида
+    const nf = Math.round((n - taken.size) * (OB.forest[0] + R() * (OB.forest[1] - OB.forest[0])));
+    const edge = (i) => { const x = i % cols, y = Math.floor(i / cols); return Math.min(x, cols - 1 - x, y, m.rows - 1 - y) === 0 ? 1.5 : 0; };
+    free.filter((i) => dist[i] >= OB.forestFrom && ok(i)).map((i) => [i, dist[i] + edge(i) + R() * 2.5])
+      .sort((a, b) => b[1] - a[1]).slice(0, nf).forEach(([i]) => taken.set(i, 'tree'));
+    // у дороги: надгробия, руины, отдельные деревья и пруды; выгодные клетки (много дороги в радиусе башни) выбираются чаще
+    const value = (i) => { const x = i % cols, y = Math.floor(i / cols); let v = 0;
+      for (const c of m.road) if (Math.hypot(c % cols - x, Math.floor(c / cols) - y) <= OB.valueR) v++; return v; };
+    const near = free.filter((i) => ok(i) && !taken.has(i));
+    for (const i of weighted(near.map((i) => [i, 1 + OB.valueW * value(i)]), R)) {
+      if (taken.size >= n) break; if (taken.has(i)) continue;
+      const kind = pickWeighted(OB.mix, R);
+      if (kind !== 'water') { taken.set(i, kind); continue; }
+      const size = OB.pond[0] + Math.floor(R() * (OB.pond[1] - OB.pond[0] + 1)), pond = [i]; taken.set(i, 'water');
+      for (let p = 0; p < pond.length && pond.length < size && taken.size < n; p++) {
+        const x = pond[p] % cols, y = Math.floor(pond[p] / cols);
+        for (const [dx, dy] of shuffle(DIRS.slice(), R)) { const nx = x + dx, ny = y + dy, j = ny * cols + nx;
+          if (pond.length >= size || taken.size >= n || nx < 0 || ny < 0 || nx >= cols || ny >= m.rows) continue;
+          if (free.includes(j) && ok(j)) { pond.push(j); taken.set(j, 'water'); } } }
+    }
+    m.obstacles = [...taken].map(([cell, kind]) => ({ cell, kind })).sort((a, b) => a.cell - b.cell);
+    // особые клетки: случайно среди свободных у дороги (не только на лучших местах), каждого вида хотя бы одна, не кучей
+    const Q = RNG.stream(m.seed, 'map-special', k), cnt = SP.min + Math.floor(Q() * (SP.max - SP.min + 1));
+    const kinds = shuffle(SP_KINDS.slice(), Q); while (kinds.length < cnt) kinds.push(SP_KINDS[Math.floor(Q() * SP_KINDS.length)]);
+    const out = [];
+    for (const i of shuffle(free.filter((i) => dist[i] <= SP.near && !taken.has(i)), Q)) {
+      if (out.length >= cnt) break;
+      if (!out.some((s) => cheb(m, s.cell, i) < SP.apart)) out.push({ cell: i, kind: kinds[out.length] }); }
+    m.specials = out.sort((a, b) => a.cell - b.cell);
+    return m;
+  };
+  // нарушения правил препятствий и особых клеток
+  const cellProblems = (m) => {
+    const f = [], n = m.cols * m.rows, road = new Set(m.road), obst = m.obstacles || [], sp = m.specials || [], dist = roadDist(m);
+    const bad = (c) => !(c >= 0 && c < n) || c !== Math.floor(c), hud = (c) => inKeepout(c % m.cols, Math.floor(c / m.cols));
+    const free = freeCells(m), seen = new Set();
+    for (const o of obst) { const c = o && o.cell;
+      if (bad(c)) { f.push('препятствие вне поля: ' + c); continue; }
+      if (road.has(c)) f.push('препятствие на дороге: ' + c);
+      if (hud(c)) f.push('препятствие под интерфейсом: ' + c);
+      if (seen.has(c)) f.push('препятствие повторяется: ' + c);
+      if (!OB_KINDS.includes(o.kind)) f.push(`препятствие неизвестного вида «${o.kind}»: ${c}`);
+      seen.add(c); }
+    const share = free.length ? obst.length / free.length : 0;
+    if (share < OB.min || share > OB.max) f.push(`препятствий ${(share * 100).toFixed(1)}% свободных клеток, нужно ${OB.min * 100}–${OB.max * 100}%`);
+    const nearFree = free.filter((i) => !seen.has(i) && dist[i] <= 2).length;
+    if (nearFree < OB.nearMin) f.push(`в пределах двух клеток от дороги свободно ${nearFree}, нужно не меньше ${OB.nearMin}`);
+    if (sp.length < SP.min || sp.length > SP.max) f.push(`особых клеток ${sp.length}, нужно ${SP.min}–${SP.max}`);
+    const ss = new Set();
+    for (const s of sp) { const c = s && s.cell;
+      if (bad(c)) { f.push('особая клетка вне поля: ' + c); continue; }
+      if (road.has(c) || hud(c) || seen.has(c)) f.push('особая клетка не на свободной клетке: ' + c);
+      if (dist[c] > SP.near) f.push(`особая клетка дальше ${SP.near} клеток от дороги: ${c}`);
+      if (ss.has(c)) f.push('особая клетка повторяется: ' + c);
+      if (!SP_KINDS.includes(s.kind)) f.push(`особая клетка неизвестного вида «${s.kind}»: ${c}`);
+      ss.add(c); }
+    return f;
+  };
+
   // ---------------------------------------------------------------- генерация: характер от сида, попытки с производными потоками, лучший кандидат
   const generate = (seed) => {
     seed = seed >>> 0;
@@ -100,13 +190,14 @@
     for (let a = 0; a < MP.attempts && found < MP.candidates; a++) {
       const road = attempt(RNG.stream(seed, 'map', a), style);   // у каждой попытки свой поток от сида забега
       if (!road) continue;
-      const m = { v: 1, seed, style: style.name, cols: G.cols, rows: G.rows, road };
-      if (validate(m).length) continue;
+      const m = { v: 2, seed, style: style.name, cols: G.cols, rows: G.rows, road };
+      if (roadProblems(m).length) continue;
       found++; const sc = score(m);
       if (sc > bestScore) { best = m; bestScore = sc; }
     }
     if (!best) throw new Error('mapgen: нет годной карты для сида ' + seed);
-    return best;
+    for (let k = 0; k < OB.attempts; k++) if (!validate(decorate(best, k)).length) return best;
+    throw new Error('mapgen: нет расстановки препятствий для сида ' + seed);
   };
   // оценка кандидата: охват поля (клетки в пределах двух от дороги) минус штрафы за дорогу вплотную к интерфейсу и за большой пустой квадрат
   const score = (m) => {
@@ -145,7 +236,15 @@
   // клетка под интерфейсом (HUD, кнопка волны, карточки башен): не игровая — ни дороги, ни построек
   const hud = (m, i) => inKeepout(i % m.cols, Math.floor(i / m.cols));
 
-  const MAPGEN = { generate, validate, route, cellXY, cellAt, hud };
+  // вид препятствия и особой клетки по индексу (null — нет). Таблица строится раз на объект карты: карту после генерации не правят
+  const LOOK = new WeakMap();
+  const lookOf = (m) => { let l = LOOK.get(m);
+    if (!l) { l = { ob: new Map((m.obstacles || []).map((o) => [o.cell, o.kind])), sp: new Map((m.specials || []).map((s) => [s.cell, s.kind])) }; LOOK.set(m, l); }
+    return l; };
+  const obstacle = (m, i) => lookOf(m).ob.get(i) || null;
+  const special = (m, i) => lookOf(m).sp.get(i) || null;
+
+  const MAPGEN = { generate, validate, route, cellXY, cellAt, hud, obstacle, special };
   if (typeof module !== 'undefined') module.exports = MAPGEN;
   if (typeof window !== 'undefined') window.MAPGEN = MAPGEN;
 })();
