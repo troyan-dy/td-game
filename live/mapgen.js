@@ -121,7 +121,7 @@
       // дуга от (b − u·r) к (b + v·r) с центром в (b − u·r + v·r)
       const ox = b[0] - ux * r + vx * r, oy = b[1] - uy * r + vy * r, a0 = Math.atan2(-vy, -vx), a1 = Math.atan2(uy, ux);
       let da = a1 - a0; while (da > Math.PI) da -= 2 * Math.PI; while (da < -Math.PI) da += 2 * Math.PI;
-      for (let s = 0; s <= 6; s++) { const an = a0 + da * s / 6; pts.push([ox + Math.cos(an) * r, oy + Math.sin(an) * r]); }
+      for (let s = 0; s <= 16; s++) { const an = a0 + da * s / 16; pts.push([ox + Math.cos(an) * r, oy + Math.sin(an) * r]); }
     }
     pts.push(P[P.length - 1]);
     return pts;
