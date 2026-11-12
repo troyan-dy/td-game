@@ -87,6 +87,17 @@ test('снаряды и облака помнят свою башню, а не �
   assert.notEqual(plagueId, bonesId);
 });
 
+test('башня, убранная из состояния между шагами (не командой), больше не числится за снарядами и облаками', () => {
+  const S = SIM.create(4), cell = freeCell(S); S.souls = 1e5;
+  SIM.step(S, { cmds: [{ k: 'build', cell, type: 'plague' }, { k: 'call' }] });
+  for (let i = 0; i < 120 * 120 && !S.shots.some((s) => s.k === 'blob'); i++) SIM.step(S, null);
+  SIM.step(S, null); S.towers[cell] = null;                       // так башню снимут перенос и слияние — мимо doCmd
+  for (let i = 0; i < 120 && !S.clouds.length; i++) SIM.step(S, null);
+  assert.ok(S.clouds.length, 'облако не появилось');
+  SIM.step(S, null);
+  for (const c of S.clouds) assert.ok(c.t <= 0.5, 'облако башни, которой нет, живёт ' + c.t.toFixed(2) + ' с');
+});
+
 // пронзающий болт против одного замороженного врага: смещение болта поперёк пути off, шаг времени dt
 const pierceHits = (dt, off, startDx) => {
   const S = SIM.create(1, { dt }); SIM.step(S, { cmds: [{ k: 'call' }] });

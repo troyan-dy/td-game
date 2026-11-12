@@ -45,7 +45,8 @@
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола»
   const MUZZLE = { bones: 58, spirits: 70, plague: 44, dark: 92 };
   const muzzle = (S, tw) => { const [x, y] = cellXY(S, tw.cell); return [x, y - MUZZLE[tw.type] - (tw.lvl - 1) * 4]; };
-  // башня по id: снаряды, облака и яд помнят башню, а не клетку (перенос и слияние не путают, чей урон). Индекс строится лениво.
+  // башня по id: снаряды, облака и яд помнят башню, а не клетку (перенос и слияние не путают, чей урон). Индекс строится лениво
+  // и сбрасывается в начале каждого шага и после каждой команды: башни, изменённые между шагами, в нём не залеживаются.
   let IDX = null, IDX_S = null;
   const towerOf = (S, id) => {
     if (IDX_S !== S) { IDX = new Map(); for (const t of S.towers) if (t) IDX.set(t.id, t); IDX_S = S; }
@@ -91,7 +92,7 @@
     try {
       if (!S || typeof S !== 'object' || S.v !== C.VERSION || !S.map || MAPGEN.validate(S.map).length) return false;
       const num = (v) => typeof v === 'number' && Number.isFinite(v), arr = Array.isArray;
-      return num(S.seed) && num(S.dt) && S.dt > 0 && S.dt <= 0.1 && num(S.t) && num(S.rs) && num(S.souls) && num(S.hp) && num(S.wave) && num(S.nid)
+      return num(S.seed) && num(S.dt) && S.dt > 0 && S.dt <= C.DT_MAX && num(S.t) && num(S.rs) && num(S.souls) && num(S.hp) && num(S.wave) && num(S.nid)
         && ['prep', 'wave', 'won', 'lost'].includes(S.phase) && arr(S.towers) && S.towers.length === cellCount(S)
         && arr(S.enemies) && arr(S.shots) && arr(S.clouds) && arr(S.beams) && arr(S.ev) && arr(S.queue)
         && !!S.stats && typeof S.stats === 'object' && !!S.seen && typeof S.seen === 'object';
@@ -281,6 +282,7 @@
   // ---------------------------------------------------------------- шаг
   const step = (S, inp) => {
     const DT = S.dt;
+    dropIndex();
     if (inp && inp.cmds) for (const c of inp.cmds) doCmd(S, c);
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
