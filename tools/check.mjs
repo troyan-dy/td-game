@@ -21,6 +21,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker, isMainThread, parentPort } from 'node:worker_threads';
+import { acquire as acquireSlot, lowPriority } from './slot.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const GAME_DIR = path.join(ROOT, 'tools', 'check');
@@ -48,13 +49,18 @@ function die(msg) { process.stderr.write('check: ' + msg + '\n'); process.exit(2
 const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/') || '.';
 
 async function main() {
-  const t0 = Date.now();
+  let t0 = Date.now();
   const opt = parseArgs(process.argv.slice(2));
   process.chdir(ROOT);
   if (opt.serve) return serveOnly(opt);
 
   // ---- Playwright: проверяем до любого запуска, чтобы сразу и понятно сказать, чего не хватает
   const chromium = loadChromium();
+
+  // ---- очередь: на машине одновременно идёт один тяжёлый прогон (tools/slot.mjs), и с пониженным приоритетом
+  await acquireSlot('check ' + rel(process.cwd()));
+  lowPriority();
+  t0 = Date.now();                             // ожидание в очереди не входит ни во время прогона, ни в его предел
 
   // ---- выходной каталог: стираем только то, что записали сюда в прошлый раз
   const OUT = opt.outAbs;
