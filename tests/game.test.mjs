@@ -43,7 +43,7 @@ test('постройка на свободной клетке; отказ на �
   assert.equal(SIM.canBuild(S, S.map.cols * S.map.rows, 'bones').reason, 'bounds');
 });
 
-test('три ветки качаются каждая отдельно до своего потолка; цена ступени растёт и берётся из конфига', () => {
+test('три ветки качаются каждая отдельно до своего потолка; цена ступени растёт (у гибрида — своим рядом) и берётся из конфига', () => {
   const S = SIM.create(5), cell = freeCell(S); S.souls = 1e6;
   SIM.step(S, { cmds: [{ k: 'build', cell, type: 'bones' }] });
   const tw = S.towers[cell];
@@ -52,7 +52,8 @@ test('три ветки качаются каждая отдельно до св
   assert.equal(tw.cap, C.TRACK_MAX);
   const costs = T.bones.tracks.dmg.cost;
   assert.ok(costs.length >= C.TRACK_MAX, 'цен меньше, чем ступеней обычной башни');
-  for (let i = 1; i < costs.length; i++) assert.ok(costs[i] > costs[i - 1], 'цена ступени не растёт: ' + costs);
+  // цена растёт в ступенях обычной башни (1..TRACK_MAX) и отдельно в ступенях гибрида (дальше, до C.MERGE.cap)
+  for (let i = 1; i < costs.length; i++) if (i !== C.TRACK_MAX) assert.ok(costs[i] > costs[i - 1], 'цена ступени не растёт: ' + costs);
   // ступени урона одна за другой: каждая списывает свою цену, другие ветки не трогаются
   for (let i = 0; i < C.TRACK_MAX; i++) {
     const cu = SIM.canUpgrade(S, cell, 'dmg');
@@ -432,17 +433,19 @@ test('курган: +1 единица дальности (48 px) башне и �
 
 test('проклятая земля: постройка на 30% дороже и +25% урона', () => {
   const S = SIM.create(5), cursed = specialCell(S, 'cursed'), plain = freeCell(S); S.souls = 1000;
-  assert.equal(SIM.canBuild(S, cursed, 'bones').cost, 130);
-  assert.equal(SIM.canBuild(S, cursed, 'dark').cost, 195);
-  assert.equal(SIM.canBuild(S, plain, 'dark').cost, 150);
-  assert.equal(SIM.canBuild(S, cursed, 'dark').base, 150); assert.equal(SIM.canBuild(S, plain, 'dark').base, 150);
+  // цены и урон — из конфига: наценка проклятой земли C.SPECIAL.cursed.cost, бонус к урону C.SPECIAL.cursed.dmg
+  const up = (v) => Math.round(v * (1 + C.SPECIAL.cursed.cost)), DK = T.dark.base.cost;
+  assert.equal(SIM.canBuild(S, cursed, 'bones').cost, up(T.bones.base.cost));
+  assert.equal(SIM.canBuild(S, cursed, 'dark').cost, up(DK));
+  assert.equal(SIM.canBuild(S, plain, 'dark').cost, DK);
+  assert.equal(SIM.canBuild(S, cursed, 'dark').base, DK); assert.equal(SIM.canBuild(S, plain, 'dark').base, DK);
   SIM.step(S, { cmds: [{ k: 'build', cell: cursed, type: 'dark' }] });
-  assert.equal(S.souls, 1000 - 195); assert.equal(S.towers[cursed].invested, 195);
-  const P = SIM.create(5); P.souls = 194;
+  assert.equal(S.souls, 1000 - up(DK)); assert.equal(S.towers[cursed].invested, up(DK));
+  const P = SIM.create(5); P.souls = up(DK) - 1;
   assert.equal(SIM.canBuild(P, cursed, 'dark').reason, 'souls'); assert.equal(SIM.canBuild(P, plain, 'dark').ok, true);
-  // луч Тьмы уровня 1 — 20 урона, по ополченцу без защиты
-  assert.equal(strike(5, cursed, 'dark').tw.dmg, 25);
-  assert.equal(strike(5, plain, 'dark').tw.dmg, 20);
+  // луч Тьмы уровня 1 — базовый урон, по ополченцу без защиты
+  assert.equal(strike(5, cursed, 'dark').tw.dmg, T.dark.base.dmg * (1 + C.SPECIAL.cursed.dmg));
+  assert.equal(strike(5, plain, 'dark').tw.dmg, T.dark.base.dmg);
   // бонус проклятой земли — во внешнем этапе: итоговый урон = свой × 1.25 (у Чумы — яд в секунду)
   const Q = SIM.create(5); Q.souls = 1e4; SIM.step(Q, { cmds: [{ k: 'build', cell: cursed, type: 'plague' }] });
   const tq = Q.towers[cursed]; assert.equal(SIM.towerStats(Q, tq).dmg, SIM.ownStats(Q, tq).dmg * (1 + C.SPECIAL.cursed.dmg));
@@ -459,20 +462,20 @@ test('источник душ: +1 душа за каждое убийство б
 test('перенос и особые клетки: на препятствие нельзя, бонус берётся от новой клетки, наценка не взимается', () => {
   const S = SIM.create(5), mound = specialCell(S, 'mound'), cursed = specialCell(S, 'cursed'), well = specialCell(S, 'well'), plain = freeCell(S); S.souls = 1e4;
   SIM.step(S, { cmds: [{ k: 'build', cell: mound, type: 'bones' }] });
-  const tw = S.towers[mound]; assert.equal(SIM.rangePx(S, tw), (3.6 + 1) * 48);
+  const R = T.bones.base.range, tw = S.towers[mound]; assert.equal(SIM.rangePx(S, tw), (R + C.SPECIAL.mound.range) * C.UNIT);
   // на препятствие перенос отклонён
   const ob = S.map.obstacles.find((o) => o.kind !== 'arch').cell;
   assert.equal(SIM.canMove(S, mound, ob).reason, 'obstacle');
   SIM.step(S, { cmds: [{ k: 'move', cell: mound, to: ob }] }); assert.equal(S.towers[ob], null); assert.equal(S.towers[mound], tw);
   // с кургана на обычную клетку: +1 к дальности снимается
   SIM.step(S, { cmds: [{ k: 'move', cell: mound, to: plain }] }); assert.equal(S.towers[plain], tw);
-  assert.equal(SIM.rangePx(S, tw), 3.6 * 48);
+  assert.equal(SIM.rangePx(S, tw), R * C.UNIT);
   // на проклятую землю: бесплатно, вложения прежние
   const souls = S.souls, invested = tw.invested;
   SIM.step(S, { cmds: [{ k: 'move', cell: plain, to: cursed }] }); assert.equal(S.towers[cursed], tw);
   assert.equal(S.souls, souls); assert.equal(tw.invested, invested);
-  // перенесённая на проклятую землю Тьма бьёт на 25% сильнее (20 → 25), на источнике душ башня начинает давать +1 душу
-  assert.equal(strike(5, plain, 'dark', 1e6, cursed).tw.dmg, 25);
+  // перенесённая на проклятую землю Тьма бьёт сильнее на бонус клетки, на источнике душ башня начинает давать +1 душу
+  assert.equal(strike(5, plain, 'dark', 1e6, cursed).tw.dmg, T.dark.base.dmg * (1 + C.SPECIAL.cursed.dmg));
   const r = strike(5, plain, 'bones', 1, well); assert.equal(r.e.dead, true); assert.equal(r.S.stats.earned - r.e.bounty, 1);
 });
 
@@ -528,6 +531,17 @@ test('сейв: годным считается только полное сос
   assert.equal(SIM.loadable(Object.assign({}, S, { dt: 0 })), false);
   assert.equal(SIM.loadable(null), false);
   assert.equal(SIM.loadable('мусор'), false);
+});
+
+test('шаг времени: скорострельная башня наносит тот же урон при шаге 1/30, что при 1/120 (перезарядка переносит остаток шага)', () => {
+  const dmgAt = (dt) => { const S = SIM.create(4, { dt }), cell = SIM.rankCells(S, 3)[0]; S.souls = 1e5; S.hp = 1e6;
+    SIM.step(S, { cmds: [{ k: 'build', cell, type: 'spirits' }] });
+    for (let i = 0; i < 5; i++) SIM.step(S, { cmds: C.TRACKS.map((track) => ({ k: 'upgrade', cell, track })) });
+    S.wave = 14; SIM.step(S, { cmds: [{ k: 'call' }] });
+    for (let i = 0; i < 40 / dt; i++) SIM.step(S, null);
+    return S.towers[cell].dmg; };
+  const fine = dmgAt(1 / 120), coarse = dmgAt(1 / 30);
+  assert.ok(Math.abs(coarse / fine - 1) < 0.01, `урон за 40 с: ${coarse.toFixed(0)} при 1/30 против ${fine.toFixed(0)} при 1/120`);
 });
 
 test('шаг времени — параметр забега: враг проходит одно и то же расстояние за секунду при любом шаге', () => {

@@ -3,6 +3,8 @@
 // Шаг времени — параметр забега (S.dt), по умолчанию C.DT. Клетка адресуется индексом i = y * cols + x.
 // Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
+// Волна сама не начинается: {k:'call'} — по кнопке; {k:'auto',on} — автоплей (S.auto): после зачистки следующая волна сама через
+// C.RUN_CONTROL.autoDelay (отсчёт S.autoT; −1 — только по кнопке: первая волна забега и бесконечного режима). S.hasteT — окно «Нетерпения».
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
 // Слияние: {k:'merge',cell,other} — башня с клетки other становится примесью башни на cell, только в паузе между волнами
 // (SIM.canMerge, SIM.mergeTargets, превью SIM.mergeInfo; описание стоящего гибрида — SIM.hybridInfo). Счётчик — S.stats.merges.
@@ -878,7 +880,7 @@
       const e = s.foe ? findEnemy(S, s.foe) : null; if (!e) continue;
       s.face = e.x >= s.x ? 1 : -1;
       if (s.grip) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, s.grip); e.curseT = Math.max(e.curseT, 0.25); }   // Мёртвая хватка
-      if (s.cd <= 0) { s.cd = s.hit; s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
         if (e.dead) { s.foe = 0; continue; } }
       s.hp -= (EN[e.type].melee === undefined ? C.MELEE : EN[e.type].melee) * DT;
     }
@@ -957,7 +959,9 @@
     }
     S.clouds = S.clouds.filter((c) => c.t > 0);
     // башни
-    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? st.rate : 0.05; } }
+    // перезарядка с переносом остатка шага: средний интервал выстрелов — ровно rate при любом шаге (иначе крупный шаг
+    // округляет каждый интервал вверх до целого числа шагов и скорострельные башни теряют до нескольких процентов урона)
+    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? Math.max(0, tw.cd + st.rate) : 0.05; } }
     stepShots(S);
     S.enemies = S.enemies.filter((e) => !e.dead);
     S.beams = S.beams.filter((b) => S.t - b.t < 0.35);
@@ -986,10 +990,10 @@
 
   // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
   const DEMO_SEED = 99;
-  // волна демо: из 5–12-й без босса — с наибольшим числом врагов, укладывающаяся в половину петли (по дороге всё время идут
+  // волна демо: из 5–12-й без босса — с наибольшим числом врагов, укладывающаяся в 0.8 петли (по дороге всё время идут
   // враги); если после перенастройки ни одна не укладывается — самая людная из них, если и таких нет — 5-я
   const demoN = () => { const ws = [5, 6, 7, 8, 9, 10, 11, 12].map((n) => WAVEGEN.wave(DEMO_SEED, n)).filter((w) => !w.boss);
-    const by = (a, b) => b.total.count - a.total.count || a.n - b.n, fit = ws.filter((w) => w.duration <= LOOP / 2).sort(by);
+    const by = (a, b) => b.total.count - a.total.count || a.n - b.n, fit = ws.filter((w) => w.duration <= LOOP * 0.8).sort(by);
     return (fit[0] || ws.sort(by)[0] || { n: 5 }).n; };
   // [тип, ступеней]: ступени раскладываются по веткам по кругу DEMO_UP
   const DEMO_BUILD = [['bones', 6], ['dark', 5], ['plague', 3], ['spirits', 5], ['dark', 3], ['bones', 3], ['plague', 5],

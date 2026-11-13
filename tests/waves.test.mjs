@@ -35,8 +35,8 @@ test('волна не зависит от того, что было в бою: �
   const a = SIM.create(31), b = SIM.create(31);
   a.souls = 1e5; a.hp = b.hp = 1e9;
   const cells = SIM.rankCells(a, 3.4).slice(0, 6);
-  SIM.step(a, { cmds: [...cells.map((cell, i) => ({ k: 'build', cell, type: C.TOWER_ORDER[i % 4] })), { k: 'call' }] });
-  SIM.step(b, { cmds: [{ k: 'call' }] });
+  SIM.step(a, { cmds: [...cells.map((cell, i) => ({ k: 'build', cell, type: C.TOWER_ORDER[i % 4] })), { k: 'call' }, { k: 'auto', on: true }] });
+  SIM.step(b, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   for (const S of [a, b]) while (S.wave < 3 || S.phase !== 'prep') SIM.step(S, null);
   assert.notEqual(a.rs, b.rs, 'бой должен был пойти по-разному');
   for (let n = 4; n <= 6; n++) assert.deepEqual(SIM.preview(a, n), SIM.preview(b, n));
@@ -373,7 +373,7 @@ test('«осталось» сразу учитывает тех, кто выйд
   assert.equal(last, 0);
 });
 
-test('титульное демо не падает, если ни одна волна не укладывается в половину петли', () => {
+test('титульное демо не падает, если ни одна волна не укладывается в петлю', () => {
   const old = WG.pace;
   try { WG.pace = () => 40; const S = SIM.at(7 * SIM.L + 0.5); assert.ok(S.demo && S.wave >= 1); } finally { WG.pace = old; }
 });

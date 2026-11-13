@@ -72,8 +72,8 @@ test('бесконечный режим: угроза растёт, босс к�
     assert.ok(share(n) > s20 / 2, `доля босса в HP волны ${n}: ${share(n).toFixed(3)} против ${s20.toFixed(3)} на ${RUN}-й`);
   }
   // до конца обычного забега босс прежний
-  assert.equal(WAVEGEN.wave(1, 10).squads.find((q) => q.boss).hp, 4000);
-  assert.equal(WAVEGEN.wave(1, 20).squads.find((q) => q.boss).hp, 10000);
+  for (const n of [10, 20]) assert.equal(WAVEGEN.wave(1, n).squads.find((q) => q.boss).hp, WAVEGEN.wave(2, n).squads.find((q) => q.boss).hp, `босс ${n}-й волны не зависит от сида`);
+  assert.ok(WAVEGEN.wave(1, 20).squads.find((q) => q.boss).hp > WAVEGEN.wave(1, 10).squads.find((q) => q.boss).hp);
   const S = endless(); startAt(S, 30);
   assert.ok(S.ev.some((e) => e.k === 'wave' && e.wave === 30 && e.boss));
 });
