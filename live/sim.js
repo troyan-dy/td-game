@@ -529,7 +529,11 @@
 
   // ---------------------------------------------------------------- команды игрока
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
+  // клетки команды (cell, у переноса to, у слияния other) — только целые числа: строка '171' или [171] как индекс массива
+  // нашли бы башню, а мусор и недостающий аргумент не должны ни менять забег, ни бросать исключение
+  const CELL_ARGS = { build: ['cell'], upgrade: ['cell'], perk: ['cell'], sell: ['cell'], move: ['cell', 'to'], merge: ['cell', 'other'] };
   const doCmd = (S, c) => {
+    if (!c || typeof c !== 'object' || (own(CELL_ARGS, c.k) && !CELL_ARGS[c.k].every((key) => Number.isInteger(c[key])))) return;
     if (c.k === 'endless') {                                               // продолжить после победы: пауза перед следующей волной, по кнопке
       if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.prepT = -1; ev(S, 'endless', { wave: S.wave }); }
       return; }
@@ -556,7 +560,7 @@
       ev(S, 'sell', { cell: c.cell, souls: v, type: tw.type, x: at[0], y: at[1] });
     } else if (c.k === 'move') {
       // башня переезжает целиком, тем же объектом: меняется только клетка, всё остальное (прокачка, перк, счётчики) едет с ней
-      if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
+      if (!canMove(S, c.cell, c.to).ok) return; const [x, y] = cellXY(S, c.to);
       S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave; dismiss(S, tw);   // скелеты у старой клетки рассыпаются
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'merge') {                                     // { k: 'merge', cell, other } — other становится примесью башни на cell
@@ -883,7 +887,7 @@
   const step = (S, inp) => {
     const DT = S.dt;
     dropIndex();
-    if (inp && inp.cmds) for (const c of inp.cmds) doCmd(S, c);
+    if (inp && Array.isArray(inp.cmds)) for (const c of inp.cmds) doCmd(S, c);
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost' || S.phase === 'relic') { pruneEv(S); return; }   // на выборе реликвии время забега стоит
     S.stats.time += DT;
