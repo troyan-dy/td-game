@@ -739,8 +739,8 @@
         bounces: st.bounces || 0, bounceMult: st.bounceMult || 1, bounceR: (st.bounceRange || 0) * UNIT, hit: [], born: S.t, seed: rand(S) });
       return true;
     } },
-    blob: { run: (S, tw, st, cand, mx, my, fx) => {                         // ком яда навесом: облако на месте падения; Мор, Миазмы
-      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + e.speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
+    blob: { run: (S, tw, st, cand, mx, my, fx) => {                         // ком яда навесом: облако на месте падения (упреждение — leadOf); Мор, Миазмы
+      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + leadOf(S, e, fl) * 0.85);
       S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id, dps: st.dmg, r: st.cloudR * UNIT, ct: st.cloudTime, linger: st.linger,
         fx, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
       return true;
@@ -899,6 +899,12 @@
   };
 
   // ---------------------------------------------------------------- шаг
+  // сколько враг пройдёт за t секунд с нынешней скоростью: скованный и оглушённый стоят, пока не очнутся; удержанный
+  // скелетом стоит весь срок (когда отпустят — неизвестно); замедление и ускорение знаменосца — как в шаге
+  const leadOf = (S, e, t) => {
+    if ((S.skels || []).some((k) => k.foe === e.id)) return 0;
+    const v = e.speed * (1 + (e.haste || 0)) * (e.slowT > 0 ? 1 - e.slowK : 1);
+    return v * Math.max(0, t - Math.max(e.freezeT > 0 ? e.freezeT : 0, e.stunT > 0 ? e.stunT : 0)); };
   const step = (S, inp) => {
     const DT = S.dt;
     dropIndex();
@@ -934,7 +940,8 @@
       if (e.shredT > 0) { e.shredT -= DT; if (e.shredT <= 0) e.shred = 0; }
       for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', towerOf(S, p.tw)); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
       if (e.dead) continue;
-      if (def.heal) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = e.heal; let any = false;
+      // оглушённый и скованный священник не лечит (и отсчёт до лечения стоит)
+      if (def.heal && !(e.stunT > 0) && !(e.freezeT > 0)) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = e.heal; let any = false;
         const hurt = S.enemies.filter((o) => !o.dead && !EN[o.type].boss && o.hp < o.max && S.t - (o.healedT || -9) >= def.healLock && Math.hypot(o.x - e.x, o.y - e.y) <= def.healR * UNIT)
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
