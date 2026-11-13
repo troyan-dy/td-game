@@ -226,3 +226,26 @@ body.inmenu #title { display: none; }
 #scout-panel .tot i { font-style: normal; color: var(--dim); margin-left: 3px; }
 #scout-tip { position: absolute; max-width: 280px; padding: 6px 10px; font: 15px/1.3 var(--body); display: none; pointer-events: none; z-index: 5; }
 #scout-tip.show { display: block; }
+
+/* реликвии (live/relics.js): экран выбора одной из трёх и значки взятых под кнопкой волны */
+#relics .box.rbox { width: 900px; padding: 22px 26px 22px; }
+#relics .rsub { font: 18px var(--body); color: var(--dim); }
+#relics .rcards { display: flex; gap: 16px; margin: 18px 0 12px; align-items: stretch; }
+#relics .rcard { position: relative; flex: 1 1 0; min-width: 0; min-height: 250px; padding: 14px 14px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+#relics .rcard.rule { border-color: var(--gold); }
+#relics .rcard .key { position: absolute; left: 8px; top: 6px; font: 700 15px var(--title); color: var(--dim); }
+#relics .rcard .ic { font: 46px/1.1 var(--body); color: var(--soul); text-shadow: 0 0 14px #6ff2e288; }
+#relics .rcard.rule .ic { color: var(--gold); text-shadow: 0 0 14px #ffd27a88; }
+#relics .rcard .rn { font: 700 22px/1.15 var(--title); letter-spacing: .5px; }
+#relics .rcard .rk { font: 700 13px var(--title); letter-spacing: 1px; text-transform: uppercase; color: var(--soul); }
+#relics .rcard.rule .rk { color: var(--gold); }
+#relics .rcard .rd { font: 400 17px/1.35 var(--body); color: var(--text); text-shadow: none; margin-top: 4px; }
+#relics .rnote { font: 15px var(--body); color: var(--dim); }
+#relicbar { position: absolute; left: 14px; top: 222px; width: 228px; display: none; flex-wrap: wrap; gap: 6px; }
+#relicbar.show { display: flex; }
+#relicbar .rl { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font: 19px/1 var(--body); color: var(--soul); cursor: default; }
+#relicbar .rl.rule { color: var(--gold); border-color: #a8884a; }
+#relic-tip { position: absolute; max-width: 300px; padding: 8px 12px 10px; font: 15px/1.35 var(--body); display: none; pointer-events: none; }
+#relic-tip.show { display: block; }
+#relic-tip h4 { margin: 0 0 2px; font: 700 18px var(--title); }
+#relic-tip .rk { font: 700 12px var(--title); letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }

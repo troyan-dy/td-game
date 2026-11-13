@@ -221,7 +221,7 @@
   };
   // почему ступень или перк недоступны — словами (подсказка при наведении); пустая строка — доступно
   const trackWhy = (S, cu) => ({ max: 'Ветка прокачана до предела этой башни', price: 'Следующая ступень этой ветки пока недоступна', souls: `Не хватает ${cu.cost - S.souls} душ`, ended: 'Забег окончен' }[cu.reason] || '');
-  const perkWhy = (S, cp) => ({ steps: `Откроется после ${C.PERK_AT} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
+  const perkWhy = (S, cp) => ({ steps: `Откроется после ${SIM.perkAt(S)} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
     souls: `Цена ${cp.cost} душ — не хватает ${cp.cost - S.souls}`, ended: 'Забег окончен' }[cp.reason] || `Цена: <b>${cp.cost}</b> душ · выбор навсегда`);
   const trackCls = (cu) => (cu.ok ? 'green' : cu.reason === 'souls' ? 'poor' : 'off');
   const towerGrowth = (S, tw) => {
@@ -232,7 +232,7 @@
       return `<div class="tr ${k}"><span class="tn"><span class="key">${TRACK_KEY[k]}</span>${trackName(tw.type, k)}</span><span class="pips c${tw.cap}">${pips}</span>
         <button class="btn tb ${trackCls(cu)}" data-t="${k}">${label}</button></div>`; }).join('');
     const perks = Object.keys(d.perks), cps = perks.map((pk) => SIM.canPerk(S, tw.cell, pk)), need = cps.length ? cps[0].need : 0, free = SIM.freeSlots(tw);
-    const state = !free ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${C.PERK_AT} ступеней · ещё ${need}</span>` : '<span class="ok">выбери — навсегда</span>';
+    const state = !free ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${SIM.perkAt(S)} ступеней · ещё ${need}</span>` : '<span class="ok">выбери — навсегда</span>';
     return `<div class="tracks">${rows}</div>${perks.length ? `<div class="ph">ПЕРК · ${state}</div>
       <div class="perks">${perks.map((pk, i) => { const pd = d.perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = cp.reason === 'steps' || cp.reason === 'taken';
         return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}"><span class="pn">${pd.name}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''}`;
@@ -256,12 +256,12 @@
       <button class="btn mvx">Отменить перенос</button>`;
     const cm = SIM.canMove(S, ui.sel);
     return `<div class="mg"><button class="btn move ${cm.ok ? '' : 'off'}">Перенести</button>
-      <button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button></div>`;
+      <button class="btn red sell">Продать · +${SIM.sellValue(tw, S)}</button></div>`;
   };
   const wireManage = (p, S, tw) => {
     const mv = p.querySelector('.move'), mx = p.querySelector('.mvx'), sl = p.querySelector('.sell');
     if (mv) { mv.onclick = startMove;
-      mv.onmouseenter = () => tipAt(`<h4>Перенос</h4><div>${SIM.canMove(APP.play, ui.sel).ok ? 'Бесплатно и мгновенно, вся прокачка и перк остаются. Бонус особой клетки — от новой клетки.' : 'Во время волны башни не переносятся. Дождись конца волны.'}</div><div class="row" style="margin-top:6px">Клавиша <b>M</b></div>`, ...tipBeside());
+      mv.onmouseenter = () => tipAt(`<h4>Перенос</h4><div>${SIM.canMove(APP.play, ui.sel).ok ? 'Бесплатно и мгновенно, вся прокачка и перк остаются. Бонус особой клетки — от новой клетки.' : (SIM.hasRelic(APP.play, 'restless') ? 'В этой волне башня уже переносилась. Дождись конца волны.' : 'Во время волны башни не переносятся. Дождись конца волны.')}</div><div class="row" style="margin-top:6px">Клавиша <b>M</b></div>`, ...tipBeside());
       mv.onmouseleave = hideTip; }
     if (mx) mx.onclick = cancelMove;
     if (sl) sl.onclick = sell;
@@ -282,7 +282,7 @@
   //  затем меньше чужих башен, затем ближе к точке; o.maxDist — мягкий предел расстояния (если задан). Жёсткого предела
   //  расстояния нет: в углах поля он выталкивает панель на дорогу (сид 77, правый нижний угол: в 600 px — 5 клеток дороги).
   //  Результат кэшируется в o.cache, пока не сменились входные данные.
-  const PLATES = '#stats, #seedbox, #cards, #title';
+  const PLATES = '#stats, #seedbox, #cards, #title, #relicbar';
   let WAVEBTN = [14, 150, 196, 64];                                   // кнопка вызова волны: последнее место, где она была видна
   const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
   const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
@@ -366,7 +366,7 @@
   const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, C.TYPICAL_RANGE)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
-    if (!c || APP.paused) { el.classList.remove('show'); return; }
+    if (!c || APP.paused || S.phase === 'relic') { el.classList.remove('show'); return; }
     if (el.textContent !== c.text) el.textContent = c.text;
     el.classList.add('show');
     const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
@@ -458,6 +458,9 @@
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
+      if (e.k === 'relic') { const r = SIM.relicsOf(S).find((x) => x.id === e.id); if (r) toast(`${r.icon} ${r.name}<small>${r.desc}</small>`, '', 3600); savedAt = 0; }
+      if (e.k === 'relicOffer' || e.k === 'haste') savedAt = 0;
+      if (e.k === 'haste') toast(`Нетерпение<small>+${e.souls} душ за раннюю волну</small>`, '', 2200);
       if (e.k === 'endless') { toast('Бесконечный режим<small>Волны растут без предела · босс каждые 10 волн</small>', 'big', 3000); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
       if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'wave') savedAt = 0;
