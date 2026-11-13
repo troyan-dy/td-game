@@ -167,7 +167,7 @@
   const phaseOk = (S) => {
     const last = waveCount();
     if (S.phase === 'prep') return int(S.wave, 0, last - 1) && (S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME));   // после последней волны пауз нет
-    if (S.phase === 'wave') return int(S.wave, 1, last) && int(S.qi, 0, S.queue.length);
+    if (S.phase === 'wave') return int(S.wave, 1, last);
     if (S.phase === 'won') return S.wave === last;
     if (S.phase === 'lost') return int(S.wave, 0, last);
     return false;
@@ -242,7 +242,6 @@
 
   // ---------------------------------------------------------------- волны
   const startWave = (S) => {
-    if (S.wave >= waveCount()) return;                                  // волн больше нет: не стартуем несуществующую
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.prepT = 0;
     const q = [];
     for (const g of C.WAVES[S.wave - 1]) for (let i = 0; i < g.n; i++) q.push({ at: g.at + i * g.gap, e: g.e });
@@ -393,7 +392,8 @@
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
     S.stats.time += DT;
-    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0) startWave(S); }
+    // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
+    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < waveCount()) startWave(S); }
     if (S.phase === 'wave') {
       S.waveT += DT;
       while (S.qi < S.queue.length && S.queue[S.qi].at <= S.waveT) spawnEnemy(S, S.queue[S.qi++].e, 0);

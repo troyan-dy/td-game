@@ -8,10 +8,12 @@
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
-  // Сейв — { S, at, tab }: tab — метка вкладки, которая его пишет. Метка живёт в sessionStorage: та же после перезагрузки
-  // вкладки, новая в новой вкладке. Вкладка стирает сейв только свой, а чужая запись в него отключает её автосохранение.
-  const TAB = (() => { const id = () => Math.random().toString(36).slice(2, 10);
-    try { let t = sessionStorage.getItem('necropolis.tab'); if (!t) { t = id(); sessionStorage.setItem('necropolis.tab', t); } return t; } catch (e) { return id(); } })();
+  // Сейв — { S, at, tab }: tab — метка страницы, которая его пишет, новая при каждой загрузке (дубликат вкладки получает свою:
+  // sessionStorage копируется вместе с вкладкой, поэтому метку там не храним). Страница стирает сейв только свой, а чужая
+  // запись в него отключает её автосохранение. Что остаётся неразрешённым:
+  //  - две вкладки стартуют забег одновременно: каждая видит запись другой, и отключаются обе — до следующего старта;
+  //  - отключённая вкладка молчит и после закрытия «владельца», пока сама не начнёт или не продолжит забег.
+  const TAB = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
   // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable).
   // Негодный (битый JSON, старая версия, порча) молча выбрасываем. Ключи сейвов прежних сборок (necropolis.save.v1…) убираем.
   // Вердикт помним по строке сейва: проверка с пробой не повторяется, пока сейв тот же (показ меню, затем «Продолжить»).
@@ -20,7 +22,10 @@
     let raw = null, sv = null; try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
     if (raw === null) return null;
     try { sv = JSON.parse(raw); } catch (e) {}
-    const ok = raw === checked.raw ? checked.ok : !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S));
+    let ok = false;
+    if (raw === checked.raw) ok = checked.ok;
+    else try { ok = !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S)); }
+    catch (e) { console.error(e); return null; }     // сбой самой проверки (не создался образец) — ошибка разработки: меню без «Продолжить», сейв не трогаем
     checked = { raw, ok };
     if (ok) return sv;
     store.del(SAVE_KEY); return null; };
@@ -279,7 +284,10 @@
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
-  const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
+  // меню перерисовывается и когда сейв поменяла другая вкладка (onStorage): введённый сид и фокус поля сохраняются
+  const showMenu = () => { const m = $('#menu'), old = $('#m-seed'), typed = old ? old.value : '', focused = !!old && document.activeElement === old;
+    m.innerHTML = menuHTML(); showOverlay('menu', true);
+    if (typed) $('#m-seed').value = typed; if (focused) $('#m-seed').focus();
     // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
     const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
     const start = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
@@ -316,7 +324,9 @@
       if (!writeFailed) { writeFailed = true; toast('Забег не сохраняется<small>Хранилище браузера недоступно или переполнено</small>', '', 5000); } } };
   // свой забег закончился: стираем сейв, только если в хранилище лежит именно он
   const dropOwn = () => { try { const sv = JSON.parse(localStorage.getItem(SAVE_KEY)); if (sv && sv.tab === TAB) localStorage.removeItem(SAVE_KEY); } catch (e) {} };
-  const onStorage = (e) => { if (e.key !== SAVE_KEY || e.newValue === null || !APP.play || detached) return;
+  const onStorage = (e) => { if (e.key !== SAVE_KEY) return;
+    if (!APP.play) { if ($('#menu').classList.contains('show')) showMenu(); return; }   // подпись «Продолжить» — по свежему сейву
+    if (e.newValue === null || detached) return;
     let tab = null; try { tab = JSON.parse(e.newValue).tab; } catch (x) {}
     if (tab !== TAB) { detached = true; toast('Забег сохраняет другая вкладка<small>Здесь прогресс больше не сохраняется</small>', '', 5000); } };
 
