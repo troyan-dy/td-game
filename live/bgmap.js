@@ -153,8 +153,10 @@
       for (let i = -2; i <= 1; i++) { set(mx + i, my, sk); set(mx + i, my + 1, sk); } set(mx - 1, my + 1, P.ol); set(mx, my + 1, P.ol);
       for (let i = -3; i <= 2; i++) set(mx + i, my - 1, P.ol); set(mx - 3, my, P.ol); set(mx + 2, my, P.ol); set(mx - 3, my + 1, P.ol); set(mx + 2, my + 1, P.ol);
     });
-    // здание склепа: стена в кирпичах, пилястры, фронтон с черепом, бирюзовая арка входа внизу посередине. cx, by — середина основания
-    const crypt = (cx, by, w, h, roof) => { cx = Math.round(cx); by = Math.round(by);
+    // здание склепа: стена в кирпичах, пилястры, фронтон с черепом, бирюзовая арка входа. cx, by — середина основания.
+    // side — подход дороги сбоку (−1 — дорога слева, 1 — справа): проём не внизу посередине, а в боковой стене со стороны
+    // дороги, на её высоте (doorY — середина дороги): дорога входит в здание, а не упирается в стену
+    const crypt = (cx, by, w, h, roof, side = 0, doorY = 0) => { cx = Math.round(cx); by = Math.round(by);
       const m = new Map(), x0 = cx - Math.floor(w / 2);
       for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
         const pil = i % 8 < 2, c = pil ? (i % 8 === 0 ? P.wall2 : P.wall1) : (j % 4 === 3 || (i + Math.floor(j / 4) * 3) % 7 === 0) ? P.st2 : hash(x0 + i, by - j) > 0.8 ? P.wall1 : P.wall0;
@@ -162,6 +164,11 @@
       for (let r = 0; r < roof; r++) for (let i = Math.round(r * w / 2 / roof) - 1; i <= w - Math.round(r * w / 2 / roof); i++) m.set(key(x0 + i, by - h - r), r === 0 ? P.wall2 : r % 3 === 2 ? P.st2 : P.wall1);
       footprint(cx, by + 1, w / 2 + 2, 2, 0.6); shape(m);
       const sx = cx - 2, sy = by - h - Math.round(roof * 0.55); for (let i = 0; i < 4; i++) { set(sx + i, sy, P.candle); set(sx + i, sy + 1, P.candle); } set(sx + 1, sy + 1, P.ol); set(sx + 2, sy + 1, P.ol);
+      if (side) { const ex = side < 0 ? x0 : x0 + w - 1, dy0 = Math.round(doorY - RW + 1), dy1 = Math.round(doorY + RW - 1), dd = 7;   // боковой проём
+        for (let y = dy0 - 3; y <= dy1; y++) for (let k = 0; k < dd; k++) { const x = ex - side * k, edge = y === dy0 - 3 || k === dd - 1;
+          set(x, y, edge ? P.ol : y < dy0 ? P.wall2 : (k + y) % 3 ? P.soul : P.soulD); }
+        for (let k = 0; k < dd + 2; k++) { set(ex - side * k, dy0 - 4, P.wall2); set(ex - side * k, dy0 - 5, P.ol); }                          // карниз над проёмом
+        lights.push([(ex - side * 3) * K, doorY * K, 'crypt']); return; }
       const dh = Math.min(h - 3, 14), dw = 5;                                                      // проём: светящаяся арка душ
       for (let j = 0; j < dh; j++) for (let i = -dw; i <= dw; i++) { if (j > dh - 3 && Math.abs(i) > dw - (j - dh + 4)) continue;
         set(cx + i, by - j, Math.abs(i) === dw || j === dh - 1 ? P.ol : (i + j) % 3 ? P.soul : P.soulD); }
@@ -211,13 +218,13 @@
       } else if (kind === 'ruin') { const by = y0 + CS * 0.8; items.push([by, () => ruin(cx, by, s, fit(by, 99))]); }
     }
 
-    // ---- вход и склеп: колонны портика по бокам дороги (не заходят на неё), перемычка над дорогой — в слое поверх врагов.
-    // Подход сбоку: колонны выше и ниже дороги, нижняя целиком ниже края дороги. Подход снизу: колонны слева и справа.
+    // ---- вход и склеп: колонны портика по бокам дороги (не заходят на неё). Подход снизу: колонны слева и справа, перемычка
+    // над дорогой — в слое поверх врагов. Подход сбоку: колонны выше и ниже дороги, нижняя целиком ниже края дороги, перемычки
+    // нет — в виде сверху она легла бы сплошным брусом поперёк дороги и прятала врага на пороге.
     // dir — направление хода врагов в клетке [dx, dy]; style — 'gate' или 'crypt'
     const portico = (cx, cy, dir, style) => {
       if (dir[0]) { const nb = cy - RW - 2, sb = cy + RW + 2 + 18;
-        items.push([nb, () => column(cx, nb, 18, style)]); items.push([sb, () => column(cx, sb, 18, style)]);
-        lintel([cx, nb - 18], [cx, sb - 18], style); }
+        items.push([nb, () => column(cx, nb, 18, style)]); items.push([sb, () => column(cx, sb, 18, style)]); }
       else { const by = cy + CS / 2 - 1.5, h = Math.round(by - (cy - CS / 2) - 1), off = RW + 5;
         items.push([by, () => column(cx - off, by, h, style)]); items.push([by, () => column(cx + off, by, h, style)]);
         lintel([cx - off, by - h], [cx + off, by - h], style); } };
@@ -228,10 +235,10 @@
     if (map.road.length > 1) {
       const e = map.road[map.road.length - 1], kdir = dirAt(map.road[map.road.length - 2], e), kcx = kx / K, kcy = ky / K;
       portico(kcx, kcy, kdir, 'crypt');
-      if (kdir[0]) {                                                    // подход сбоку: здание за склепом по ходу, к нему мощёный порог
-        const bcx = kcx + kdir[0] * CS, by = kcy + CS / 2 - 1.5;
-        items.push([kcy, () => { for (let y = Math.round(kcy - RW + 2); y <= kcy + RW - 2; y++) for (let x = Math.round(Math.min(kcx, bcx)); x <= Math.max(kcx, bcx); x++) set(x, y, (x + y) % 4 ? P.r2 : P.mortar); }]);
-        items.push([by, () => crypt(bcx, by, 24, 30, 10)]);
+      if (kdir[0]) {                                                    // подход сбоку: здание за склепом по ходу, проём в боковой стене к дороге, мощёный порог
+        const bw = 24, bcx = kcx + kdir[0] * (CS / 2 + bw / 2 - 3), by = kcy + CS / 2 - 1.5, near = bcx - kdir[0] * bw / 2;
+        items.push([kcy, () => { for (let y = Math.round(kcy - RW + 2); y <= kcy + RW - 2; y++) for (let x = Math.round(Math.min(kcx, near)); x <= Math.max(kcx, near); x++) set(x, y, (x + y) % 4 ? P.r2 : P.mortar); }]);
+        items.push([by, () => crypt(bcx, by, bw, 30, 10, -kdir[0], kcy)]);
       } else items.push([kcy - RW, () => crypt(kcx, kcy - RW + 1, 56, 14, 8)]);   // подход снизу: широкое здание над склепом, вход — на дорогу
     }
 
