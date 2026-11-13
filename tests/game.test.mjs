@@ -315,9 +315,9 @@ test('яд от облака «Мора» кончается в свой сро�
 });
 
 test('ни в одном снимке партий ботов, берущих все перки, нет нечисловых значений', () => {
-  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split' }];
+  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest', bell: 'toll' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split', bell: 'knell' }];
   const all = new Set(); for (const p of sets) for (const v of Object.values(p)) all.add(v);
-  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
+  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse', 'drone'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
   const bad = (o, path) => { if (typeof o === 'number') return Number.isFinite(o) ? null : path;
     if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'map') continue; const b = bad(o[k], path + '.' + k); if (b) return b; } return null; };
   for (const perks of sets) {
@@ -686,4 +686,95 @@ test('состояние после переноса сериализуется 
   SIM.step(S, { cmds: [{ k: 'move', cell, to }, { k: 'call' }] });
   const R = JSON.parse(JSON.stringify(S)); for (let i = 0; i < 120 * 20; i++) { SIM.step(S, null); SIM.step(R, null); }
   assert.deepEqual(R, S); assert.equal(R.towers[to].cell, to);
+});
+
+// ---- Колокол: удар по площади вокруг себя с оглушением
+// Колокол на клетке с наибольшим покрытием дороги его малым радиусом (не особой); с перком p — после PERK_AT ступеней
+// (p = null — те же ступени без перка, чтобы числа сравнивались). Волна идёт, очередь держится непустой, башня молчит до strikeNow.
+const bellAt = (seed, p) => {
+  const S = SIM.create(seed), cell = SIM.rankCells(S, T.bell.base.range).find((c) => !S.map.specials.some((s) => s.cell === c)), ups = [];
+  if (p !== undefined) for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const tw = tower(S, cell, 'bell', ups); if (p) SIM.step(S, { cmds: [{ k: 'perk', cell, p }] });
+  if (p) assert.ok(SIM.hasPerk(tw, p), 'перк не взялся: ' + p);
+  SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = [{ at: 1e9, e: 'militia' }]; S.qi = 0; S.enemies = []; S.shots = []; tw.cd = 1e9;
+  return { S, tw, cell, st: SIM.towerStats(S, tw) };
+};
+// враг type в точке дороги, ближайшей к расстоянию dist px от башни; живучий, идёт как обычно
+const drop = (S, cell, type, dist) => { const [x, y] = SIM.cellXY(S, cell), L = SIM.pathLen(S); let best = 0, bd = Infinity;
+  for (let d = 0; d < L; d++) { const p = SIM.posAt(S, d), q = Math.abs(Math.hypot(p.x - x, p.y - y) - dist); if (q < bd) { bd = q; best = d; } }
+  S.queue.splice(S.qi, 0, { at: 0, e: type }); SIM.step(S, null);
+  const e = S.enemies[S.enemies.length - 1]; e.d = best; e.lane = 0; e.hp = e.max = 1e6; return e; };
+// враги по списку [тип, доля радиуса], один шаг на расстановку, затем ровно один удар
+const strikeNow = (B, list) => { const es = list.map(([type, k]) => drop(B.S, B.cell, type, k * B.st.rangePx)); SIM.step(B.S, null);
+  B.tw.cd = 0; SIM.step(B.S, null); return es; };
+const near = (a, b, what) => assert.ok(Math.abs(a - b) < 1e-6, `${what}: ${a} против ${b}`);
+
+test('Колокол бьёт разом всех врагов в радиусе и оглушает их; вне радиуса — никого; босс получает урон, но не оглушается', () => {
+  const B = bellAt(4), { S, st } = B, [x, y] = SIM.cellXY(S, B.cell);
+  near(st.stun, T.bell.extra.stun, 'длительность оглушения из конфига');
+  const es = strikeNow(B, [['militia', 0], ['militia', 0.9], ['militia', 2.4], ['paladin', 0.3]]);
+  const inside = (e) => Math.hypot(e.x - x, e.y - y) <= st.rangePx, [m0, m1, far, boss] = es;
+  assert.ok(inside(m0) && inside(boss) && !inside(far), 'расстановка: ' + es.map((e) => Math.round(Math.hypot(e.x - x, e.y - y))).join(' '));
+  assert.equal(S.ev.filter((v) => v.k === 'fire' && v.t === S.t).length, 1, 'один удар');
+  const pulse = S.ev.find((v) => v.k === 'pulse' && v.t === S.t); assert.ok(pulse, 'нет события удара (волна в сцене)');
+  near(pulse.r, st.rangePx, 'радиус волны удара'); near(pulse.x, x, 'волна от башни'); near(pulse.y, y, 'волна от башни');
+  for (const e of es.filter(inside)) assert.ok(hurt(e) > 0, `враг ${e.type} в радиусе не получил урона`);
+  for (const e of es.filter(inside).filter((e) => e !== boss)) near(e.stunT, st.stun, `оглушение ${e.type}`);
+  assert.equal(hurt(far), 0); assert.equal(far.stunT, 0, 'враг вне радиуса оглушён');
+  assert.equal(boss.stunT, 0, 'босс оглушён'); assert.ok(hurt(boss) > 0);
+  if (inside(m1)) near(m1.stunT, st.stun, 'второй враг в радиусе');
+  // урон — ровно итоговый урон башни (ополченец без брони; аура паладина броню прибавляет, поэтому без него)
+  const B2 = bellAt(4), [lone] = strikeNow(B2, [['militia', 0]]); near(hurt(lone), B2.st.dmg, 'урон удара');
+});
+
+test('оглушённый враг стоит ровно срок оглушения, потом идёт; очнувшийся какое-то время к оглушению невосприимчив', () => {
+  const B = bellAt(4), { S, st, tw } = B, [e] = strikeNow(B, [['militia', 0]]), d0 = e.d;
+  assert.ok(e.stunT > 0);
+  let stood = 0; while (e.d === d0 && stood < 10) { SIM.step(S, null); stood += S.dt; }
+  assert.ok(Math.abs(stood - st.stun) <= S.dt * 2, `стоял ${stood.toFixed(3)} с при оглушении ${st.stun} с`);
+  // сразу после оглушения новый удар ранит, но не оглушает; после невосприимчивости — снова оглушает
+  e.freezeT = 1e9; const h = hurt(e); tw.cd = 0; SIM.step(S, null);
+  assert.ok(hurt(e) > h, 'удар не ранил'); assert.ok(!(e.stunT > 0), 'оглушён снова без передышки');
+  for (let i = 0; i < (st.guard + 0.1) / S.dt; i++) SIM.step(S, null);
+  tw.cd = 0; SIM.step(S, null); near(e.stunT, st.stun, 'после невосприимчивости оглушается снова');
+});
+
+test('ветки Колокола: урон вместе с длительностью оглушения, дальность и частота удара — каждая от своей ветки', () => {
+  const S = SIM.create(4), cell = freeCell(S), tw = tower(S, cell, 'bell'), s0 = SIM.towerStats(S, tw);
+  const dmg = SIM.towerStats(S, tw, 'dmg'), range = SIM.towerStats(S, tw, 'range'), rate = SIM.towerStats(S, tw, 'rate');
+  assert.ok(dmg.dmg > s0.dmg && dmg.stun > s0.stun && dmg.range === s0.range, 'ветка урона');
+  assert.ok(range.range > s0.range && range.stun === s0.stun && range.dmg === s0.dmg, 'ветка дальности');
+  assert.ok(rate.rate < s0.rate && rate.stun === s0.stun, 'ветка скорости');
+  assert.ok(s0.range < T.plague.base.range, 'радиус Колокола малый — меньше самого короткого из старых');
+  for (const k of C.TRACKS) assert.ok(SIM.trackText('bell', k, s0).length > 0);
+  for (const [, tpl] of T.bell.show || []) assert.ok(!/[{}]/.test(SIM.fill(tpl, s0, T.bell.extra)));
+  // прокачка до потолка: оглушение растёт, но остаётся кратким — короче паузы между ударами
+  for (const k of C.TRACKS) for (let i = 0; i < C.TRACK_MAX; i++) SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: k }] });
+  const top = SIM.towerStats(S, tw); assert.ok(top.stun > s0.stun && top.stun < top.rate, `оглушение ${top.stun} с при ударе раз в ${top.rate} с`);
+});
+
+test('перки Колокола: Набат — оглушение дольше, Погребальный звон — проклятие всем задетым и боссу, Гул — замедление после оглушения', () => {
+  assert.deepEqual(Object.keys(T.bell.perks).sort(), ['drone', 'knell', 'toll']);
+  const plain = bellAt(4, null), toll = bellAt(4, 'toll'), knell = bellAt(4, 'knell'), drone = bellAt(4, 'drone');
+  // Набат
+  near(toll.st.stun, plain.st.stun + T.bell.perks.toll.add.stun, 'Набат в характеристиках');
+  const [tm] = strikeNow(toll, [['militia', 0]]), [pm] = strikeNow(plain, [['militia', 0]]);
+  near(tm.stunT, toll.st.stun, 'Набат на враге'); assert.ok(tm.stunT > pm.stunT);
+  // Погребальный звон: проклятие на всех задетых, и на боссе
+  const [km, kb] = strikeNow(knell, [['militia', 0], ['paladin', 0.3]]);
+  for (const e of [km, kb]) { near(e.curse, knell.st.curse, 'проклятие ' + e.type); near(e.curseT, knell.st.curseTime, 'срок проклятия ' + e.type); }
+  assert.equal(pm.curseT, 0);
+  // Гул: после оглушения враг замедлен ещё dragTime; босс не оглушён, но замедлен
+  const [dm, db] = strikeNow(drone, [['militia', 0], ['paladin', 0.3]]);
+  near(dm.slowK, drone.st.drag, 'Гул на враге'); near(dm.slowT, drone.st.stun + drone.st.dragTime, 'срок Гула');
+  near(db.slowK, drone.st.drag, 'Гул на боссе'); near(db.slowT, drone.st.dragTime, 'срок Гула на боссе'); assert.equal(db.stunT, 0);
+  for (const id of ['toll', 'knell', 'drone']) assert.ok(!/[{}]/.test(SIM.perkText(id)));
+});
+
+test('оглушение — часть состояния: сейв посреди оглушения годен и продолжается без потерь', () => {
+  const B = bellAt(4, 'drone'), [e] = strikeNow(B, [['militia', 0]]); assert.ok(e.stunT > 0);
+  assert.ok(SIM.loadable(JSON.parse(JSON.stringify(B.S))), 'сейв с оглушённым врагом негоден');
+  const R = JSON.parse(JSON.stringify(B.S)); for (let i = 0; i < 3 / B.S.dt; i++) { SIM.step(B.S, null); SIM.step(R, null); }
+  assert.deepEqual(R, B.S);
+  const bad = JSON.parse(JSON.stringify(B.S)); if (bad.enemies.length) { bad.enemies[0].stunT = 'x'; assert.equal(SIM.loadable(bad), false); }
 });
