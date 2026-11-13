@@ -52,7 +52,7 @@
     const seed = h('div', 'frame box', 'СИД <span id="s-seed"></span>'); seed.id = 'seedbox'; seed.title = 'Сид забега: та же карта при том же сиде'; root.append(seed);
     const stats = h('div', '', ''); stats.id = 'stats';
     stats.innerHTML = `<button class="btn ibtn" id="b-speed" title="Скорость (F)">▶</button><button class="btn ibtn" id="b-pause" title="Пауза (Пробел)">❚❚</button>
-      <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 25</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
+      <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 20</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
       <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Настройки (Esc)">⚙</button>`;
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
@@ -83,7 +83,7 @@
       <div class="seedrow"><input id="m-seed" type="text" inputmode="numeric" maxlength="40" autocomplete="off" spellcheck="false" placeholder="сид карты" aria-label="Сид карты"><button class="btn" id="m-seedgo" disabled>По сиду</button></div>
       <div class="seednote" id="m-seednote"></div>
       <button class="btn" id="m-help">Как играть</button></div>
-      <div class="frame help" id="m-helptext"><b>Цель:</b> переживи 25 волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
+      <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
@@ -101,7 +101,8 @@
   const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
   // клетка под курсором; клетки под интерфейсом не игровые — для них -1 (без подсветки и выбора)
   const hitCell = (x, y) => { const S = APP.play; if (!S) return -1; const i = SIM.MAPGEN.cellAt(S.map, x, y); return i >= 0 && !SIM.MAPGEN.hud(S.map, i) ? i : -1; };
-  const isRoad = (cell) => SIM.canBuild(APP.play, cell, 'bones').reason === 'road';
+  // дорога и препятствие: строить нельзя, панели нет
+  const isRoad = (cell) => ['road', 'obstacle'].includes(SIM.canBuild(APP.play, cell, 'bones').reason);
   const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; ui.move = -1; renderPanel(true); };
   const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
     if (!cb.ok) { if (cb.reason === 'souls') flashPoor(type); AUDIO.ui('deny'); return false; }
@@ -196,10 +197,16 @@
   const tipBeside = () => { const p = $('#panel'), right = p.offsetLeft + p.offsetWidth + 10;
     return [right + 300 <= 1590 ? right : p.offsetLeft - 310, p.offsetTop + p.offsetHeight]; };
   const closeBtn = '<button class="btn x">✕</button>';
+  // меню свободной клетки: особая клетка (вид и бонус), покрытие дороги, итоговые цены башен на этой клетке (с наценкой)
   const buildMenu = (S, p) => {
-    const cov = SIM.coverage(S, ui.sel, 3.4), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
-    p.innerHTML = `${closeBtn}<div class="nm">Свободная клетка</div><div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
-        <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
+    const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
+    const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
+      return `<div><span>${T[k].name}</span><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
+    p.innerHTML = `${closeBtn}<div class="nm">${b ? b.name : 'Свободная клетка'}</div>
+        ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}
+        <div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
+        <div class="st prices">${prices}</div>
+        <div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
   };
   const towerPic = (tw) => { const lk = SIM.look(tw); return typePic(tw.type, lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
   const towerHead = (S, tw) => {
@@ -280,9 +287,9 @@
   const spotNear = (S, o) => {
     const wb = $('#wavebtn'); if (wb && wb.offsetParent) WAVEBTN = [wb.offsetLeft, wb.offsetTop, wb.offsetWidth, wb.offsetHeight];
     const plates = rectsOf(PLATES).concat([WAVEBTN]), soft = o.soft || [], road = S.map.road;
-    const key = [S.seed, o.x, o.y, o.w, o.h, o.keep, o.avoid, soft.length, o.maxDist, S.towers.map((t) => (t ? 1 : 0)).join(''), JSON.stringify(plates)].join('|');
+    const key = [S.seed, o.x, o.y, o.w, o.h, o.keep, JSON.stringify(o.avoid || []), soft.length, o.maxDist, S.towers.map((t) => (t ? 1 : 0)).join(''), JSON.stringify(plates)].join('|');
     if (o.cache.key === key) return o.cache.r;
-    const hard = [o.keep, around(S, road[0]), around(S, road[road.length - 1])].concat(o.avoid ? [o.avoid] : [], plates.map(([x, y, w, h]) => [x - 6, y - 6, w + 12, h + 12]));
+    const hard = [o.keep, around(S, road[0]), around(S, road[road.length - 1])].concat(o.avoid || [], plates.map(([x, y, w, h]) => [x - 6, y - 6, w + 12, h + 12]));
     const towers = S.towers.map((t, i) => (t ? cellRect(S, i) : null)).filter(Boolean);
     let best = null, bestCost = Infinity;
     for (let y = 58; y <= 892 - o.h; y += 16) for (let x = 8; x <= 1592 - o.w; x += 16) {
@@ -305,7 +312,10 @@
 
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
-    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, poor = S && S.souls < T[k].base.cost;
+    // цена на карточках — для клетки, куда пойдёт постройка: выбранной свободной, а с выбранной карточкой — под курсором
+    const free = (i) => S && i >= 0 && !S.towers[i] && !isRoad(i), spot = free(ui.sel) ? ui.sel : ui.armed && free(ui.hover) ? ui.hover : -1;
+    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, cb = S ? SIM.canBuild(S, spot >= 0 ? spot : -1, k) : null, cost = cb ? cb.cost : T[k].base.cost, poor = S && S.souls < cost;
+      const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', !!cb && cb.cost !== cb.base);
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
     if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], moving = ui.move === ui.sel;
@@ -325,8 +335,8 @@
   const toast = (html, cls = '', ms = 2600) => { const t = h('div', 'frame toast ' + cls, html); $('#toasts').append(t);
     setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600); };
   let neQueue = [];
-  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy');
-    const tags = [d.armor ? `броня ${Math.round(d.armor * 100)}%` : '', d.mres ? `защита от магии ${Math.round(d.mres * 100)}%` : '', d.heal ? 'лечит' : '', d.boss ? 'босс' : '', `скорость ${d.speed}`].filter(Boolean).join(' · ');
+  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
+    const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
     o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${has('en_' + type) ? '' : 'filter:sepia(1) saturate(2.2) brightness(1.1)'}">${img(has('en_' + type) ? 'en_' + type : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
@@ -344,12 +354,12 @@
     { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
       text: `В башню вложено ${C.PERK_AT} ступеней — выбери один из трёх перков. Выбор навсегда, читай подсказки.` },
   ];
-  // подсказка обучения — тем же размещением, что и панель: не закрывает цель, панель, плашки, вход и склеп, мимо дороги
-  const placeNear = (S, x, y, w, h) => { const pn = $('#panel.show');
-    return spotNear(S, { x, y, w, h, keep: [x - 40, y - 40, 80, 80], avoid: pn ? [pn.offsetLeft - 6, pn.offsetTop - 6, pn.offsetWidth + 12, pn.offsetHeight + 12] : null,
-      maxDist: COACH_MAX, cache: coachCache, soft: S.map.road.map((i) => cellRect(S, i)) }); };
+  // подсказка обучения — тем же размещением, что и панель: не закрывает цель, панель, разведку, плашки, вход и склеп, мимо дороги
+  const placeNear = (S, x, y, w, h) => {
+    const avoid = rectsOf('#panel.show, #scout.show, #scout-panel.show').map(([l, t, pw, ph]) => [l - 6, t - 6, pw + 12, ph + 12]);
+    return spotNear(S, { x, y, w, h, keep: [x - 40, y - 40, 80, 80], avoid, maxDist: COACH_MAX, cache: coachCache, soft: S.map.road.map((i) => cellRect(S, i)) }); };
   let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
-  const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, 3.4)[0] }; return best.cell; };
+  const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, C.TYPICAL_RANGE)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
     if (!c || APP.paused) { el.classList.remove('show'); return; }
@@ -376,7 +386,7 @@
   const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
       <p>${won ? 'Последний паладин рассыпался в прах. Некрополис спит спокойно.' : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`}</p>
-      <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
+      <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${SIM.waveCount()}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
       <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
     showOverlay('end', true);
@@ -412,13 +422,13 @@
     const S = A.play;
     $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
-    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${C.WAVES.length}`; $('#s-seed').textContent = S.seed;
+    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
     $('#b-pause').classList.toggle('on', A.paused); $('#b-speed').textContent = A.speed === 2 ? '▶▶' : '▶'; $('#b-speed').classList.toggle('on', A.speed === 2);
-    const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < C.WAVES.length;
+    const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.waveCount();
     wb.classList.toggle('hidden', !canCall);
-    if (canCall) { const nx = S.wave + 1, boss = C.BOSSES[nx];
+    if (canCall) { const nx = S.wave + 1, boss = SIM.isBoss(nx);
       $('#w-l1').textContent = S.wave === 0 ? 'Начать волну 1' : `Призвать волну ${nx}`;
       $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + (S.prepT > 0 ? `сама через ${Math.ceil(S.prepT)} с · Enter` : 'Enter');
       wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean)); }

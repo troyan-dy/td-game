@@ -7,7 +7,7 @@ const C = SIM.CONFIG;
 const MIX = ['bones', 'spirits', 'plague', 'dark'];
 const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse' };
 // лучшие клетки под оборону: по покрытию дороги (запоминаются на партию)
-const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, 3.4).slice(0, n));
+const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, C.TYPICAL_RANGE).slice(0, n));
 
 // Следующая покупка в башне t: перк, когда он открыт (ступеней хватает), иначе ступень ветки — урон и скорость охотнее,
 // чем дальность. { cmd, cost } или null, если качать некуда. Цены и запреты — из ответов логики (canPerk, canUpgrade).

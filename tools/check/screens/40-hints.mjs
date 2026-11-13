@@ -8,7 +8,7 @@ export const steps = {
   newenemy: async (ctx, g) => { await g.pushEvent(ctx, { k: 'newEnemy', type: 'paladin' }); await ctx.need('#newenemy.show'); await ctx.shot('newenemy'); },
   toasts: async (ctx, g) => {
     await ctx.page.keyboard.press('Enter');                       // закрывает окно «новый враг»
-    await g.pushEvent(ctx, { k: 'boss', name: 'Паладин-командор', x: 1, y: 1 }, { k: 'wave', wave: 25, boss: true });
+    await g.pushEvent(ctx, { k: 'boss', name: 'Паладин-командор', x: 1, y: 1 }, { k: 'wave', wave: 20, boss: true });
     await ctx.shot('toasts');
   },
   pause: async (ctx) => { await ctx.page.keyboard.press('Space'); await ctx.need('#pause.show'); await ctx.shot('pause'); await ctx.page.keyboard.press('Space'); },

@@ -2,8 +2,8 @@
 export const steps = {
   end_won: async (ctx, g) => {
     await g.newGame(ctx);
-    await ctx.eval(() => { const S = APP.play, s = S.stats; S.wave = SIM.CONFIG.WAVES.length; S.seed = 999999;
-      const b = SIM.rankCells(S, 3.4)[0]; S.souls = 1e4; APP.cmd({ k: 'build', cell: b, type: 'bones' });   // с башней подсказки обучения не показываются
+    await ctx.eval(() => { const S = APP.play, s = S.stats; S.wave = SIM.waveCount(); S.seed = 999999;
+      const b = SIM.rankCells(S, SIM.CONFIG.TYPICAL_RANGE)[0]; S.souls = 1e4; APP.cmd({ k: 'build', cell: b, type: 'bones' });   // с башней подсказки обучения не показываются
       s.time = 3599; s.kills = 99999; s.earned = 999999; });
     await ctx.wait(100); await ctx.eval(() => { APP.play.phase = 'won'; });
     await ctx.need('#end.show', 5000); await ctx.wait(1000);

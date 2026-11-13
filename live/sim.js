@@ -1,12 +1,14 @@
 // live/sim.js — «Некрополис»: детерминированная симуляция tower defense (всё, что ПРОИСХОДИТ).
-// Числа берутся из live/config.js, карта — из live/mapgen.js по сиду забега. Состояние — простой JSON (сейв и sessionStorage).
+// Числа берутся из live/config.js, карта — из live/mapgen.js, волны — из live/wavegen.js по сиду забега. Состояние — простой JSON (сейв и sessionStorage).
 // Шаг времени — параметр забега (S.dt), по умолчанию C.DT. Клетка адресуется индексом i = y * cols + x.
+// Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const MAPGEN = (typeof window !== 'undefined' && window.MAPGEN) || require('./mapgen.js');
   const RNG = (typeof window !== 'undefined' && window.RNG) || require('./rng.js');
+  const WAVEGEN = (typeof window !== 'undefined' && window.WAVEGEN) || require('./wavegen.js');
   const UNIT = C.UNIT, W = 1600, H = 900;
 
   // ---------------------------------------------------------------- маршрут врагов: полилиния карты с длиной дуги (кэш по объекту карты)
@@ -52,6 +54,10 @@
   const KILL_PERKS = new Set(Object.keys(PERKS).filter((id) => PERKS[id].def.set && 'harvest' in PERKS[id].def.set));
   const cellXY = (S, i) => MAPGEN.cellXY(S.map, i);
   const cellCount = (S) => S.map.cols * S.map.rows;
+  // бонус особой клетки: { kind, name, desc, range?, souls?, dmg?, cost? } или null. Всегда от клетки, где башня стоит сейчас
+  const cellBonus = (S, cell) => { const k = MAPGEN.special(S.map, cell); return k ? Object.assign({ kind: k }, C.SPECIAL[k]) : null; };
+  // одно число бонуса (range, souls, dmg, cost) — без промежуточных объектов
+  const bonusOf = (S, cell, key) => { const k = MAPGEN.special(S.map, cell); return k ? C.SPECIAL[k][key] || 0 : 0; };
   const towerAt = (S, cell) => (cell >= 0 && cell < cellCount(S) && S.towers[cell]) || null;
   const ended = (S) => S.phase === 'won' || S.phase === 'lost';
 
@@ -84,9 +90,12 @@
     o.rangePx = o.range * UNIT;
     return o;
   };
-  // внешние бонусы к своим характеристикам o — единственное место для них: особые клетки (курган, проклятая земля),
-  // аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте; пересчитывает rangePx, если тронут range. Пока пусто.
-  const externalBonus = (S, tw, o) => { o.rangePx = o.range * UNIT; return o; };
+  // внешние бонусы к своим характеристикам o — единственное место для них. Сейчас — особая клетка под башней: курган
+  // прибавляет дальность после веток, проклятая земля умножает итоговый урон (у облака — яд в секунду), источник душ
+  // кладёт своё число (well). Дальше сюда же — аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте.
+  const externalBonus = (S, tw, o) => {
+    if (tw.cell >= 0) { o.range += bonusOf(S, tw.cell, 'range'); o.dmg *= 1 + bonusOf(S, tw.cell, 'dmg'); const w = bonusOf(S, tw.cell, 'souls'); if (w) o.well = w; }
+    o.rangePx = o.range * UNIT; return o; };
   const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
   // итоговые характеристики будущей башни типа type на клетке cell (подсказка карточки, меню постройки); cell -1 — без клетки
@@ -119,7 +128,8 @@
     return IDX.get(id) || null; };
   const dropIndex = () => { IDX_S = null; };
   const sellValue = (tw) => Math.floor(tw.invested * C.SELL_REFUND);
-  const waveCount = () => C.WAVES.length;
+  const waveCount = () => C.RUN_WAVES;
+  const isBoss = (n) => WAVEGEN.isBoss(n);
   const ev = (S, k, o) => { S.ev.push(Object.assign({ k, t: S.t }, o || {})); };
 
   // seed — сид забега (карта и случайность боя); opts.dt — шаг времени; opts.unlocked — открытые id (null — открыто всё)
@@ -131,30 +141,32 @@
       t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
-      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {},
+      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
     };
   };
 
   // ---------------------------------------------------------------- ответы интерфейсу
   // можно ли поставить башню на клетку — сама клетка, без типа и цены (общее для постройки и переноса):
-  // null — можно, иначе причина 'bounds' | 'road' | 'hud' | 'occupied'
+  // null — можно, иначе причина 'bounds' | 'road' | 'hud' | 'obstacle' | 'occupied'
   const cellBlock = (S, cell) => {
     if (!(cell >= 0 && cell < cellCount(S)) || cell !== Math.floor(cell)) return 'bounds';
     if (S.map.road.includes(cell)) return 'road';
     if (MAPGEN.hud(S.map, cell)) return 'hud';
+    if (MAPGEN.obstacle(S.map, cell)) return 'obstacle';
     if (S.towers[cell]) return 'occupied';
     return null;
   };
-  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost }
-  // cost — цена постройки на этой клетке (её и списывает команда build)
+  // можно ли строить: { ok, reason: null | 'bounds' | 'road' | 'hud' | 'obstacle' | 'occupied' | 'type' | 'locked' | 'ended' | 'souls', cost, base }
+  // cost — цена постройки на этой клетке с наценкой особой клетки (её и списывает команда build), base — цена без наценки
   const canBuild = (S, cell, type) => {
-    const def = typeDef(type), cost = def ? def.base.cost : null, no = (reason) => ({ ok: false, reason, cost });
-    const blk = cellBlock(S, cell); if (blk) return no(blk);
+    const def = typeDef(type), blk = cellBlock(S, cell), base = def ? def.base.cost : null;
+    const cost = def ? Math.round(base * (1 + (blk === 'bounds' ? 0 : bonusOf(S, cell, 'cost')))) : null, no = (reason) => ({ ok: false, reason, cost, base });
+    if (blk) return no(blk);
     if (!def) return no('type');
     if (S.unlocked && !S.unlocked.includes(type)) return no('locked');
     if (S.phase === 'won' || S.phase === 'lost') return no('ended');
     if (S.souls < cost) return no('souls');
-    return { ok: true, reason: null, cost };
+    return { ok: true, reason: null, cost, base };
   };
   // можно ли перенести башню с клетки from: { ok, reason: null | 'none' | 'ended' | 'phase' } — без to (кнопка в панели);
   // с to — ещё и на клетку to: та же проверка клетки, что у постройки (cellBlock), плюс 'same'. Перенос бесплатный, души не нужны.
@@ -296,12 +308,26 @@
       return bounded(R);
     } catch (e) { return false; }
   };
+  // превью волны n для разведки: только с текущей+1 по текущую+SCOUT_AHEAD и не дальше конца забега, иначе null.
+  // Свежий объект на каждый вызов: менять его можно, на бой это не влияет.
+  const scoutRange = (S) => ({ from: S.wave + 1, to: Math.min(waveCount(), S.wave + C.SCOUT_AHEAD) });
+  const preview = (S, n) => { const r = scoutRange(S); return Number.isInteger(n) && n >= r.from && n <= r.to ? WAVEGEN.wave(S.seed, n) : null; };
+  // сколько врагов волны ещё осталось: не вышедшие на дорогу и живые — вместе с теми, кто выйдет из них при смерти
+  // (повозка считается за себя и своих ополченцев сразу, поэтому число только убывает)
+  const remaining = (S) => { let n = 0;
+    for (let i = S.qi; i < S.queue.length; i++) n += WAVEGEN.spawnsOf(S.queue[i].e);
+    for (const e of S.enemies) if (!e.dead) n += WAVEGEN.spawnsOf(e.type);
+    return n; };
+  // характеристики врага типа type в текущей волне (их получает враг при выходе на дорогу; карточка «Новый враг»)
+  const enemyStats = (S, type) => (S.waveStats && S.waveStats[type]) || WAVEGEN.stats(type, Math.max(1, S.wave), null);
   // длина дороги (px), которую башня на клетке накрывает радиусом units
   const coverage = (S, cell, units) => { const [x, y] = cellXY(S, cell), r = units * UNIT, L = pathLen(S); let n = 0;
     for (let d = 0; d < L; d += 4) { const p = posAt(S, d); if (Math.hypot(p.x - x, p.y - y) <= r) n += 4; } return n; };
+  // покрытие дороги будущей башней на клетке: типичный радиус C.TYPICAL_RANGE плюс бонус клетки (меню постройки)
+  const spotCoverage = (S, cell) => coverage(S, cell, C.TYPICAL_RANGE + bonusOf(S, cell, 'range'));
   // свободные клетки по убыванию покрытия дороги (боты, демо, подсказки)
   const rankCells = (S, units) => { const out = [];
-    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i)) out.push([i, coverage(S, i, units)]);
+    for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i) && !MAPGEN.obstacle(S.map, i)) out.push([i, coverage(S, i, units)]);
     return out.sort((a, b) => b[1] - a[1] || a[0] - b[0]).map((c) => c[0]); };
 
   // ---------------------------------------------------------------- команды игрока
@@ -340,18 +366,17 @@
   // ---------------------------------------------------------------- волны
   const startWave = (S) => {
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.prepT = 0;
-    const q = [];
-    for (const g of C.WAVES[S.wave - 1]) for (let i = 0; i < g.n; i++) q.push({ at: g.at + i * g.gap, e: g.e });
-    q.sort((a, b) => a.at - b.at || (a.e < b.e ? -1 : 1));
-    S.queue = q;
-    ev(S, 'wave', { wave: S.wave, boss: !!C.BOSSES[S.wave] });
+    // описание волны считается заново от сида и номера; её характеристики врагов живут в состоянии забега до следующей волны
+    const w = WAVEGEN.wave(S.seed, S.wave);
+    S.queue = WAVEGEN.queue(w); S.waveStats = w.stats;
+    ev(S, 'wave', { wave: S.wave, boss: w.boss, trait: w.trait ? w.trait.id : null });
   };
-  const spawnEnemy = (S, type, d) => {
-    const def = EN[type], w = Math.max(1, S.wave), boss = def.boss ? C.BOSSES[w] || { hp: def.hp, bounty: def.bounty, name: def.name } : null;
-    const hp = boss ? boss.hp : Math.round(def.hp * C.HP_MULT(w));
-    const e = { id: S.nid++, type, d: d || 0, hp, max: hp, bounty: boss ? boss.bounty : Math.round(def.bounty * C.BOUNTY_MULT(w)),
+  // характеристики врага — из описания волны (те же, что видит разведка); child — вышел из убитого (ополченцы из повозки)
+  const spawnEnemy = (S, type, d, child) => {
+    const def = EN[type], st = enemyStats(S, type);
+    const e = { id: S.nid++, type, d: d || 0, hp: st.hp, max: st.hp, bounty: st.bounty, armor: st.armor, mres: st.mres, speed: st.speed, heal: st.heal, child: !!child,
       lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, curse: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
-      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: boss ? boss.name : def.name };
+      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name };
     placeEnemy(S, e, 0);
     S.enemies.push(e);
     if (!S.seen[type]) { S.seen[type] = 1; ev(S, 'newEnemy', { type }); }
@@ -366,9 +391,9 @@
   // ---------------------------------------------------------------- урон и смерть
   const damage = (S, e, amt, type, tw, opt) => {
     if (e.dead || amt <= 0) return 0;
-    const def = EN[e.type];
-    if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, def.armor + e.aura - e.shred) * (1 - (opt && opt.pen || 0)));   // pen — доля брони, которую удар не замечает
-    else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - def.mres;
+    // броня и защита — с врага (свойство волны их меняет); бонус клетки уже в уроне снаряда (towerStats при выстреле)
+    if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, e.armor + e.aura - e.shred) * (1 - (opt && opt.pen || 0)));   // pen — доля брони, которую удар не замечает
+    else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - e.mres;
     if (e.curseT > 0) amt *= 1 + e.curse;
     e.hp -= amt; if (type !== 'poison') e.hitT = S.t;
     if (tw) tw.dmg += amt;
@@ -379,6 +404,8 @@
     e.dead = true; const def = EN[e.type];
     S.souls += e.bounty; S.stats.kills++; S.stats.earned += e.bounty; if (tw) tw.kills++;
     ev(S, 'die', { x: e.x, y: e.y, type: e.type, souls: e.bounty, face: e.face, boss: !!def.boss });
+    const well = tw ? bonusOf(S, tw.cell, 'souls') : 0;                // источник душ под башней-убийцей
+    if (well) { S.souls += well; S.stats.earned += well; const [wx, wy] = cellXY(S, tw.cell); ev(S, 'well', { x: wx, y: wy - 40, souls: well, cell: tw.cell }); }
     // души за смерть в радиусе башни (Жатва): параметр перка — из итоговых характеристик башни
     for (const t of S.towers) if (t && t.perks.some((p) => KILL_PERKS.has(p))) { const st = towerStats(S, t); if (!st.harvest) continue;
       const [sx, sy] = cellXY(S, t.cell); if (Math.hypot(e.x - sx, e.y - sy) <= st.rangePx) { const g = st.harvest; S.souls += g; S.stats.earned += g; ev(S, 'harvest', { x: e.x, y: e.y, souls: g, cell: t.cell }); }
@@ -387,7 +414,7 @@
     for (const key in e.poison) { const p = e.poison[key];
       if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, linger: p.pest.linger, tw: p.tw, pest: null, acid: null });
         ev(S, 'cloud', { x: e.x, y: e.y, small: true }); break; } }
-    if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i)); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
+    if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i), true); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
   };
 
   // ---------------------------------------------------------------- башни
@@ -408,7 +435,7 @@
       }
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
       if (st.pierce) {
-        const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + EN[e.type].speed * fl);
+        const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl);
         const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
         S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, pen: st.pen || 0, sp: st.speed, tw: tw.id,
           pierce: st.pierce, falloff: st.pierceFalloff, hit: [] });
@@ -423,7 +450,7 @@
       return true;
     } },
     blob: { run: (S, tw, st, cand, mx, my) => {                             // ком яда навесом: облако на месте падения; Кислота, Мор, Миазмы
-      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + EN[e.type].speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
+      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + e.speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
       S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id, dps: st.dmg, r: st.cloudR * UNIT, ct: st.cloudTime, linger: st.linger,
         acid: st.shred ? { shred: st.shred, t: st.shredTime } : null, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
       return true;
@@ -529,12 +556,12 @@
       if (e.shredT > 0) { e.shredT -= DT; if (e.shredT <= 0) e.shred = 0; }
       for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', towerOf(S, p.tw)); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
       if (e.dead) continue;
-      if (def.heal) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = def.heal * C.HP_MULT(S.wave); let any = false;
+      if (def.heal) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = e.heal; let any = false;
         const hurt = S.enemies.filter((o) => !o.dead && !EN[o.type].boss && o.hp < o.max && S.t - (o.healedT || -9) >= def.healLock && Math.hypot(o.x - e.x, o.y - e.y) <= def.healR * UNIT)
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
         ev(S, 'heal', { x: e.x, y: e.y, any }); } }
-      const v = e.freezeT > 0 ? 0 : def.speed * (e.slowT > 0 ? 1 - e.slowK : 1);
+      const v = e.freezeT > 0 ? 0 : e.speed * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss }); }
@@ -567,22 +594,27 @@
   };
   const pruneEv = (S) => { if (S.ev.length > 300 || (S.ev.length && S.t - S.ev[0].t > 4)) S.ev = S.ev.filter((e) => S.t - e.t < 4).slice(-300); };
 
-  // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, волна 9
+  // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
   const DEMO_SEED = 99;
+  // волна демо: из 5–12-й без босса — с наибольшим числом врагов, укладывающаяся в половину петли (по дороге всё время идут
+  // враги); если после перенастройки ни одна не укладывается — самая людная из них, если и таких нет — 5-я
+  const demoN = () => { const ws = [5, 6, 7, 8, 9, 10, 11, 12].map((n) => WAVEGEN.wave(DEMO_SEED, n)).filter((w) => !w.boss);
+    const by = (a, b) => b.total.count - a.total.count || a.n - b.n, fit = ws.filter((w) => w.duration <= LOOP / 2).sort(by);
+    return (fit[0] || ws.sort(by)[0] || { n: 5 }).n; };
   // [тип, ступеней]: ступени раскладываются по веткам по кругу DEMO_UP
   const DEMO_BUILD = [['bones', 6], ['dark', 5], ['plague', 3], ['spirits', 5], ['dark', 3], ['bones', 3], ['plague', 5],
     ['spirits', 3], ['dark', 10], ['bones', 3], ['plague', 0], ['spirits', 3], ['dark', 3]];
   const DEMO_UP = ['dmg', 'rate', 'range'];
   const demoState = () => {
-    const S = create(DEMO_SEED), best = rankCells(S, 3.4); S.souls = 99999; S.demo = true;
+    const S = create(DEMO_SEED), best = rankCells(S, C.TYPICAL_RANGE); S.souls = 99999; S.demo = true;
     for (const [i, [type, n]] of DEMO_BUILD.entries()) { const cell = best[i];
       doCmd(S, { k: 'build', cell, type }); for (let l = 0; l < n; l++) doCmd(S, { k: 'upgrade', cell, track: DEMO_UP[l % DEMO_UP.length] }); }
-    S.wave = 8; startWave(S); S.souls = 340; S.hp = 16; S.ev = [];
+    S.demoWave = demoN(); S.wave = S.demoWave - 1; startWave(S); S.souls = 340; S.hp = 16; S.ev = [];
     return S;
   };
   const LOOP = 60, WARM_ENEMIES = 10, WARM_MAX = 40;
   // шаг демо: зачищенная волна сразу начинается заново (prepT = шаг: таймер дойдёт до нуля на следующем шаге), души и прочность не меняются
-  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = 8; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
+  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = S.demoWave - 1; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
   let cache = null;
   const at = (t) => {
     const loop = Math.floor(t / LOOP), lt = t - loop * LOOP;
@@ -601,8 +633,8 @@
 
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
-    create, step, at, selfCheck, doCmd, waveCount, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
-    canBuild, buildRangePx, buildStats, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
+    create, step, at, selfCheck, doCmd, waveCount, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
+    canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
   };

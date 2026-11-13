@@ -8,7 +8,7 @@ const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < 
 const json = (S) => JSON.parse(JSON.stringify(S));
 // забег посреди волны: башни всех типов (одна с перком), враги на дороге, снаряды и облака в полёте
 const midWave = () => {
-  const S = SIM.create(3), cells = SIM.rankCells(S, 3.4); S.souls = 5000;
+  const S = SIM.create(3), cells = SIM.rankCells(S, C.TYPICAL_RANGE); S.souls = 5000;
   const cmds = C.TOWER_ORDER.map((type, i) => ({ k: 'build', cell: cells[i], type }));
   const perk = Object.keys(C.TOWERS[C.TOWER_ORDER[0]].perks)[0];
   for (let i = 0; i < C.PERK_AT; i++) cmds.push({ k: 'upgrade', cell: cells[0], track: C.TRACKS[i % C.TRACKS.length] });

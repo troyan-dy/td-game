@@ -15,13 +15,17 @@ import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const DIR = process.env.NECRO_SLOT_DIR || path.join(os.tmpdir(), 'necropolis-slots');
-const SLOTS = Math.max(1, parseInt(process.env.NECRO_SLOTS || '1', 10) || 1);
+// Две независимые очереди: браузерная (подвисания даёт графика нескольких браузеров) и счётная (только процессор).
+const POOLS = {
+  gpu: { prefix: 'slot-', n: Math.max(1, parseInt(process.env.NECRO_SLOTS || '1', 10) || 1) },
+  cpu: { prefix: 'cpu-', n: Math.max(1, parseInt(process.env.NECRO_CPU_SLOTS || '3', 10) || 3) },
+};
 const MAX_MS = (parseFloat(process.env.NECRO_SLOT_MAX_MIN || '20') || 20) * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
-function tryTake(i, label) {
-  const d = path.join(DIR, 'slot-' + i);
+function tryTake(pool, i, label) {
+  const d = path.join(DIR, POOLS[pool].prefix + i);
   try { fs.mkdirSync(d); } catch (e) {
     if (e.code !== 'EEXIST') throw e;
     let own = null;
@@ -37,18 +41,19 @@ function tryTake(i, label) {
 
 // Занять место. Возвращает функцию освобождения; место освобождается и само при выходе процесса.
 // Если место уже держит родительский процесс (NECRO_SLOT_HELD), ничего не делает.
-export async function acquire(label = '') {
-  if (process.env.NECRO_SLOT_HELD) return () => {};
+export async function acquire(label = '', pool = 'gpu') {
+  const held = process.env.NECRO_SLOT_HELD;   // место держит родитель: браузерное покрывает всё, счётное — только счёт
+  if (held === 'gpu' || held === '1' || (held && held === pool)) return () => {};
   fs.mkdirSync(DIR, { recursive: true });
   const t0 = Date.now(); let told = 0;
   for (;;) {
-    for (let i = 0; i < SLOTS; i++) {
-      const d = tryTake(i, label);
+    for (let i = 0; i < POOLS[pool].n; i++) {
+      const d = tryTake(pool, i, label);
       if (d) {
         let freed = false;
         const release = () => { if (freed) return; freed = true; try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {} };
         process.once('exit', release);
-        process.env.NECRO_SLOT_HELD = '1';
+        process.env.NECRO_SLOT_HELD = pool;
         if (told) process.stderr.write(`slot: место получено через ${Math.round((Date.now() - t0) / 1000)} с\n`);
         return () => { release(); delete process.env.NECRO_SLOT_HELD; };
       }
@@ -63,8 +68,9 @@ export function lowPriority(pid = process.pid) { try { os.setPriority(pid, os.co
 
 async function cli() {
   const args = process.argv.slice(2);
+  const pool = args[0] === '--cpu' ? (args.shift(), 'cpu') : 'gpu';   // --cpu: счётная очередь (без браузера), до трёх сразу
   if (!args.length || args[0] === '--help') { process.stdout.write('node tools/slot.mjs <команда> [аргументы…] — выполнить команду в общей очереди тяжёлых прогонов\n'); process.exit(args.length ? 0 : 2); }
-  await acquire(args.join(' ').slice(0, 120));
+  await acquire(args.join(' ').slice(0, 120), pool);
   lowPriority();
   const child = spawn(args[0], args.slice(1), { stdio: 'inherit', env: process.env, shell: process.platform === 'win32' && !/\.exe$/i.test(args[0]) && args[0] !== 'node' && args[0] !== process.execPath });
   const kill = () => { if (child.exitCode !== null || child.signalCode) return;
