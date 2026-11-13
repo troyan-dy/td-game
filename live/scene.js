@@ -374,7 +374,7 @@
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
-      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
+      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well' || e.k === 'toll') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'miss') { const q = a / 1.1; L.label('f' + (fi++ % 40), 'ПРОМАХ', e.x, e.y - 34 - 30 * q, { size: 17, col: '#c8ff9e', out: '#132a0b', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'leak') { const q = a / 1.1; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
   };

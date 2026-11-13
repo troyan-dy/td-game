@@ -151,6 +151,7 @@ test('SIM.preview: следующая волна и не дальше SCOUT_AHEA
 const gauntlet = (seed, waves) => {
   const S = SIM.create(seed, { dt: 1 / 30 }), out = []; S.hp = 1e9;
   for (let n = 1; n <= waves; n++) {
+    if (S.phase === 'relic') SIM.step(S, { cmds: [{ k: 'relic', i: 0 }] });   // выбор реликвии после 5-й, 10-й, 15-й: берём первую
     const pv = SIM.preview(S, n), seen = new Map();
     SIM.step(S, { cmds: [{ k: 'call' }] });
     let guard = 0; const remain = [];

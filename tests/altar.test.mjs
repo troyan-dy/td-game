@@ -121,3 +121,12 @@ test('аура действует и на Колокол: его удар сил
   const S = SIM.create(8), [c, [n]] = spot(S, 1), bell = build(S, n, 'bell'), o = SIM.towerStats(S, bell);
   const alt = build(S, c, 'altar'); boosted(SIM.towerStats(S, bell), o, SIM.ownStats(S, alt), 'Колокол рядом с алтарём');
 });
+
+test('«Беспокойные мёртвые»: алтарь, перенесённый посреди волны, сразу уносит ауру', () => {
+  const S = SIM.create(9), [c, [n]] = spot(S, 1), tw = build(S, n, 'bones'), o = SIM.towerStats(S, tw);
+  build(S, c, 'altar'); S.relics.push('restless'); SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.phase, 'wave');
+  assert.ok(SIM.towerStats(S, tw).altar);
+  const to = SIM.moveCells(S, c).find((i) => !around(S, n, 1).includes(i)); assert.ok(to !== undefined, 'перенос посреди волны недоступен');
+  SIM.step(S, { cmds: [{ k: 'move', cell: c, to }] }); assert.equal(S.towers[to] && S.towers[to].type, 'altar');
+  assert.deepEqual(SIM.towerStats(S, tw), o, 'бонус остался на старом месте');
+});
