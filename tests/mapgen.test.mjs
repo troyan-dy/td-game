@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const MAPGEN = require('../live/mapgen.js');
+const C = require('../live/config.js');
 
 const COLS = 25, ROWS = 14;
 const xy = (i) => [i % COLS, Math.floor(i / COLS)];
@@ -116,6 +117,77 @@ test('особые клетки на 1000 сидах: 4–6 штук, все в 
   assert.ok(counts.size >= 2, 'число особых клеток не меняется от сида');
 });
 
+// ---- арка, склеп, досягаемость особых клеток, узловые клетки
+const cheb = (a, b) => { const [x, y] = xy(a), [u, v] = xy(b); return Math.max(Math.abs(x - u), Math.abs(y - v)); };
+const kindCells = (m, kind) => m.obstacles.filter((o) => o.kind === kind).map((o) => o.cell).sort((a, b) => a - b);
+// путь врагов (полилиния в px) и расстояние от центра клетки до него
+const distToRoute = (m, i) => { const P = MAPGEN.route(m), [x, y] = MAPGEN.cellXY(m, i); let d = Infinity;
+  for (let k = 1; k < P.length; k++) { const [a, b] = [P[k - 1], P[k]], dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy || 1;
+    const u = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L)); d = Math.min(d, Math.hypot(x - a[0] - dx * u, y - a[1] - dy * u)); }
+  return d; };
+// направление последнего шага дороги (куда идут враги в склепе)
+const lastDir = (m) => { const [e, p] = [m.road[m.road.length - 1], m.road[m.road.length - 2]], [x, y] = xy(e), [u, v] = xy(p); return [x - u, y - v]; };
+
+test('арка входа на 1000 сидах: два столба по бокам от входа поперёк дороги', () => {
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed), g = m.road[0], [x, y] = xy(g), side = x === 0 || x === COLS - 1;
+    const want = (side ? [[x, y - 1], [x, y + 1]] : [[x - 1, y], [x + 1, y]]).map(([a, b]) => b * COLS + a).sort((a, b) => a - b);
+    assert.deepEqual(kindCells(m, 'arch'), want, `сид ${seed}: столбы арки`);
+  }
+});
+
+test('склеп на 1000 сидах: занимает клетки вокруг себя, входом к дороге — клетки за склепом по ходу врагов и с боков от проёма', () => {
+  const sizes = new Set();
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed), e = m.road[m.road.length - 1], p = m.road[m.road.length - 2], [dx, dy] = lastDir(m), [x, y] = xy(e), cells = kindCells(m, 'crypt');
+    sizes.add(cells.length);
+    // клетки под интерфейсом не в счёт: склеп у кнопки волны (около 1% карт) теряет часть здания
+    const byHud = [...Array(COLS * ROWS).keys()].some((i) => isHud(i) && cheb(i, e) === 1);
+    assert.ok(cells.length >= (byHud ? 2 : 4), `сид ${seed}: склеп занимает ${cells.length} клеток`);
+    for (const c of cells) assert.ok(cheb(c, e) === 1 && c !== p, `сид ${seed}: клетка склепа ${c} не вокруг склепа или на дороге`);
+    // за склепом по ходу врагов — здание; проём смотрит на подходящий участок дороги (на клетку p)
+    if (!isHud((y + dy) * COLS + x + dx)) assert.ok(cells.includes((y + dy) * COLS + x + dx), `сид ${seed}: за склепом (${x + dx},${y + dy}) нет здания`);
+    // боковые клетки проёма (поперёк хода) — колонны портика
+    for (const [a, b] of [[x + dy, y + dx], [x - dy, y - dx]]) if (!isHud(b * COLS + a)) assert.ok(cells.includes(b * COLS + a), `сид ${seed}: нет колонны (${a},${b})`);
+  }
+  assert.ok(sizes.size >= 2, 'склеп одинаковой формы при любом подходе дороги');
+});
+
+test('вплотную ко входу и склепу ничего, кроме арки и склепа, нет — ни препятствий, ни особых клеток', () => {
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed), ends = [m.road[0], m.road[m.road.length - 1]];
+    for (const o of m.obstacles) if (o.kind !== 'arch' && o.kind !== 'crypt') assert.ok(ends.every((e) => cheb(o.cell, e) > 1), `сид ${seed}: ${o.kind} у входа или склепа`);
+    for (const s of m.specials) assert.ok(ends.every((e) => cheb(s.cell, e) > 1), `сид ${seed}: особая клетка у входа или склепа`);
+  }
+});
+
+test('с каждой особой клетки до пути врагов достаёт башня с самым коротким базовым радиусом; особые не ближе 3 клеток друг к другу', () => {
+  const minR = Math.min(...Object.values(C.TOWERS).map((t) => t.range[0])) * C.UNIT;
+  for (let seed = 1; seed <= 1000; seed++) {
+    const m = mapOf(seed);
+    for (const s of m.specials) assert.ok(distToRoute(m, s.cell) <= minR, `сид ${seed}: с особой клетки ${xy(s.cell)} до дороги ${distToRoute(m, s.cell).toFixed(0)} px > ${minR}`);
+    for (const a of m.specials) for (const b of m.specials) if (a !== b) assert.ok(cheb(a.cell, b.cell) >= 3, `сид ${seed}: особые клетки ${xy(a.cell)} и ${xy(b.cell)} рядом`);
+  }
+});
+
+test('цена решения: препятствия закрывают 20–30% узловых клеток (путь врагов в радиусе башни распадается на 2+ участка)', () => {
+  const R = C.TYPICAL_RANGE * C.UNIT; let nodes = 0, shut = 0, low = 0;
+  for (let seed = 1; seed <= 300; seed++) {
+    const m = mapOf(seed), P = MAPGEN.route(m), road = new Set(m.road), ob = new Set(m.obstacles.map((o) => o.cell)), pts = [];
+    for (let k = 1; k < P.length; k++) { const [a, b] = [P[k - 1], P[k]], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 4));
+      for (let j = 0; j < n; j++) pts.push([a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n]); }
+    let mn = 0, ms = 0;
+    for (let i = 0; i < COLS * ROWS; i++) { if (road.has(i) || isHud(i)) continue;
+      const [x, y] = MAPGEN.cellXY(m, i); let runs = 0, inr = false;
+      for (const [px, py] of pts) { const v = Math.hypot(px - x, py - y) <= R; if (v && !inr) runs++; inr = v; }
+      if (runs >= 2) { mn++; if (ob.has(i)) ms++; } }
+    nodes += mn; shut += ms; if (mn && ms / mn < 0.12) low++;
+  }
+  const share = shut / nodes;
+  assert.ok(share >= 0.20 && share <= 0.30, `закрыто ${(share * 100).toFixed(1)}% узловых клеток`);
+  assert.ok(low <= 15, `карт, где закрыто меньше 12% узловых: ${low} из 300`);
+});
+
 test('проверка карты ловит неверные препятствия и особые клетки', () => {
   const good = MAPGEN.generate(7), with_ = (o) => Object.assign({}, good, o);
   const roadCell = good.road[5], hudCell = 0;
@@ -129,6 +201,28 @@ test('проверка карты ловит неверные препятств
   assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: far[0], kind: 'mound' }] }), /особая/), 'особая клетка вдали от дороги');
   assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: good.obstacles[0].cell, kind: 'mound' }] }), /особая/), 'особая клетка на препятствии');
   assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: good.specials[1].cell, kind: 'gold' }] }), /особая/), 'неизвестный вид');
+  // каждого вида хотя бы одна
+  assert.ok(has(with_({ specials: good.specials.map((s) => Object.assign({}, s, { kind: 'mound' })) }), /вид/), 'не все виды особых клеток');
+  // особые клетки рядом друг с другом
+  const sp0 = good.specials[0].cell, [sx, sy] = xy(sp0);
+  const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => (sy + dy) * COLS + sx + dx)
+    .find((c) => !good.road.includes(c) && !isHud(c) && !good.obstacles.some((o) => o.cell === c) && nearRoad(good.road, c));
+  assert.ok(nb !== undefined);
+  assert.ok(has(with_({ specials: [...good.specials, { cell: nb, kind: 'well' }].slice(-6) }), /рядом|ближе/), 'особые клетки рядом');
+  // особая клетка через одну по диагонали от дороги: в пределах двух клеток, но башня до пути врагов не достаёт
+  const unreach = []; for (let i = 0; i < COLS * ROWS; i++) if (!isHud(i) && !good.road.includes(i) && !good.obstacles.some((o) => o.cell === i)
+    && nearRoad(good.road, i) && distToRoute(good, i) > 3.0 * 48 && good.specials.every((s) => cheb(s.cell, i) >= 3)) unreach.push(i);
+  assert.ok(unreach.length, 'на карте нет клетки через одну по диагонали');
+  assert.ok(has(with_({ specials: [...good.specials.slice(1), { cell: unreach[0], kind: good.specials[0].kind }] }), /достаёт/), 'особая клетка вне досягаемости');
+  // столбы арки и склеп: на месте и без лишнего рядом
+  const noArch = good.obstacles.filter((o) => o.kind !== 'arch'), noCrypt = good.obstacles.filter((o) => o.kind !== 'crypt');
+  assert.ok(has(with_({ obstacles: [...noArch, ...kindCells(good, 'arch').map((c) => ({ cell: c, kind: 'tree' }))] }), /арк/), 'вместо арки деревья');
+  assert.ok(has(with_({ obstacles: [...noCrypt, ...kindCells(good, 'crypt').slice(1).map((c) => ({ cell: c, kind: 'crypt' }))] }), /склеп/), 'склеп неполный');
+  const gate = good.road[0], [gx, gy] = xy(gate), ring = [];
+  for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const c = (gy + dy) * COLS + gx + dx;
+    if (gx + dx >= 0 && gx + dx < COLS && gy + dy >= 0 && gy + dy < ROWS && !good.road.includes(c) && !isHud(c) && !good.obstacles.some((o) => o.cell === c)) ring.push(c); }
+  assert.ok(ring.length, 'у входа нет свободной клетки');
+  assert.ok(has(with_({ obstacles: [...good.obstacles, { cell: ring[0], kind: 'grave' }] }), /вплотную/), 'надгробие вплотную ко входу');
 });
 
 test('один сид — одна и та же карта, разные сиды — разные карты', () => {
