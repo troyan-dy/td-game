@@ -13,7 +13,7 @@
 const V = Date.now(), STATIC = !!window.__STATIC__;
 const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src + '?v=' + V; s.onload = res; s.onerror = () => rej(new Error('failed ' + src)); document.head.appendChild(s); });
 (async () => {
-  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js']) await load(f);
+  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js']) await load(f);
   const q = new URLSearchParams(location.search), render = q.has('render');
   const VW = SIM.VIEW.W, VH = SIM.VIEW.H, stage = document.getElementById('stage'), cv = document.getElementById('c');
   const fit = () => { const k = Math.min(innerWidth / VW, innerHeight / VH); stage.style.width = VW * k + 'px'; stage.style.height = VH * k + 'px';
@@ -32,8 +32,9 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   const dev = document.getElementById('dev'), flash = document.getElementById('flash');
   const APP = window.APP = { play: null, speed: 1, paused: false, simT: 0, cmds: [], devSpeed: 1 };
   APP.cmd = (c) => APP.cmds.push(c);
-  // новый забег: сид введённый (SIM.parseSeed) или случайный 1..CONFIG.SEED.random (виден в HUD), карта генерируется от него
-  APP.newGame = (seed) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * SIM.CONFIG.SEED.random) : seed); APP.paused = false; APP.speed = 1; };
+  // новый забег: сид введённый (SIM.parseSeed) или случайный 1..CONFIG.SEED.random (виден в HUD), карта генерируется от него;
+  // opts — как у SIM.create (unlocked — открытое по профилю игрока, его даёт ui.js)
+  APP.newGame = (seed, opts) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * SIM.CONFIG.SEED.random) : seed, opts); APP.paused = false; APP.speed = 1; };
   // негодное или старое состояние не грузим; checked — состояние уже проверено SIM.loadable (меню), повторно не проверяем
   // сбой самой проверки (не создался образец в SIM.loadable) — ошибка разработки: громко в консоль, забег не грузим
   APP.load = (S, checked) => { try { if (!checked && !SIM.loadable(S)) return false; } catch (e) { console.error(e); return false; }
@@ -71,7 +72,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   };
   loop();
   if (STATIC) { dev.style.display = 'none'; return; }
-  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'bgmap.js', 'config.js', 'ui.js', 'scout.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
+  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'config.js', 'ui.js', 'scout.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
   const poll = async () => {
     for (const f of WATCH) {
       try { const r = await fetch(f + '?poll=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified') + r.headers.get('content-length');
@@ -83,7 +84,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   poll();
 })().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', '<pre style="color:#f88;position:absolute;top:0;left:0;background:#000c;padding:12px;font:13px monospace;white-space:pre-wrap">' + e.stack + '</pre>');
   if (window.__STATIC__) return;
-  const f = ['scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'config.js', 'ui.js', 'scout.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
+  const f = ['scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'config.js', 'ui.js', 'scout.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
   setInterval(async () => { for (const x of f) { try { const r = await fetch(x + '?p=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified');
     if (st[x] && st[x] !== m) location.reload(); st[x] = m; } catch (e) {} } }, 800); });
 </script></body></html>
