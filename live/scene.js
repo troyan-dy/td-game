@@ -13,7 +13,7 @@
   // фон перестраивается, когда в кадре другая карта (новый забег, титульное демо)
   let bgKey = '';
   const ensureBG = (map) => { const key = map.seed + ':' + map.road.join(','); if (key === bgKey || !window.BGMAP) return;
-    const b = BGMAP.build(map); G.canvasTex('bg_code', b.canvas); S.LIGHTS = b.lights; S.bgCode = true; bgKey = key; };
+    const b = BGMAP.build(map); G.canvasTex('bg_code', b.canvas); G.canvasTex('bg_over', b.over); S.LIGHTS = b.lights; S.bgCode = true; bgKey = key; };
   const LIGHT = { candle: [[1, 0.7, 0.3], 12, 0.55], window: [[1, 0.65, 0.25], 16, 0.5], torch: [[1, 0.6, 0.2], 26, 0.7], gate: [[1, 0.55, 0.2], 46, 0.55],
     crypt: [[0.3, 0.95, 0.88], 60, 0.5], brazier: [[0.8, 0.4, 1], 20, 0.65], water: [[0.3, 0.9, 0.85], 40, 0.12] };
 
@@ -225,6 +225,7 @@
     ST.towers.forEach((tw) => { if (tw) Y.push([SIM.cellXY(ST, tw.cell)[1], 0, tw.id, () => drawTower(ST, tw, GT, t, ui.sel === tw.cell || ui.hover === tw.cell)]); });
     for (const e of ST.enemies) Y.push([e.y, 1, e.id, () => drawEnemy(ST, e, GT, t)]);
     Y.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).forEach((d) => d[3]());
+    if (S.bgCode) L.sprite('bg_over', ox, oy, { w: W, h: H });          // перемычки арок входа и склепа: враги проходят под ними
 
     // снаряды
     for (const s of ST.shots) {
