@@ -115,7 +115,8 @@
     }
     if (e.type === 'banner') { const wv = Math.sin(t * 6 + e.id), px = x - e.face * 8, top = y - h - 26;   // древко и полотнище знамени
       L.solid(px - 1.5, top, 3, h + 18, [0.35, 0.25, 0.18]);
-      L.solid(e.face > 0 ? px - 18 : px, top + 2, 18, 12, [0.85, 0.18, 0.14], wv * 0.12, e.face > 0 ? 18 : 0, 0);   // полотнище вьётся назад L.star(px, top, 4, [1, 0.85, 0.4], 0.9); }
+      L.solid(e.face > 0 ? px - 18 : px, top + 2, 18, 12, [0.85, 0.18, 0.14], wv * 0.12, e.face > 0 ? 18 : 0, 0);   // полотнище вьётся назад
+      L.star(px, top, 4, [1, 0.85, 0.4], 0.9); }
     if (e.ward > 0) L.glow(x, y - h * 0.5, h * 0.65, COL.ward, 0.22 + 0.08 * Math.sin(t * 8 + e.id));   // щит разведчика: первое попадание пройдёт мимо
     if (slowed && !frozen) L.glow(x, y - h * 0.4, h * 0.6, COL.soul, 0.18);
     if (e.curseT > 0) L.glow(x, y - h * 0.6, h * 0.55, COL.dark, 0.25);
