@@ -37,9 +37,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 .heart-ico { color: var(--heart); }
 
 /* верх */
-#title { position: absolute; left: 610px; top: 2px; width: 380px; height: 52px; display: flex; align-items: center; justify-content: center;
+#title { position: absolute; left: 612px; top: 2px; width: 340px; height: 52px; display: flex; align-items: center; justify-content: center;
   font: 700 34px var(--title); letter-spacing: 3px; color: #f2e6ff; text-shadow: 0 3px 0 #0009, 0 0 12px #b07cff55; pointer-events: none; }
-#title::before, #title::after { content: '☠'; font-size: 20px; color: #cdb8ff; margin: 0 14px; opacity: .8; }
+#title::before, #title::after { content: '☠'; font-size: 20px; color: #cdb8ff; margin: 0 10px; opacity: .8; }
 #stats { position: absolute; right: 12px; top: 6px; display: flex; gap: 10px; align-items: stretch; }
 #seedbox { position: absolute; left: 12px; top: 6px; height: 44px; padding: 0 14px; display: flex; align-items: center; gap: 8px; font: 700 19px var(--title); letter-spacing: 1px; color: var(--dim); white-space: nowrap; }
 #seedbox span { color: var(--text); }
@@ -227,6 +227,29 @@ body.inmenu #title { display: none; }
 #scout-tip { position: absolute; max-width: 280px; padding: 6px 10px; font: 15px/1.3 var(--body); display: none; pointer-events: none; z-index: 5; }
 #scout-tip.show { display: block; }
 
+/* Гримуар (live/grimoire.js): окно поверх поля, игра идёт; клик по затемнению вокруг закрывает */
+#grim { position: absolute; inset: 0; display: none; background: #07040f55; }
+#grim.show { display: block; }
+#grim .gwin { position: absolute; left: 50%; top: 66px; transform: translateX(-50%); width: 560px; padding: 10px 16px 12px; }
+#grim .x { position: absolute; right: 6px; top: 6px; width: 28px; height: 28px; padding: 0; font: 700 16px var(--body); }
+#grim .hd { display: flex; align-items: baseline; gap: 14px; padding-right: 30px; }
+#grim .tt { font: 700 28px var(--title); letter-spacing: 3px; color: var(--gold); }
+#grim .sl { font: 700 20px var(--title); color: var(--soul); }
+#grim .sec { margin: 8px 0 3px; font: 700 13px var(--title); letter-spacing: 1.5px; color: var(--dim); border-bottom: 2px solid var(--rim2); }
+#grim .gl { display: flex; align-items: center; gap: 8px; height: 34px; }
+#grim .ln { flex: 1; min-width: 0; font: 700 16px var(--title); white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+#grim .sw { width: 10px; height: 14px; border-radius: 2px; flex: none; }
+#grim .pips { width: 76px; flex: none; display: flex; gap: 3px; }
+#grim .pips i { width: 12px; height: 13px; border-radius: 2px; background: #140e22; box-shadow: inset 0 0 0 1px var(--rim2); }
+#grim .gl.dmg .pips i.on { background: #ff6b57; } #grim .gl.range .pips i.on { background: #73c7ff; } #grim .gl.rate .pips i.on { background: #ffd65a; }
+#grim .cur { width: 46px; flex: none; text-align: right; font: 700 15px var(--title); color: var(--text); }
+#grim .gb { width: 150px; flex: none; height: 28px; padding: 0 6px; font: 700 14px var(--title); white-space: nowrap; }
+#grim .gb .pr { color: var(--soul); }
+#grim .gb.poor .pr { color: var(--bad); }
+#grim .note { margin-top: 8px; min-height: 20px; font: 15px/1.3 var(--body); color: var(--dim); }
+#stats #b-grim { color: var(--gold); }
+#panel .grim { margin-top: 3px; font: 13px/1.25 var(--body); color: var(--gold); }
+#panel .grim b { color: var(--text); }
 /* реликвии (live/relics.js): экран выбора одной из трёх и значки взятых под кнопкой волны */
 #relics .box.rbox { width: 900px; padding: 22px 26px 22px; }
 #relics .rsub { font: 18px var(--body); color: var(--dim); }
