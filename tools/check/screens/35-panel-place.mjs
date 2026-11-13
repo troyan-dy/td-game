@@ -43,7 +43,7 @@ export async function steps(ctx, g) {
   await g.newGame(ctx);
   const out = {}; let seed = -1;
   for (const [name, sd, cx, cy] of SPOTS) out[`place_${name}`] = async () => {
-    if (sd !== seed) { seed = sd; await ctx.eval((sd) => { APP.newGame(sd); }, sd); await g.rich(ctx); await ctx.eval(() => { APP.play.prepT = 999; }); await ctx.wait(100); }
+    if (sd !== seed) { seed = sd; await ctx.eval((sd) => { APP.newGame(sd); }, sd); await g.rich(ctx); await ctx.wait(100); }
     const cell = await nearest(ctx, cx, cy);
     if (cell < 0) throw new Error('нет клетки под постройку');
     await g.build(ctx, cell, 'dark'); await g.maxOut(ctx, cell);    // самая высокая башня, вид 3, самая высокая панель

@@ -2,7 +2,7 @@
 // на экране выбора), SIM.relicsOf (взятые). Выбор уходит командой {k:'relic', i} через APP.cmd.
 //
 // Экран выбора #relics — оверлей поверх поля, пока забег в фазе 'relic' (логика стоит до выбора): три карточки с названием,
-// видом («меняет цифры» / «новое правило») и описанием; клик или клавиши 1–3. Пробел и Esc открывают паузу поверх него.
+// видом («меняет цифры» / «новое правило») и описанием; клик или клавиши 1–3. Пробел ставит паузу (выбор ждёт), Esc открывает меню поверх.
 // Строка #relicbar — значки взятых реликвий в неигровом углу под кнопкой волны; описание — в подсказке при наведении.
 (function () {
   const $ = (s, r = document) => r.querySelector(s);
@@ -11,7 +11,7 @@
   const RELICS = (window.RELICS_UI = {});
   let APP, box, bar, tip, offerKey = '', barKey = '';
 
-  const pick = (i) => { const S = APP.play; if (!S || S.phase !== 'relic' || !S.offer || i >= S.offer.length) return;
+  const pick = (i) => { const S = APP.play; if (!S || S.phase !== 'relic' || !S.offer || i >= S.offer.length || UI.held()) return;
     APP.cmd({ k: 'relic', i }); AUDIO.ui('start'); };
   const offerHTML = (S, offer) => `<div class="frame box rbox"><h2>Реликвия</h2>
     <div class="rsub">Волна ${S.wave} отбита. Выбери одну реликвию — бесплатно, до конца забега.</div>
@@ -25,14 +25,14 @@
 
   RELICS.init = (A) => {
     APP = A; const root = $('#ui');
-    box = document.createElement('div'); box.id = 'relics'; box.className = 'overlay'; root.insertBefore(box, $('#pause'));   // пауза — поверх выбора
+    box = document.createElement('div'); box.id = 'relics'; box.className = 'overlay'; root.insertBefore(box, $('#gmenu'));   // меню — поверх выбора
     bar = document.createElement('div'); bar.id = 'relicbar'; root.append(bar);
     tip = document.createElement('div'); tip.id = 'relic-tip'; tip.className = 'frame'; root.append(tip);
     box.addEventListener('click', (e) => { const c = e.target.closest('.rcard'); if (c) pick(+c.dataset.i); });
     bar.addEventListener('pointerover', (e) => { const el = e.target.closest('.rl'); if (el) showTip(el); });
     bar.addEventListener('pointerout', (e) => { const el = e.target.closest('.rl'); if (el && !el.contains(e.relatedTarget)) tip.classList.remove('show'); });
     // цифры на экране выбора — реликвия, а не карточка башни: ловим раньше игровых клавиш ui.js
-    addEventListener('keydown', (e) => { if (!box.classList.contains('show') || $('#pause.show')) return;
+    addEventListener('keydown', (e) => { if (!box.classList.contains('show') || $('#gmenu.show')) return;
       const d = /^(?:Digit|Numpad)([1-9])$/.exec(e.code); if (!d) return;
       e.preventDefault(); e.stopImmediatePropagation(); if (!e.repeat) pick(+d[1] - 1); }, true);
   };

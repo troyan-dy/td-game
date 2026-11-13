@@ -32,9 +32,10 @@ export const steps = {
     const want = await ctx.eval(() => APP.play.offer.slice());
     await waitOffer(ctx, want);
     const c = await cards(ctx); expect(c.ok, 'карточки не сходятся с предложением: ' + JSON.stringify(c.got));
-    // забег стоит: время, волна и таймер паузы не идут, кнопки волны нет
-    const t0 = await ctx.eval(() => ({ t: APP.play.stats.time, p: APP.play.prepT })); await ctx.wait(600);
-    const t1 = await ctx.eval(() => ({ t: APP.play.stats.time, p: APP.play.prepT, phase: APP.play.phase, wb: !document.getElementById('wavebtn').classList.contains('hidden') }));
+    // забег стоит: время, волна и отсчёт автоплея не идут (автоплей включён), кнопки волны нет
+    await ctx.eval(() => APP.cmd({ k: 'auto', on: true })); await ctx.wait(50);
+    const t0 = await ctx.eval(() => ({ t: APP.play.stats.time, w: APP.play.wave, p: APP.play.autoT })); await ctx.wait(600);
+    const t1 = await ctx.eval(() => ({ t: APP.play.stats.time, w: APP.play.wave, p: APP.play.autoT, phase: APP.play.phase, wb: !document.getElementById('wavebtn').classList.contains('hidden') }));
     expect(t1.phase === 'relic' && t1.t === t0.t && t1.p === t0.p && !t1.wb, 'забег идёт на экране выбора: ' + JSON.stringify([t0, t1]));
     await ctx.shot('relics_offer');
   },

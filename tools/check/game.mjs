@@ -43,7 +43,7 @@ export async function newGame(ctx) {
   await ctx.page.waitForFunction(() => !!(window.APP && APP.play));
 }
 // Бесконечные души и прочие «худшие значения» для HUD.
-export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = SIM.waveCount() - 1; S.phase = 'prep'; S.prepT = 9.4; APP.paused = false; });
+export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = SIM.waveCount() - 1; S.phase = 'prep'; APP.paused = false; });
 // Типы башен в порядке карточек.
 export const towerTypes = (ctx) => ctx.eval(() => SIM.CONFIG.TOWER_ORDER.slice());
 // Места под постройку: индексы свободных клеток (не дорога, не препятствие, не под интерфейсом; особые клетки входят — там

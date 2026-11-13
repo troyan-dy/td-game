@@ -74,7 +74,7 @@ test('сейв: живой забег и его JSON-копия дальше и�
 // Тикет, добавивший в состояние поле, которое проверка не понимает, увидит это здесь.
 for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2]]) test(`сейв: снимки партии бота ${name} годны на всём её ходу и в конце`, () => {
   const S = SIM.create(seed, { dt: 1 / 30 }), mem = {}, every = Math.round(20 / S.dt); let i = 0, n = 0;
-  SIM.step(S, { cmds: [{ k: 'call' }] });
+  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
     const cmds = i % 3 === 0 ? bot(S, mem) : null;
     SIM.step(S, cmds ? { cmds } : null);
@@ -86,7 +86,7 @@ for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2]]) test(`
 });
 
 test('сейв: старт волны за пределами забега не бросает исключение', () => {
-  const S = fresh(); S.phase = 'prep'; S.wave = SIM.waveCount(); S.prepT = 1; S.enemies = []; S.queue = []; S.qi = 0;
+  const S = fresh(); S.phase = 'prep'; S.wave = SIM.waveCount(); S.auto = true; S.autoT = 1; S.enemies = []; S.queue = []; S.qi = 0;
   assert.doesNotThrow(() => run(S, 3));
 });
 
@@ -150,9 +150,11 @@ const BAD = {
   'шаг времени 0': (S) => { S.dt = 0; },
   'шаг времени 1e-9': (S) => { S.dt = 1e-9; },
   'шаг времени Number.MIN_VALUE': (S) => { S.dt = Number.MIN_VALUE; },
-  'пауза после последней волны (таймер старта волны 10 с)': (S) => { S.phase = 'prep'; S.wave = SIM.waveCount(); S.prepT = 10; S.enemies = []; S.queue = []; S.qi = 0; },
-  'таймер паузы длиннее паузы между волнами': (S) => { S.phase = 'prep'; S.prepT = C.PREP_TIME * 10; S.enemies = []; S.queue = []; S.qi = 0; },
-  'гигантский таймер паузы': (S) => { S.phase = 'prep'; S.prepT = 1e300; S.enemies = []; S.queue = []; S.qi = 0; },
+  'пауза после последней волны (автоплей через 1 с)': (S) => { S.phase = 'prep'; S.wave = SIM.waveCount(); S.auto = true; S.autoT = 1; S.enemies = []; S.queue = []; S.qi = 0; },
+  'отсчёт автоплея длиннее задержки': (S) => { S.phase = 'prep'; S.autoT = C.RUN_CONTROL.autoDelay * 10; S.enemies = []; S.queue = []; S.qi = 0; },
+  'гигантский отсчёт автоплея': (S) => { S.phase = 'prep'; S.autoT = 1e300; S.enemies = []; S.queue = []; S.qi = 0; },
+  'окно Нетерпения длиннее окна': (S) => { S.phase = 'prep'; S.hasteT = C.RUN_CONTROL.hasteWindow * 2; S.enemies = []; S.queue = []; S.qi = 0; },
+  'автоплей строкой': (S) => { S.auto = 'да'; },
   'идёт волна 0': (S) => { S.wave = 0; },
   'гигантское время': (S) => { S.t = 1e300; },
   'отрицательное HP врага': (S) => { S.enemies[0].hp = -50; },
@@ -222,7 +224,8 @@ const BAD_PICK = {
   'в предложении уже взятая реликвия': (S) => { S.relics = [S.offer[0]]; },
   'выбор после волны без реликвии': (S) => { S.wave = 6; S.offer = SIM.drawRelics(S.seed, 6, [], null); },
   'выбор после последней волны': (S) => { S.wave = SIM.waveCount(); S.offer = SIM.drawRelics(S.seed, S.wave, [], null); },
-  'выбор с таймером паузы длиннее паузы': (S) => { S.prepT = C.PREP_TIME * 3; },
+  'выбор с отсчётом автоплея длиннее задержки': (S) => { S.autoT = C.RUN_CONTROL.autoDelay * 3; },
+  'выбор без отсчёта автоплея (как у первой волны)': (S) => { S.autoT = -1; },
 };
 for (const [name, spoil] of Object.entries(BAD_PICK)) test(`сейв выбора реликвии отвергается: ${name}`, () => {
   const S = json(PICK); spoil(S); assert.equal(SIM.loadable(S), false);

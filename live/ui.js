@@ -55,6 +55,7 @@
   const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡', toll: '🔔', knell: '✝', drone: '〰', offering: '♥', frenzy: '↯', circle: '◎',
     legion: '⚔', grip: '✊', burst: '✸' };
   const UI = (window.UI = {});
+  const SPEEDS = [1, 2, 4];                                           // скорости игры: кнопки в верхней полосе и клавиша F
   let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
   const seenEv = new Set();
   const ui = SCENE.ui;
@@ -62,14 +63,19 @@
   // ---------------------------------------------------------------- разметка
   const build = () => {
     const root = $('#ui'); root.innerHTML = '';
-    root.append(h('div', 'pass', '<div id="title">НЕКРОПОЛИС</div>'));
+    // заголовок; в паузе на его месте — метка «Пауза» (видна над полем, ничего не закрывает)
+    root.append(h('div', 'pass', '<div id="title"><span class="nm">НЕКРОПОЛИС</span><span class="pz">ПАУЗА</span></div>'));
     const seed = h('div', 'frame box', 'СИД <span id="s-seed"></span>'); seed.id = 'seedbox'; seed.title = 'Сид забега: та же карта при том же сиде'; root.append(seed);
     const stats = h('div', '', ''); stats.id = 'stats';
-    stats.innerHTML = `<button class="btn ibtn" id="b-speed" title="Скорость (F)">▶</button><button class="btn ibtn" id="b-pause" title="Пауза (Пробел)">❚❚</button>
+    stats.innerHTML = `<button class="btn ibtn" id="b-pause" title="Пауза (Пробел)">❚❚</button>
+      <div id="speeds" title="Скорость игры (F — по кругу)">${SPEEDS.map((v) => `<button class="btn sp" data-s="${v}">×${v}</button>`).join('')}</div>
       <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 20</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
-      <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Настройки (Esc)">⚙</button>`;
+      <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Меню (Esc)">☰</button>`;
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
+    // автоплей — рядом с кнопкой волны, виден всю партию (и во время волны, когда кнопки нет)
+    const ab = h('button', 'btn', '<span class="ic">⟳</span><span class="tx">АВТО</span><span class="st" id="a-st">ВЫКЛ</span>'); ab.id = 'autobtn';
+    ab.title = `Автоплей (A): следующая волна начинается сама через ${C.RUN_CONTROL.autoDelay} с после зачистки. Первую волну, выбор реликвии и победу не пропускает.`; root.append(ab);
     const cards = h('div', 'frame', ''); cards.id = 'cards';
     cards.style.setProperty('--n', C.TOWER_ORDER.length);            // ширина карточки считается в CSS от числа типов: полоса не шире своей зоны
     if (C.TOWER_ORDER.length > 5) cards.classList.add('many');
@@ -84,8 +90,8 @@
     const toasts = h('div', '', ''); toasts.id = 'toasts'; root.append(toasts);
     const coach = h('div', 'frame', ''); coach.id = 'coach'; root.append(coach);
     root.append(h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''));
-    const [menu, pause, end, ne, meta] = root.querySelectorAll('.overlay'); menu.id = 'menu'; pause.id = 'pause'; end.id = 'end'; ne.id = 'newenemy'; meta.id = 'meta';
-    pause.innerHTML = `<div class="frame box"><h2>Пауза</h2>
+    const [menu, gmenu, end, ne, meta] = root.querySelectorAll('.overlay'); menu.id = 'menu'; gmenu.id = 'gmenu'; end.id = 'end'; ne.id = 'newenemy'; meta.id = 'meta';
+    gmenu.innerHTML = `<div class="frame box"><h2>Меню</h2>
       <div class="set"><span>Громкость</span><input type="range" min="0" max="1" step="0.05" id="vol"></div>
       <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
     wire();
@@ -108,7 +114,7 @@
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
       <b>Гримуар</b> (кнопка ✦ вверху справа или G) — в любой момент за души усиливает сразу все башни, и построенные позже: урон, дальность, скорость и отдельно каждый тип.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Колокол оглушает всех вокруг себя, Алтарь крови усиливает башни на соседних клетках, скелеты Казармы держат врагов под огнём.<br>
-      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
+      <b>Управление:</b> Enter — призвать волну (сама она не идёт), A — автоплей, Пробел — пауза, F — скорость ×1/×2/×4, Esc — меню. Забег сохраняется: после перезагрузки нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
     big: `Сид не больше ${C.SEED.max}`, format: `Только цифры: целое от 0 до ${C.SEED.max}` };
@@ -123,43 +129,61 @@
   // дорога и препятствие: строить нельзя, панели нет
   const isRoad = (cell) => ['road', 'obstacle'].includes(SIM.canBuild(APP.play, cell, 'bones').reason);
   const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; renderPanel(true); };
-  const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
+  const tryBuild = (cell, type) => { const S = APP.play; if (!S || held()) return false; const cb = SIM.canBuild(S, cell, type);
     if (!cb.ok) { if (cb.reason === 'souls') flashPoor(type); AUDIO.ui('deny'); return false; }
     APP.cmd({ k: 'build', cell, type }); ui.last = type; ui.armed = null; ui.preview = null; ui.sel = cell; setTimeout(() => renderPanel(true), 30); return true; };
   const flashPoor = (type) => { const c = $(`.card[data-type="${type}"]`); if (c) { c.animate([{ transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 220 }); }
     const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
-  const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
+  const cardAction = (type) => { const S = APP.play; if (!S || ended() || held()) return;
     if (locked(S, type)) { AUDIO.ui('deny'); toast(`${T[type].title} закрыта<small>${howOpen(type)}</small>`, '', 2600); return; }
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
     ui.armed = ui.armed === type ? null : type; ui.sel = -1; ui.move = -1; renderPanel(true); };
-  const upgrade = (track) => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
+  const upgrade = (track) => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw || held()) return;
     const cu = SIM.canUpgrade(S, ui.sel, track);
     if (cu.ok) APP.cmd({ k: 'upgrade', cell: ui.sel, track }); else { AUDIO.ui('deny'); if (cu.reason === 'souls') flashPoor(); } setTimeout(() => renderPanel(true), 30); };
-  const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', cell: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
+  const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel] && !held()) { APP.cmd({ k: 'sell', cell: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
   // перенос: кнопка или M включает режим выбора клетки (ui.move — клетка башни), клик по подсвеченной клетке переносит,
   // Esc, правый клик или клик по самой башне — отмена. Можно ли и куда — отвечает логика (SIM.canMove, SIM.moveCells)
-  const startMove = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel]) return;
+  const startMove = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel] || held()) return;
     if (!SIM.canMove(S, ui.sel).ok) { AUDIO.ui('deny'); return; }
     ui.move = ui.sel; hideTip(); AUDIO.ui('click'); renderPanel(true); };
   const cancelMove = () => { if (ui.move < 0) return; ui.move = -1; renderPanel(true); };
-  const tryMove = (to) => { const S = APP.play;
+  const tryMove = (to) => { const S = APP.play; if (held()) return;
     if (!SIM.canMove(S, ui.move, to).ok) { AUDIO.ui('deny'); return; }
     APP.cmd({ k: 'move', cell: ui.move, to }); ui.move = -1; ui.sel = to; AUDIO.ui('click'); };
   // слияние: кнопка включает режим выбора соседа (ui.merge — клетка первой башни), клик по подсвеченному соседу показывает
   // в панели, что получится (ui.mergeTo), кнопка «Слить» отправляет команду; Esc, правый клик или клик по самой башне — отмена.
   // Можно ли, с кем и что выйдет — отвечает логика (SIM.canMerge, SIM.mergeTargets, SIM.mergeInfo)
-  const startMerge = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel]) return;
+  const startMerge = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel] || held()) return;
     if (!SIM.mergeTargets(S, ui.sel).length) { AUDIO.ui('deny'); return; }
     ui.merge = ui.sel; ui.mergeTo = -1; ui.move = -1; hideTip(); AUDIO.ui('click'); renderPanel(true); };
   const cancelMerge = () => { if (ui.merge < 0) return; ui.merge = -1; ui.mergeTo = -1; renderPanel(true); };
   const pickMerge = (i) => { if (!SIM.mergeTargets(APP.play, ui.merge).includes(i)) { AUDIO.ui('deny'); return; }
     ui.mergeTo = i; AUDIO.ui('click'); renderPanel(true); };
-  const doMerge = () => { const S = APP.play, cm = SIM.canMerge(S, ui.merge, ui.mergeTo);
+  const doMerge = () => { if (held()) return; const S = APP.play, cm = SIM.canMerge(S, ui.merge, ui.mergeTo);
     if (!cm.ok) { AUDIO.ui('deny'); if (cm.reason === 'souls') flashPoor(); return; }
     APP.cmd({ k: 'merge', cell: ui.merge, other: ui.mergeTo }); ui.sel = ui.merge; ui.merge = -1; ui.mergeTo = -1; setTimeout(() => renderPanel(true), 30); };
   const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
-  const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
+  // Пауза — только остановка времени: поле, панели, разведка и Гримуар видны и открываются, действия ждут (held), вверху метка.
+  // Меню — отдельно: ставит паузу и при закрытии возвращает ту, что была до него (menuWas).
+  const menuOpen = () => $('#gmenu').classList.contains('show');
+  const togglePause = (v) => { if (!APP.play || ended() || menuOpen()) return; APP.paused = v === undefined ? !APP.paused : !!v; AUDIO.ui('click'); };
+  let menuWas = false;
+  const openMenu = () => { if (!APP.play || ended() || menuOpen()) return; menuWas = APP.paused; APP.paused = true; showOverlay('gmenu', true); };
+  const closeMenu = () => { if (!menuOpen()) return; showOverlay('gmenu', false); APP.paused = menuWas; };
   UI.autoPause = () => togglePause(true);
+  // в паузе действие не выполняется: отказ звуком и (не чаще раза в 1.5 с) подсказка, как продолжить — если причину не пишут
+  // открытые панель башни или Гримуар; true — действие отменено
+  let heldAt = -1e9;
+  const held = () => { if (!APP.paused) return false; AUDIO.ui('deny');
+    if (!$('#panel.show, #grim.show') && performance.now() - heldAt > 1500) { heldAt = performance.now(); toast('Пауза<small>Действия недоступны — Пробел продолжает игру</small>', '', 1600); }
+    return true; };
+  UI.held = held;
+  // скорость ×1 / ×2 / ×4 — выбор игрока, запоминается в настройках браузера; F перебирает по кругу
+  const setSpeed = (v) => { if (!SPEEDS.includes(v)) return; APP.speed = v; prefs.speed = v; store.set(PREF_KEY, prefs); };
+  const cycleSpeed = () => setSpeed(SPEEDS[(SPEEDS.indexOf(APP.speed) + 1) % SPEEDS.length]);
+  const toggleAuto = () => { const S = APP.play; if (!S || ended()) return; APP.cmd({ k: 'auto', on: !S.auto }); AUDIO.ui('click'); };
+  const callWave = () => { AUDIO.unlock(); if (!held()) APP.cmd({ k: 'call' }); };
 
   const wire = () => {
     cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitCell(x, y);
@@ -176,27 +200,32 @@
     $('#cards').addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) { AUDIO.ui('click'); cardAction(c.dataset.type); } });
     $('#cards').addEventListener('pointerover', (e) => { const c = e.target.closest('.card'); if (!c) return; showCardTip(c); if (ui.sel >= 0 && APP.play && !APP.play.towers[ui.sel]) ui.preview = c.dataset.type; });
     $('#cards').addEventListener('pointerout', (e) => { const c = e.target.closest('.card'); if (c && !c.contains(e.relatedTarget)) { hideTip(); ui.preview = null; } });
-    $('#wavebtn').addEventListener('click', () => { AUDIO.unlock(); APP.cmd({ k: 'call' }); });
+    $('#wavebtn').addEventListener('click', callWave);
+    $('#autobtn').addEventListener('click', toggleAuto);
     $('#b-pause').addEventListener('click', () => togglePause());
-    $('#b-speed').addEventListener('click', () => { APP.speed = APP.speed === 1 ? 2 : 1; });
-    $('#b-menu').addEventListener('click', () => togglePause(true));
+    $('#speeds').addEventListener('click', (e) => { const b = e.target.closest('.sp'); if (b) { setSpeed(+b.dataset.s); AUDIO.ui('click'); } });
+    $('#b-menu').addEventListener('click', openMenu);
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
-    $('#p-resume').addEventListener('click', () => togglePause(false));
-    $('#p-restart').addEventListener('click', () => { APP.newGame(undefined, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('pause', false); persist(); });
-    $('#p-menu').addEventListener('click', () => { persist(); showOverlay('pause', false); APP.toMenu(); showMenu(); });
+    $('#p-resume').addEventListener('click', closeMenu);
+    $('#p-restart').addEventListener('click', () => { APP.newGame(undefined, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('gmenu', false); persist(); });
+    $('#p-menu').addEventListener('click', () => { persist(); showOverlay('gmenu', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
       if ($('#meta').classList.contains('show')) { if (k === 'Escape') { showOverlay('meta', false); e.preventDefault(); } return; }   // экран открытий поверх меню
       // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
       if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
-      if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
+      // Esc: сначала закрывает меню и отменяет открытый режим (перенос, слияние, выбор; окно Гримуара ловит Esc раньше), потом — меню
+      if (k === 'Escape') { if (menuOpen()) closeMenu(); else if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else openMenu(); e.preventDefault(); return; }
+      if (menuOpen()) { if (k === 'Space') e.preventDefault(); return; }   // под меню игра молчит
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
-      if (APP.paused || ended()) return;
+      if (k === 'KeyF') { cycleSpeed(); return; }
+      if (k === 'KeyA') { toggleAuto(); return; }
+      if (ended()) return;
       const dg = /^(?:Digit|Numpad)([1-9])$/.exec(k); if (dg && C.TOWER_ORDER[+dg[1] - 1]) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
       const tk = { KeyQ: 'dmg', KeyW: 'range', KeyE: 'rate' }[k]; if (tk) { upgrade(tk); return; }
-      if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); } else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
-      else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
+      if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); }
+      else if ((k === 'Enter' || k === 'KeyN') && APP.play.phase === 'prep') callWave();
     });
   };
 
@@ -228,6 +257,7 @@
   // души, «не хватает», доступность переноса и счётчик убийств обновляются на месте (refreshPanel), кнопки не пересоздаются.
   // pressed — кнопка мыши зажата над панелью: и полная перерисовка ждёт отпускания (или отмены нажатия, или потери фокуса).
   let panelKey = '', pressed = false;
+  const PAUSE_NOTE = '<div class="pnote">❚❚ Пауза: действия недоступны. Пробел — продолжить</div>';
   // подсказка перка или ветки — сбоку от панели, где хватает места
   const tipBeside = () => { const p = $('#panel'), right = p.offsetLeft + p.offsetWidth + 10;
     return [right + 300 <= 1590 ? right : p.offsetLeft - 310, p.offsetTop + p.offsetHeight]; };
@@ -299,7 +329,7 @@
       const pk = b.dataset.p, pd = T[b.dataset.ty].perks[pk], dead = !SIM.perkOn(tw, pk);
       b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${SIM.perkText(pk)}</div>${dead ? `<div class="row bad" style="margin-top:6px">Не действует: гибрид атакует как ${T[tw.type].title.toLowerCase()}.</div>` : ''}<div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
       b.onmouseleave = hideTip;
-      b.onclick = () => { if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
+      b.onclick = () => { if (held()) return; if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
     });
   };
   // почему башню нельзя слить — словами; пустая строка — можно (есть подходящий сосед)
@@ -363,7 +393,7 @@
   //  затем меньше чужих башен, затем ближе к точке; o.maxDist — мягкий предел расстояния (если задан). Жёсткого предела
   //  расстояния нет: в углах поля он выталкивает панель на дорогу (сид 77, правый нижний угол: в 600 px — 5 клеток дороги).
   //  Результат кэшируется в o.cache, пока не сменились входные данные.
-  const PLATES = '#stats, #seedbox, #cards, #title, #relicbar';
+  const PLATES = '#stats, #seedbox, #cards, #title, #relicbar, #autobtn';
   let WAVEBTN = [14, 150, 196, 64];                                   // кнопка вызова волны: последнее место, где она была видна
   const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
   const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
@@ -404,13 +434,14 @@
     if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], moving = ui.move === ui.sel, merging = !!tw && ui.merge === ui.sel;
     // в ключе и сами итоговые характеристики: они меняются и извне (алтарь рядом, Гримуар, клетка) — панель покажет новые
-    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended()]);
+    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended(), APP.paused]);
     if (key === panelKey || (pressed && !force)) { if (tw && !moving) refreshPanel(p, S, tw); return; }
     panelKey = key; hideTip();                                         // подсказка висела над кнопкой, которой больше нет
     p.classList.add('show'); p.classList.toggle('moving', moving || (merging && ui.mergeTo < 0));
     if (!tw) buildMenu(S, p);
     else if (moving || merging) { p.innerHTML = towerManage(S, tw); wireManage(p, S, tw); }
     else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
+    if (APP.paused && !ended()) p.insertAdjacentHTML('beforeend', PAUSE_NOTE);   // почему кнопки серые — словами
     const x = p.querySelector('.x'); if (x) x.onclick = () => select(-1);
     placePanel(S, p);
   };
@@ -424,8 +455,10 @@
     const own = 'en_' + (d.look ? d.look.as : type), css = has(own) ? (d.look ? d.look.css : '') : 'sepia(1) saturate(2.2) brightness(1.1)';   // без своего арта — как на поле
     o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
+    if (!o.classList.contains('show')) neWas = APP.paused;            // после окна — та пауза, что была до него
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
-  const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
+  const closeNewEnemy = () => { if (neQueue.length) { showNewEnemy(neQueue.shift()); return; } showOverlay('newenemy', false); APP.paused = neWas; };
+  let neWas = false;
   // непрокачанная башня, которой хватает душ на ступень; башня, которой открыт выбор перка
   const raw = (S) => S.towers.find((t) => t && !SIM.steps(t) && C.TRACKS.some((k) => SIM.canUpgrade(S, t.cell, k).ok));
   const mergeReady = (S) => S.phase === 'prep' && S.towers.find((t) => t && SIM.mergeTargets(S, t.cell).length);
@@ -434,7 +467,7 @@
     { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
       text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
     { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
-      text: 'Когда оборона готова — призови первую волну. Дальше волны идут сами, но можно звать и раньше.' },
+      text: 'Когда оборона готова — призови первую волну. Следующие тоже зовёшь сам, когда готов, — или включи автоплей ⟳ рядом с кнопкой.' },
     { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && !!raw(S), at: (S) => SIM.cellXY(S, raw(S).cell),
       text: 'Нажми на башню и прокачай её ветки: урон, дальность, скорость. Прокачка часто выгоднее новой башни в стороне от дороги.' },
     { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
@@ -532,7 +565,7 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { neWas = false; detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
@@ -557,18 +590,28 @@
   let lastSouls = -1, lastHp = -1, wasEnded = false;
   UI.frame = (A, t) => {
     const S = A.play;
-    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
+    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#autobtn').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
     $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
-    $('#b-pause').classList.toggle('on', A.paused); $('#b-speed').textContent = A.speed === 2 ? '▶▶' : '▶'; $('#b-speed').classList.toggle('on', A.speed === 2);
+    // заголовок занимает место между разведкой и правой полосой: полоса шире (огромные души, далёкая волна) — заголовок уже,
+    // без черепов, а совсем узкий прячется (метка «Пауза» короче и остаётся)
+    const ti = $('#title'), tw = $('#stats').offsetLeft - 10 - ti.offsetLeft;
+    if (ti.dataset.w !== String(tw)) { ti.dataset.w = tw; ti.style.width = Math.max(0, tw) + 'px'; ti.classList.toggle('narrow', tw < 330); ti.classList.toggle('tiny', tw < 270); }
+    // пауза, скорость, автоплей: состояние кнопок и метка «Пауза» (класс paused на слое интерфейса)
+    const paused = !!A.paused, pb = $('#b-pause'); $('#ui').classList.toggle('paused', paused); pb.classList.toggle('on', paused);
+    if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '' : '❚❚'; pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }   // в паузе — треугольник «продолжить» (CSS)
+    document.querySelectorAll('#speeds .sp').forEach((b) => b.classList.toggle('on', +b.dataset.s === A.speed));
+    $('#autobtn').classList.toggle('on', S.auto); $('#a-st').textContent = S.auto ? 'ВКЛ' : 'ВЫКЛ';
     const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.lastWave(S);
     wb.classList.toggle('hidden', !canCall);
-    if (canCall) { const nx = S.wave + 1, boss = SIM.isBoss(nx);
+    if (canCall) { const nx = S.wave + 1, boss = SIM.isBoss(nx), auto = SIM.autoIn(S), haste = SIM.hasteSouls(S);
       $('#w-l1').textContent = S.wave === 0 ? 'Начать волну 1' : `Призвать волну ${nx}`;
-      $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + (S.prepT > 0 ? `сама через ${Math.ceil(S.prepT)} с · Enter` : 'Enter');
-      wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean)); }
+      // вторая строка: без автоплея — без отсчёта; с автоплеем — через сколько начнётся сама; окно «Нетерпения» — только с реликвией
+      const l2 = paused ? 'пауза · Пробел' : auto !== null ? `сама через ${Math.ceil(auto)} с` : haste ? `⌛ +${haste} душ сейчас` : 'Enter';
+      $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + l2;
+      wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean) && !paused); }
     // события → звук, тосты, новые враги, сейв
     for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
@@ -597,6 +640,7 @@
     APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol); dropOldSaves(); markSeen();
     addEventListener('pagehide', persist); addEventListener('beforeunload', persist); addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
-    if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
+    if (SPEEDS.includes(prefs.speed)) A.speed = prefs.speed;
+    if (!A.play) showMenu();
   };
 })();

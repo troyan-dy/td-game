@@ -3,6 +3,8 @@
 // Шаг времени — параметр забега (S.dt), по умолчанию C.DT. Клетка адресуется индексом i = y * cols + x.
 // Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
+// Волна сама не начинается: {k:'call'} — по кнопке; {k:'auto',on} — автоплей (S.auto): после зачистки следующая волна сама через
+// C.RUN_CONTROL.autoDelay (отсчёт S.autoT; −1 — только по кнопке: первая волна забега и бесконечного режима). S.hasteT — окно «Нетерпения».
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
 // Слияние: {k:'merge',cell,other} — башня с клетки other становится примесью башни на cell, только в паузе между волнами
 // (SIM.canMerge, SIM.mergeTargets, превью SIM.mergeInfo; описание стоящего гибрида — SIM.hybridInfo). Счётчик — S.stats.merges.
@@ -61,7 +63,7 @@
   // действует ли перк id на башне: перк с needs — только при этом виде атаки (у гибрида — атака первой башни), остальные — всегда
   const perkOn = (tw, id) => { const pd = perkDef(id); return !!pd && (!pd.needs || pd.needs === TW[tw.type].attack); };
   // реликвии: id из конфига (в его порядке — от него зависит выбор по сиду); открытое — общий список с башнями
-  const RL = C.RELICS, RELIC_IDS = Object.keys(RL);
+  const RL = C.RELICS, RELIC_IDS = Object.keys(RL), RC = C.RUN_CONTROL;
   for (const id of RELIC_IDS) if (own(TW, id)) throw new Error(`реликвия ${id} совпадает по id с башней: список открытого общий`);
   const hasRelic = (S, id) => S.relics.includes(id);                 // единственная проверка «взята ли реликвия»
   const relicSum = (S, key) => { let n = 0; for (const id of S.relics) n += RL[id][key] || 0; return n; };   // числовые реликвии: сумма поля по взятым
@@ -236,7 +238,8 @@
     return {
       v: C.VERSION, seed, dt: opts.dt || C.DT, unlocked: opts.unlocked || null, map,
       t: 0, rs: RNG.seed(seed, 'battle'),
-      souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
+      souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, waveT: 0, qi: 0, queue: [],
+      auto: false, autoT: -1, hasteT: 0,   // автоплей; его отсчёт до волны (−1 — волна только по кнопке); окно «Нетерпения»
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1, skels: [],
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0, merges: 0 }, seen: {}, waveStats: null,
       wonStats: null,                                                       // счётчики на момент победы (время победы — для рекордов)
@@ -409,7 +412,7 @@
   //     врага. Каждое поле образца есть и того же рода; новые поля образца проверяются сами, лишние не мешают.
   //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
   //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
-  //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, prepT −1);
+  //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, autoT −1);
   //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
   //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
   //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
@@ -455,13 +458,17 @@
       && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && new Set(tw.perks).size === tw.perks.length && tw.perks.every((p) => typeof p === 'string' && from(p))
       && (!hy || tw.mix === tw.type || new Set(tw.perks.map(from)).size === tw.perks.length);
   };
-  // фаза согласована с номером волны, режимом и таймером паузы. Обычный забег: волны 1..RUN_WAVES, пауз после последней нет,
-  // победа — на последней. Бесконечный режим начинается паузой после победы (волна RUN_WAVES): дальше волны без предела, победы нет.
+  // фаза согласована с номером волны, режимом, отсчётом автоплея и окном «Нетерпения». Обычный забег: волны 1..RUN_WAVES,
+  // пауз после последней нет, победа — на последней. Бесконечный режим начинается паузой после победы (волна RUN_WAVES):
+  // дальше волны без предела, победы нет. Отсчёт автоплея −1 (только по кнопке) — у первой волны забега и бесконечного режима,
+  // после зачистки — от задержки до нуля; на выборе реликвии он стоит
   const phaseOk = (S) => {
-    const R = C.RUN_WAVES, E = S.endless, prepOk = S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME);
-    if (S.phase === 'prep') return (E ? int(S.wave, R, Infinity) : int(S.wave, 0, R - 1)) && prepOk;
+    const R = C.RUN_WAVES, E = S.endless, first = E ? S.wave === R : S.wave === 0;
+    const timers = typeof S.auto === 'boolean' && S.autoT <= RC.autoDelay && S.hasteT >= 0 && S.hasteT <= RL.haste.window;
+    const autoOk = first ? S.autoT === -1 : S.autoT >= 0;
+    if (S.phase === 'prep') return (E ? int(S.wave, R, Infinity) : int(S.wave, 0, R - 1)) && timers && autoOk;
     if (S.phase === 'wave') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 1, R);
-    if (S.phase === 'relic') return relicDue(S.wave) && (E ? S.wave > R : int(S.wave, 1, R - 1)) && S.prepT >= 0 && S.prepT <= C.PREP_TIME;
+    if (S.phase === 'relic') return relicDue(S.wave) && (E ? S.wave > R : int(S.wave, 1, R - 1)) && timers && S.autoT >= 0;
     if (S.phase === 'won') return !E && S.wave === R;
     if (S.phase === 'lost') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 0, R);
     return false;
@@ -531,8 +538,12 @@
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
   const doCmd = (S, c) => {
     if (c.k === 'endless') {                                               // продолжить после победы: пауза перед следующей волной, по кнопке
-      if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.prepT = -1; ev(S, 'endless', { wave: S.wave }); }
+      if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.autoT = -1; S.hasteT = 0; ev(S, 'endless', { wave: S.wave }); }
       return; }
+    if (c.k === 'auto') {                                                  // { k: 'auto', on } — автоплей вкл/выкл (без on — переключить), в любой фазе
+      const on = c.on === undefined ? !S.auto : !!c.on;
+      if (on && !S.auto && S.autoT >= 0) S.autoT = RC.autoDelay;           // включили — отсчёт до волны заново, не мгновенный старт
+      S.auto = on; return; }
     if (S.phase === 'won' || S.phase === 'lost') return;
     if (S.phase === 'relic' && c.k !== 'relic') return;               // на выборе реликвии забег стоит: другие команды не действуют
     dropIndex();
@@ -570,8 +581,8 @@
       ev(S, 'grim', { line: c.line, step: S.grim[c.line] });
     } else if (c.k === 'call') {
       if (S.phase !== 'prep' || S.wave >= lastWave(S)) return;
-      if (S.prepT > 0 && hasRelic(S, 'haste')) { const g = Math.floor(S.prepT * RL.haste.perSec);   // Нетерпение: души за оставшуюся паузу
-        if (g) { S.souls += g; S.stats.earned += g; ev(S, 'haste', { souls: g }); } }
+      const g = hasteSouls(S);                                        // Нетерпение: души за оставшиеся секунды окна
+      if (g) { S.souls += g; S.stats.earned += g; ev(S, 'haste', { souls: g }); }
       startWave(S);
     } else if (c.k === 'relic') {                                     // { k: 'relic', i } — номер в предложении S.offer
       if (S.phase !== 'relic' || !int(c.i, 0, S.offer.length - 1)) return;
@@ -583,8 +594,12 @@
   };
 
   // ---------------------------------------------------------------- волны
+  // Нетерпение: сколько душ даст призыв волны кнопкой прямо сейчас (0 — реликвии нет или окно истекло)
+  const hasteSouls = (S) => (S.phase === 'prep' && S.hasteT > 0 && hasRelic(S, 'haste') ? Math.floor(S.hasteT * RL.haste.perSec) : 0);
+  // через сколько секунд автоплей начнёт следующую волну; null — сама не начнётся (автоплей выключен, первая волна, волн больше нет)
+  const autoIn = (S) => (S.phase === 'prep' && S.auto && S.autoT >= 0 && S.wave < lastWave(S) ? S.autoT : null);
   const startWave = (S) => {
-    S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.prepT = 0;
+    S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.autoT = 0; S.hasteT = 0;
     // описание волны считается заново от сида и номера; её характеристики врагов живут в состоянии забега до следующей волны
     const w = WAVEGEN.wave(S.seed, S.wave);
     S.queue = WAVEGEN.queue(w); S.waveStats = w.stats;
@@ -886,9 +901,13 @@
     if (inp && inp.cmds) for (const c of inp.cmds) doCmd(S, c);
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost' || S.phase === 'relic') { pruneEv(S); return; }   // на выборе реликвии время забега стоит
-    S.stats.time += DT;
-    // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
-    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < lastWave(S)) startWave(S); }
+    if (S.phase === 'wave') S.stats.time += DT;                       // время забега — только идущие волны, без ожидания между ними
+    // между волнами: окно «Нетерпения» тает; волна сама начинается только с автоплеем, по его отсчёту, и только существующая
+    // (как и команда вызова): забег после последней волны не падает
+    if (S.phase === 'prep') {
+      if (S.hasteT > 0) S.hasteT = Math.max(0, S.hasteT - DT);
+      if (S.auto && S.autoT >= 0) { S.autoT = Math.max(0, S.autoT - DT); if (S.autoT === 0 && S.wave < lastWave(S)) startWave(S); }
+    }
     if (S.phase === 'wave') {
       S.waveT += DT;
       while (S.qi < S.queue.length && S.queue[S.qi].at <= S.waveT) spawnEnemy(S, S.queue[S.qi++].e, 0);
@@ -954,11 +973,11 @@
       const bonus = C.WAVE_BONUS(S.wave) + relicSum(S, 'waveSouls') + interest; S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
       if (S.wave >= lastWave(S)) { S.phase = 'won'; S.wonStats = Object.assign({}, S.stats); ev(S, 'win', {}); }
-      else { S.phase = 'prep'; S.prepT = C.PREP_TIME; if (relicDue(S.wave)) offerRelics(S); }
+      else { S.phase = 'prep'; S.autoT = RC.autoDelay; S.hasteT = RL.haste.window; if (relicDue(S.wave)) offerRelics(S); }
     }
     pruneEv(S);
   };
-  // выбор реликвии после волны: забег встаёт, пока игрок не выберет (таймер паузы ждёт полным); открытых не осталось — выбора нет
+  // выбор реликвии после волны: забег встаёт, пока игрок не выберет (отсчёт автоплея и окно «Нетерпения» ждут полными); открытых не осталось — выбора нет
   const offerRelics = (S) => { const o = drawRelics(S.seed, S.wave, S.relics, S.unlocked); if (!o.length) return;
     S.offer = o; S.phase = 'relic'; ev(S, 'relicOffer', { wave: S.wave }); };
   // реликвия для интерфейса: { id, name, icon, kind, desc } — описание с числами из её данных
@@ -988,8 +1007,8 @@
     return S;
   };
   const LOOP = 60, WARM_ENEMIES = 10, WARM_MAX = 40;
-  // шаг демо: зачищенная волна сразу начинается заново (prepT = шаг: таймер дойдёт до нуля на следующем шаге), души и прочность не меняются
-  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = S.demoWave - 1; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
+  // шаг демо: зачищенная волна сразу начинается заново (автоплей с отсчётом в шаг: дойдёт до нуля на следующем шаге), души и прочность не меняются
+  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = S.demoWave - 1; S.auto = true; S.autoT = S.dt; } S.souls = 340; S.hp = 16; };
   let cache = null;
   const at = (t) => {
     const loop = Math.floor(t / LOOP), lt = t - loop * LOOP;
@@ -1012,7 +1031,7 @@
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
-    hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
+    hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt, hasteSouls, autoIn,
     hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
     canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
     skelCells,
