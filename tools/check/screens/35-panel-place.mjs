@@ -40,10 +40,10 @@ const clickCell = (ctx, cell) => ctx.eval((cell) => { const S = APP.play, [x, y]
 const SPOTS = [['s3_tl', 3, 0, 1], ['s3_tr', 3, 24, 1], ['s3_bl', 3, 0, 13], ['s3_br', 3, 24, 13], ['s3_title', 3, 12, 1], ['s3_stats', 3, 19, 1],
   ['s12_43', 12, 4, 3], ['s12_219', 12, 21, 9], ['s77_mid', 77, 12, 7], ['s77_tl', 77, 0, 1], ['s77_br', 77, 24, 13]];
 export async function steps(ctx, g) {
-  await g.newGame(ctx);
+  await g.newGame(ctx, 3);
   const out = {}; let seed = -1;
   for (const [name, sd, cx, cy] of SPOTS) out[`place_${name}`] = async () => {
-    if (sd !== seed) { seed = sd; await ctx.eval((sd) => { APP.newGame(sd); }, sd); await g.rich(ctx); await ctx.eval(() => { APP.play.prepT = 999; }); await ctx.wait(100); }
+    if (sd !== seed) { seed = sd; await g.newGame(ctx, sd); await g.rich(ctx); }
     const cell = await nearest(ctx, cx, cy);
     if (cell < 0) throw new Error('нет клетки под постройку');
     await g.build(ctx, cell, 'dark'); await g.maxOut(ctx, cell);    // самая высокая башня, вид 3, самая высокая панель
@@ -53,14 +53,14 @@ export async function steps(ctx, g) {
   };
   // во время волны кнопки вызова нет, но панель не встаёт на её место: кнопка вернётся после волны
   out.place_wave_button = async () => {
-    await ctx.eval(() => { APP.newGame(3); APP.play.souls = 99999; }); await ctx.wait(100);
+    await g.newGame(ctx, 3); await ctx.eval(() => { APP.play.souls = 99999; });
     const cell = await nearest(ctx, 4, 4);
-    await g.build(ctx, cell, 'dark'); await ctx.eval(() => { APP.cmd({ k: 'call' }); }); await ctx.wait(200);
+    await g.build(ctx, cell, 'dark'); await ctx.eval(() => { APP.cmd({ k: 'call' }); }); await ctx.page.waitForFunction(() => APP.play.phase === 'wave'); await g.frames(ctx);
     if (!(await ctx.eval(() => document.getElementById('wavebtn').classList.contains('hidden')))) throw new Error('во время волны кнопка вызова видна');
     await g.select(ctx, cell); await ctx.wait(80); await checkPlace(ctx, cell); await ctx.shot('place_wave_button');
   };
   out.place_click_field = async () => {
-    await ctx.eval(() => { APP.newGame(12); APP.play.souls = 99999; }); await ctx.wait(100);
+    await g.newGame(ctx, 12); await ctx.eval(() => { APP.play.souls = 99999; });
     const tower = await nearest(ctx, 21, 9), target = await nearest(ctx, 2, 11);
     await g.build(ctx, tower, 'bones'); await g.select(ctx, tower); await ctx.wait(80);
     await checkPlace(ctx, tower);

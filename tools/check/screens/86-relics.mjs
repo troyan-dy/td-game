@@ -27,7 +27,7 @@ const KEY = 'necropolis.save';
 
 export const steps = {
   relics_offer: async (ctx, g) => {
-    await g.newGame(ctx);
+    await g.newGame(ctx, 1);
     await toChoice(ctx, await worstSeed(ctx), 5);
     const want = await ctx.eval(() => APP.play.offer.slice());
     await waitOffer(ctx, want);
@@ -39,7 +39,7 @@ export const steps = {
     await ctx.shot('relics_offer');
   },
   relics_pick: async (ctx, g) => {
-    await g.newGame(ctx);
+    await g.newGame(ctx, 1);
     const s = await worstSeed(ctx); await toChoice(ctx, s, 5);
     const offer = await ctx.eval(() => APP.play.offer.slice()); await waitOffer(ctx, offer);
     // клавиша 2 — вторая реликвия (а не карточка второй башни)
@@ -65,7 +65,7 @@ export const steps = {
     await ctx.shot('relics_hud');
   },
   relics_continue: async (ctx, g) => {
-    await g.newGame(ctx);
+    await g.newGame(ctx, 1);
     await toChoice(ctx, 7, 10);
     const offer = await ctx.eval(() => APP.play.offer.slice()); await waitOffer(ctx, offer);
     await ctx.page.waitForFunction((k) => { try { return JSON.parse(localStorage.getItem(k)).S.phase === 'relic'; } catch (e) { return false; } }, KEY, { timeout: 5000 })

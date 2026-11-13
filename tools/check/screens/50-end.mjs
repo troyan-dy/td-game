@@ -4,18 +4,21 @@
 const endState = (ctx) => ctx.eval(() => { const e = document.getElementById('end'), S = APP.play;
   return { end: e.classList.contains('show'), text: e.textContent, ids: [...e.querySelectorAll('button')].map((b) => b.id),
     phase: S && S.phase, wave: S && S.wave, seed: S && S.seed, endless: S && S.endless }; });
-// новая партия, сразу победившая на последней волне (с башней: подсказки обучения не показываются)
-const winNow = async (ctx, g, worst) => {
-  await g.newGame(ctx);
-  await ctx.eval((worst) => { const S = APP.play, s = S.stats; S.wave = SIM.waveCount(); if (worst) S.seed = 999999;
-    const b = SIM.rankCells(S, SIM.CONFIG.TYPICAL_RANGE)[0]; S.souls = 1e4; APP.cmd({ k: 'build', cell: b, type: 'bones' });
+// новая партия на сиде seed, честно победившая на последней волне: волна вызвана, её враги считаются вышедшими и убитыми
+// (сейв такого забега годен); с башней — подсказки обучения не показываются
+const winNow = async (ctx, g, seed, worst) => {
+  await g.newGame(ctx, seed);
+  await ctx.eval((worst) => { const S = APP.play, s = S.stats; S.wave = SIM.waveCount() - 1; S.souls = 1e4;
+    APP.cmd({ k: 'build', cell: SIM.rankCells(S, SIM.CONFIG.TYPICAL_RANGE)[0], type: 'bones' }); APP.cmd({ k: 'call' });
     if (worst) { s.time = 3599; s.kills = 99999; s.earned = 999999; } }, worst);
-  await ctx.wait(100); await ctx.eval(() => { APP.play.phase = 'won'; });
-  await ctx.need('#end.show', 5000); await ctx.wait(1000);
+  await g.applied(ctx);
+  await ctx.eval(() => { const S = APP.play; S.qi = S.queue.length; S.enemies = []; S.shots = []; });
+  await ctx.page.waitForFunction(() => APP.play.phase === 'won', null, { timeout: 5000 }).catch(() => { throw new Error('последняя волна не дала победу'); });
+  await ctx.need('#end.show', 5000); await ctx.wait(600);                              // экран итога проявляется
 };
 export const steps = {
   end_won: async (ctx, g) => {
-    await winNow(ctx, g, true);
+    await winNow(ctx, g, 999999, true);
     if (await ctx.eval(() => document.getElementById('coach').classList.contains('show'))) throw new Error('за экраном итога видна подсказка обучения');
     const st = await endState(ctx);
     if (!st.ids.includes('e-endless') || !st.ids.includes('e-finish')) throw new Error('у победы нет выбора «продолжить / закончить»: ' + JSON.stringify(st.ids));
@@ -36,9 +39,8 @@ export const steps = {
     await ctx.shot('end_again');
   },
   end_endless: async (ctx, g) => {
-    await winNow(ctx, g, false);
+    await winNow(ctx, g, 5, false);
     await ctx.click('#e-endless'); await ctx.wait(300);
-    await ctx.eval(() => { for (const k in SIM.CONFIG.ENEMIES) APP.play.seen[k] = 1; });   // без окна «Новый враг»: оно ставит паузу
     const last = await ctx.eval(() => SIM.waveCount());
     let st = await endState(ctx);
     const hud = await ctx.eval(() => ({ wave: document.getElementById('s-wave').textContent, btn: document.getElementById('wavebtn').classList.contains('hidden') ? '' : document.getElementById('w-l1').textContent }));

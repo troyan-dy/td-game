@@ -1,7 +1,7 @@
 // Подсказки и всплывающие окна во время партии: тултип карточки, «новый враг», тосты босса и волны, пауза.
 export const steps = {
   cardtip: async (ctx, g) => {
-    await g.newGame(ctx); await g.rich(ctx); await g.select(ctx, -1);
+    await g.newGame(ctx, 1); await g.rich(ctx); await g.select(ctx, -1);
     await (await ctx.need('.card')).evaluate((el) => el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true })));
     await ctx.shot('cardtip');
   },

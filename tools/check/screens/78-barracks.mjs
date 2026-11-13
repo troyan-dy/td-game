@@ -6,7 +6,7 @@ const until = async (ctx, fn, sec, what) => { for (let i = 0; i < sec * 10; i++)
 
 export const steps = {
   barracks_panel: async (ctx, g) => {
-    await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 5000; });
+    await g.newGame(ctx, 1); await ctx.eval(() => { APP.play.souls = 5000; });
     const spots = await g.spots(ctx); await g.build(ctx, spots[0], 'barracks');
     if (!await barracks(ctx)) throw new Error('Казарма не построилась');
     await g.select(ctx, spots[0]); await ctx.wait(150);

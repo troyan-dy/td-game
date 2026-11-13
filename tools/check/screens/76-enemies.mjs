@@ -13,7 +13,7 @@ const before = (ctx, { s, n }) => ctx.eval(([s, n]) => { APP.play = SIM.create(s
 
 export const steps = {
   enemies_scout: async (ctx, g) => {
-    await g.newGame(ctx);                                          // меню закрыто: поле и разведка не под оверлеем
+    await g.newGame(ctx, 1);                                        // меню закрыто: поле и разведка не под оверлеем
     const at = await pick(ctx); expect(at, 'нет волны с разведчиком и знаменосцем');
     await before(ctx, at);
     await ctx.page.waitForFunction((n) => { const t = document.querySelector('#scout-panel.show .tt'); return !!t && t.textContent.includes('ВОЛНА ' + n); }, at.n, { timeout: 5000 })
@@ -34,7 +34,7 @@ export const steps = {
     await ctx.shot('enemies_scout');
   },
   enemies_field: async (ctx, g) => {
-    await g.newGame(ctx);                                          // меню закрыто: поле и разведка не под оверлеем
+    await g.newGame(ctx, 1);                                        // меню закрыто: поле и разведка не под оверлеем
     const at = await pick(ctx); expect(at, 'нет волны с разведчиком и знаменосцем');
     await before(ctx, at);
     await ctx.eval(() => { APP.cmd({ k: 'call' }); APP.speed = 3; });

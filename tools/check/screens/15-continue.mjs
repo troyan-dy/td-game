@@ -17,7 +17,7 @@ export function steps() {
   let paused = null;
   return {
     continue_reload: async (ctx, g) => {
-      await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 2000; });
+      await g.newGame(ctx, 3); await ctx.eval(() => { APP.play.souls = 2000; });
       const types = await g.towerTypes(ctx), spots = await g.spots(ctx);
       for (const [i, t] of types.entries()) await g.build(ctx, spots[i], t);
       await ctx.eval(() => { APP.cmd({ k: 'call' }); APP.speed = 2; });

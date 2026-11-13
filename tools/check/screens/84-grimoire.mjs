@@ -19,7 +19,7 @@ const buy = (ctx, list) => ctx.eval((list) => { for (const [line, n] of list) fo
 
 export const steps = {
   grim_partial: async (ctx, g) => {
-    await g.newGame(ctx); await g.rich(ctx);
+    await g.newGame(ctx, 1); await g.rich(ctx);
     const spot = (await g.spots(ctx))[0]; await g.build(ctx, spot, 'bones');
     const before = await ctx.eval((c) => SIM.towerStats(APP.play, APP.play.towers[c]).dmg, spot);
     await ctx.click('#b-grim'); await waitOpen(ctx, true, 'кнопка ✦ в HUD не открыла Гримуар');
