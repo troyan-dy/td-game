@@ -49,7 +49,7 @@ const foes = (S, mem) => {
 
 // ---------------------------------------------------------------- сила башни
 // EFF — поправка типа: во сколько раз его «урон в секунду» по формуле ниже стоит больше или меньше настоящего
-export const EFF = { bones: 1, spirits: 0.7, plague: 1.5, dark: 1, bell: 1, barracks: 0.6 };
+export const EFF = { bones: 1, spirits: 0.7, plague: 1.5, dark: 1, bell: 1, barracks: 0.25 };
 const SLOW_W = 20, STUN_W = 45, HOLD_W = 14;
 const resist = (type, st, P) => { const d = TW[type];
   if (d.dmgType === 'phys') return 1 - Math.max(0, P.armor - (st.shred || 0)) * (1 - (st.pen || 0));

@@ -24,7 +24,7 @@
     SELL_REFUND: 0.7,
     PREP_TIME: 15,                 // секунд между волнами (кроме первой: она стартует по кнопке)
     WAVE_BONUS: (w) => 30 + 8 * w, // души за зачистку волны w
-    HP_MULT: (w) => 1 + 0.16 * (w - 1) + 0.004 * (w - 1) ** 2,
+    HP_MULT: (w) => 1 + 0.10 * (w - 1) + 0.005 * (w - 1) ** 2,   // мягко в начале, круче к концу забега
     BOUNTY_MULT: (w) => 1 + 0.04 * (w - 1),
     ROAD_HALF: 27,
     TYPICAL_RANGE: 3.4,            // типичный радиус башни, ед.: покрытие дороги клеткой (меню постройки, подсказки, боты)                 // полуширина нарисованной дороги, px
@@ -130,7 +130,7 @@
       bones: {
         name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys', attack: 'bolt', muzzle: 58,
         art: { sprite: 'bones', color: [0.90, 0.85, 0.72], ui: '#e6d9b8', sound: 'bones', flip: true },
-        base: { cost: 100, dmg: 24, rate: 1.0, range: 3.6 },
+        base: { cost: 100, dmg: 26, rate: 1.0, range: 3.6 },
         tracks: { dmg: track(45, 0.35), range: track(35, 0.08), rate: track(40, 0.12) },
         extra: { speed: 900 },
         desc: 'Дальний одиночный выстрел. Дёшево, но броня рыцарей гасит почти половину урона.',
@@ -264,7 +264,7 @@
         threat: 1, minWave: 1, weight: 3, gap: 0.8,
         desc: 'Быстрый и хрупкий. Опасен толпой.' },
       knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1, melee: 16,
-        threat: 4, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
+        threat: 3.5, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
         desc: 'Щит гасит 45% физического урона. Против него — Чума и Тьма.' },
       priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1, melee: 6,
         heal: 12, healEvery: 4, healR: 1.5, healTargets: 3, healLock: 1.5,   // до 3 самых раненых; одного — не чаще раза в healLock с
@@ -279,12 +279,12 @@
         desc: 'Очень быстрый. Первое попадание по нему проходит мимо — против него хороши скорострельные башни.' },
       banner: { name: 'Знаменосец', hp: 210, speed: 44, armor: 0.2, mres: 0.1, bounty: 16, leak: 1, size: 1, melee: 14,
         haste: 0.3, hasteR: 2,
-        threat: 6, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
+        threat: 5, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
         look: { as: 'knight', tint: [1.45, 0.45, 0.35, 0.55], css: 'hue-rotate(-35deg) saturate(2.4) brightness(0.95)' },
         desc: 'Знамя гонит соседей вперёд: +30% скорости всем рядом. Убей его первым — ускорение пропадёт.' },
       cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true, melee: 35,
         spawnOnDeath: { type: 'militia', n: 2 },
-        threat: 22, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
+        threat: 18, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
         desc: 'Медленная и толстая. При поломке из неё выскакивают ополченцы.' },
       paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true, unstoppable: true,
         aura: 0.15, auraR: 1.5,
@@ -306,11 +306,11 @@
       powerBounty: 1,                     // награда растёт как power ** powerBounty (1 — души волны те же, что без предела)
       stagger: 0.45,                      // отряды после первого стартуют в случайный момент первых 45% длительности первого
       traitChance: 0.35, traitFrom: 3,    // доля волн со свойством; раньше traitFrom и на боссах свойства нет
-      bossEvery: 10, bossEscort: 0.6, bossAt: 0.4,   // босс каждые bossEvery волн; свите — доля бюджета; выход босса — доля длительности свиты
+      bossEvery: 10, bossEscort: 0.75, bossAt: 0.4,   // босс каждые bossEvery волн; свите — доля бюджета; выход босса — доля длительности свиты
       bossType: 'paladin',
-      // 10-я: 4000/150, 20-я: 10000/250. В бесконечном режиме (после RUN_WAVES) босс растёт вместе с волной: HP и награда
+      // 10-я: 4500/150, 20-я: 22500/250 — пик забега. В бесконечном режиме (после RUN_WAVES) босс растёт вместе с волной: HP и награда
       // последней волны забега × рост бюджета угрозы × множителя HP (награды) — его доля в волне остаётся как на последней
-      bossHp: (w) => (w <= C.RUN_WAVES ? Math.round(4000 * 2.5 ** Math.log2(w / 10)) : Math.round(C.WAVEGEN.bossHp(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.HP_MULT))),
+      bossHp: (w) => (w <= C.RUN_WAVES ? Math.round(4500 * 5 ** Math.log2(w / 10)) : Math.round(C.WAVEGEN.bossHp(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.HP_MULT))),
       bossBounty: (w) => (w <= C.RUN_WAVES ? 50 + 10 * w : Math.round(C.WAVEGEN.bossBounty(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.BOUNTY_MULT))),
       grow: (w, mult) => (C.WAVEGEN.budget(w) * mult(w)) / (C.WAVEGEN.budget(C.RUN_WAVES) * mult(C.RUN_WAVES)),
       bossNames: ['Паладин', 'Паладин-командор', 'Великий паладин'],   // k-й босс забега; дальше — последнее имя
