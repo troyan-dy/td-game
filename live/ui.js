@@ -149,9 +149,9 @@
   const closeBtn = '<button class="btn x">✕</button>';
   // меню свободной клетки: особая клетка (вид и бонус), покрытие дороги, итоговые цены башен на этой клетке (с наценкой)
   const buildMenu = (S, p) => {
-    const b = SIM.cellBonus(S, ui.sel), cov = SIM.coverage(S, ui.sel, 3.4 + ((b && b.range) || 0)), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
-    const prices = C.TOWER_ORDER.map((k) => { const cost = SIM.canBuild(S, ui.sel, k).cost, extra = cost - T[k].cost[0];
-      return `<div><span>${T[k].name}</span><span><b class="${S.souls < cost ? 'poor' : ''}">${cost}</b>${extra ? `<span class="nx up">+${extra}</span>` : ''}</span></div>`; }).join('');
+    const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
+    const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
+      return `<div><span>${T[k].name}</span><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
     p.innerHTML = `${closeBtn}<div class="nm">${b ? b.name : 'Свободная клетка'}</div>
         ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}
         <div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
@@ -199,9 +199,10 @@
 
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
-    const spot = S && ui.sel >= 0 && !S.towers[ui.sel] ? ui.sel : -1;           // цена на выбранной свободной клетке (наценка особой клетки)
-    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, cost = spot >= 0 ? SIM.canBuild(S, spot, k).cost : T[k].cost[0], poor = S && S.souls < cost;
-      const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', cost !== T[k].cost[0]);
+    // цена на карточках — для клетки, куда пойдёт постройка: выбранной свободной, а с выбранной карточкой — под курсором
+    const free = (i) => S && i >= 0 && !S.towers[i] && !isRoad(i), spot = free(ui.sel) ? ui.sel : ui.armed && free(ui.hover) ? ui.hover : -1;
+    document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, cb = S ? SIM.canBuild(S, spot >= 0 ? spot : -1, k) : null, cost = cb ? cb.cost : T[k].cost[0], poor = S && S.souls < cost;
+      const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', !!cb && cb.cost !== cb.base);
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
     if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1), S.phase, ui.move]);

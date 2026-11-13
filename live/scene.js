@@ -277,6 +277,10 @@
 
     L.finish(t, { bloom: [0.20, 0.18], vignette: 0.9, warm: 0.25, roll: 0.6, dither: 1 });
 
+    // выбрана карточка башни: цена постройки на клетке под курсором (с наценкой особой клетки — красная)
+    if (!ST.demo && ui.armed && ui.hover >= 0 && !ST.towers[ui.hover]) { const cb = SIM.canBuild(ST, ui.hover, ui.armed);
+      if (!BLOCKED.includes(cb.reason)) { const [x, y] = SIM.cellXY(ST, ui.hover);
+        L.label('buildcost', String(cb.cost), x, y - 40, { size: 20, col: cb.cost !== cb.base ? '#ff8aa0' : '#7ff5e6', out: '#14081a', al: 0.5 }); } }
     // значки особых клеток — поверх всего (и башен): метка видна, даже когда на клетке стоит башня
     for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + 13); }
 

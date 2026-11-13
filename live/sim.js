@@ -44,7 +44,8 @@
   const towerStat = (tw, key) => { const v = TW[tw.type][key]; return Array.isArray(v) ? v[tw.lvl - 1] : v; };
   // бонус особой клетки: { kind, name, desc, range?, souls?, dmg?, cost? } или null. Всегда от клетки, где башня стоит сейчас
   const cellBonus = (S, cell) => { const k = MAPGEN.special(S.map, cell); return k ? Object.assign({ kind: k }, C.SPECIAL[k]) : null; };
-  const bonusOf = (S, cell, key) => { const b = cellBonus(S, cell); return (b && b[key]) || 0; };
+  // одно число бонуса (range, souls, dmg, cost) — без промежуточных объектов: зовётся на каждый удар и тик яда
+  const bonusOf = (S, cell, key) => { const k = MAPGEN.special(S.map, cell); return k ? C.SPECIAL[k][key] || 0 : 0; };
   // итоговый радиус башни (с бонусом клетки), px
   const rangePx = (S, tw) => (towerStat(tw, 'range') + bonusOf(S, tw.cell, 'range')) * UNIT;
   const rangeTiles = (units) => units * UNIT / C.GRID.tile;          // радиус в клетках сетки (для подписей)
@@ -132,6 +133,8 @@
   // длина дороги (px), которую башня на клетке накрывает радиусом units
   const coverage = (S, cell, units) => { const [x, y] = cellXY(S, cell), r = units * UNIT, L = pathLen(S); let n = 0;
     for (let d = 0; d < L; d += 4) { const p = posAt(S, d); if (Math.hypot(p.x - x, p.y - y) <= r) n += 4; } return n; };
+  // покрытие дороги будущей башней на клетке: типичный радиус C.TYPICAL_RANGE плюс бонус клетки (меню постройки)
+  const spotCoverage = (S, cell) => coverage(S, cell, C.TYPICAL_RANGE + bonusOf(S, cell, 'range'));
   // свободные клетки по убыванию покрытия дороги (боты, демо, подсказки)
   const rankCells = (S, units) => { const out = [];
     for (let i = 0; i < cellCount(S); i++) if (!S.map.road.includes(i) && !S.towers[i] && !MAPGEN.hud(S.map, i) && !MAPGEN.obstacle(S.map, i)) out.push([i, coverage(S, i, units)]);
@@ -414,7 +417,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, MUZZLE,
-    canBuild, buildRangePx, cellBonus, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
+    canBuild, buildRangePx, cellBonus, spotCoverage, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
   };

@@ -107,7 +107,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #panel .bonus.well { color: var(--soul); }
 #panel .bonus.cursed { color: #ff5a78; }
 #panel .prices b.poor { color: var(--bad); }
-#panel .prices .nx.up, .card .pr.up { color: #ff5a78; }
+#panel .prices b.up, .card .pr.up { color: #ff5a78; }
+#panel .prices s.was { margin-right: 6px; color: var(--dim); }
 
 /* тултип */
 #tip { position: absolute; max-width: 300px; padding: 10px 12px; font: 15px/1.35 var(--body); display: none; pointer-events: none; z-index: 5; }

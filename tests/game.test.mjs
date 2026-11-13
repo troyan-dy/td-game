@@ -18,7 +18,7 @@ const hudCells = (S) => { const out = []; for (let i = 0; i < S.map.cols * S.map
 test('забег создаётся от сида: карта генератора, сид и версия состояния', () => {
   const S = SIM.create(42);
   assert.equal(S.seed, 42);
-  assert.equal(S.v, 2);
+  assert.equal(S.v, 3);                                            // 3: в карте появились препятствия и особые клетки
   assert.deepEqual(S.map, MAPGEN.generate(42));
   assert.notDeepEqual(SIM.create(43).map.road, S.map.road);
 });
@@ -109,6 +109,10 @@ test('курган: +1 единица дальности (48 px) башне и �
   assert.equal(SIM.rangePx(S, S.towers[mound]), (3.6 + 1) * 48);
   assert.equal(SIM.rangePx(S, S.towers[plain]), 3.2 * 48);
   assert.equal(SIM.cellBonus(S, mound).kind, 'mound'); assert.equal(SIM.cellBonus(S, plain), null);
+  // покрытие дороги для меню постройки — типичным радиусом башни с бонусом клетки
+  assert.equal(C.TYPICAL_RANGE, 3.4);
+  assert.equal(SIM.spotCoverage(S, mound), SIM.coverage(S, mound, 3.4 + 1));
+  assert.equal(SIM.spotCoverage(S, plain), SIM.coverage(S, plain, 3.4));
 });
 
 test('проклятая земля: постройка на 30% дороже и +25% урона', () => {
@@ -116,6 +120,7 @@ test('проклятая земля: постройка на 30% дороже и
   assert.equal(SIM.canBuild(S, cursed, 'bones').cost, 130);
   assert.equal(SIM.canBuild(S, cursed, 'dark').cost, 195);
   assert.equal(SIM.canBuild(S, plain, 'dark').cost, 150);
+  assert.equal(SIM.canBuild(S, cursed, 'dark').base, 150); assert.equal(SIM.canBuild(S, plain, 'dark').base, 150);
   SIM.step(S, { cmds: [{ k: 'build', cell: cursed, type: 'dark' }] });
   assert.equal(S.souls, 1000 - 195); assert.equal(S.towers[cursed].invested, 195);
   const P = SIM.create(5); P.souls = 194;
