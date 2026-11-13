@@ -73,6 +73,8 @@
       <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Меню (Esc)">☰</button>`;
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
+    // во время волны на месте кнопки — плашка «волна идёт» (без неё неигровой угол — тёмная дыра в карте)
+    const wp = h('div', 'frame pass', '<div class="l1" id="wp-l1"></div><div class="l2" id="wp-l2"></div>'); wp.id = 'waveplate'; root.append(wp);
     // автоплей — рядом с кнопкой волны, виден всю партию (и во время волны, когда кнопки нет)
     const ab = h('button', 'btn', '<span class="ic">⟳</span><span class="tx">АВТО</span><span class="st" id="a-st">ВЫКЛ</span>'); ab.id = 'autobtn';
     ab.title = `Автоплей (A): следующая волна начинается сама через ${C.RUN_CONTROL.autoDelay} с после зачистки. Первую волну, выбор реликвии и победу не пропускает.`; root.append(ab);
@@ -89,11 +91,13 @@
     const tip = h('div', 'frame', ''); tip.id = 'tip'; root.append(tip);
     const toasts = h('div', '', ''); toasts.id = 'toasts'; root.append(toasts);
     const coach = h('div', 'frame', ''); coach.id = 'coach'; root.append(coach);
+    const car = h('div', 'pass', ''); car.id = 'coach-arrow'; const cring = h('div', 'pass', ''); cring.id = 'coach-ring'; root.append(car, cring);
     root.append(h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''));
     const [menu, gmenu, end, ne, meta] = root.querySelectorAll('.overlay'); menu.id = 'menu'; gmenu.id = 'gmenu'; end.id = 'end'; ne.id = 'newenemy'; meta.id = 'meta';
     gmenu.innerHTML = `<div class="frame box"><h2>Меню</h2>
       <div class="set"><span>Громкость</span><input type="range" min="0" max="1" step="0.05" id="vol"></div>
-      <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
+      <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-help">Как играть</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
+    const help = h('div', 'overlay', ''); help.id = 'help'; root.append(help);   // справка — поверх меню
     wire();
   };
   // волна, на которой игрок продолжит: идущая, а в паузе — следующая
@@ -106,15 +110,36 @@
       <div class="seednote" id="m-seednote"></div>
       <button class="btn" id="m-meta">Открытия</button>
       <button class="btn" id="m-help">Как играть</button></div>
-      <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
-      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–${C.TOWER_ORDER.length}). Можно и наоборот: выбери башню и нажми на клетку.<br>
-      <b>Бесконечный режим:</b> после победы на ${SIM.waveCount()}-й волне можно держать оборону дальше — волны растут без предела, босс каждые 10 волн; итог — достигнутая волна.<br>
-      <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
-      <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
-      <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
-      <b>Гримуар</b> (кнопка ✦ вверху справа или G) — в любой момент за души усиливает сразу все башни, и построенные позже: урон, дальность, скорость и отдельно каждый тип.<br>
-      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Колокол оглушает всех вокруг себя, Алтарь крови усиливает башни на соседних клетках, скелеты Казармы держат врагов под огнём.<br>
-      <b>Управление:</b> Enter — призвать волну (сама она не идёт), A — автоплей, Пробел — пауза, F — скорость ×1/×2/×4, Esc — меню. Забег сохраняется: после перезагрузки нажми «Продолжить».</div></div>`; };
+</div>`; };
+  // Справка «Как играть» — окно поверх меню (главного и меню паузы): темы слева, по нескольку строк справа; влезает в 1280×720.
+  // Числа и имена — из конфига.
+  const HELP = [
+    ['Цель', () => `<p>Переживи <b>${SIM.waveCount()} волн</b>. Каждый прорвавшийся враг отнимает прочность склепа: обычный — ${EN.militia.leak}, повозка — ${EN.cart.leak}, босс — ${EN.paladin.leak} из ${C.CRYPT_HP}.</p>
+      <p>Волну зовёшь сам: кнопка слева вверху или <b>Enter</b>. Автоплей <b>⟳</b> (A) зовёт следующую сам. Между волнами строй и качай — время стоит.</p>
+      <p><b>Разведка</b> вверху показывает следующие волны: кто идёт, свойство волны, босс. Босс приходит каждые ${C.WAVEGEN.bossEvery} волн.</p>`],
+    ['Башни', () => `<p>Нажми на свободную клетку у дороги и выбери башню на карточках внизу (или клавиши 1–${C.TOWER_ORDER.length}). Можно наоборот: карточка, потом клетка.</p>
+      <div class="hroles">${C.TOWER_ORDER.map((k) => `<div><b>${T[k].name}</b> — ${T[k].role}</div>`).join('')}</div>
+      <p>Особые клетки: ${Object.values(C.SPECIAL).map((x) => `<b>${x.name.toLowerCase()}</b> — ${x.desc}`).join('; ')}.</p>`],
+    ['Прокачка', () => `<p>Нажми на башню: ветки <b>урон (Q)</b>, <b>дальность (W)</b>, <b>скорость (E)</b>, по ${C.TRACK_MAX} ступеней.</p>
+      <p>Когда вложено ${C.PERK_AT} ступеней — <b>перк</b>, один из трёх, навсегда. На кнопке — что он делает, подробности — при наведении.</p>
+      <p><b>Перенос</b> (M) — между волнами, бесплатно, прокачка остаётся. <b>Продажа</b> (X) возвращает ${Math.round(C.SELL_REFUND * 100)}% вложенного.</p>`],
+    ['Слияние', () => `<p>Две <b>соседние</b> башни (и по диагонали) со всеми ветками на ${C.TRACK_MAX}-й ступени сливаются в <b>гибрид</b>: нажми на башню и «Слить с соседом».</p>
+      <p>Гибрид стреляет как первая башня и получает <b>примесь</b> второй — её значок над гибридом. Ветки — до ${C.MERGE.cap} ступени, перков — ${C.MERGE.slots}. Цена ${C.MERGE.cost} душ, только между волнами; клетка второй башни освобождается.</p>`],
+    ['Гримуар и реликвии', () => `<p><b>Гримуар</b> (✦ вверху справа или G) — за души сразу усиливает все башни, и построенные позже.</p>
+      <p><b>Реликвия</b> — после ${C.RELIC.waves.join(', ')}-й волны: одна из трёх, бесплатно, до конца забега. Значки взятых — под кнопкой волны.</p>
+      <p>После победы можно держать оборону дальше: <b>бесконечный режим</b>, итог — достигнутая волна.</p>`],
+    ['Управление', () => `<div class="keys"><span>Enter</span><i>призвать волну</i><span>A</span><i>автоплей</i><span>Пробел</span><i>пауза</i><span>F</span><i>скорость ×1 ×2 ×4</i>
+      <span>1–${C.TOWER_ORDER.length}</span><i>карточка башни</i><span>Q W E</span><i>ветки прокачки</i><span>M · X</span><i>перенос · продажа</i><span>I · G</span><i>разведка · Гримуар</i><span>Esc</span><i>отмена, меню</i></div>
+      <p>Забег сохраняется сам: после перезагрузки нажми «Продолжить». Сид карты — слева вверху; та же карта — по тому же сиду.</p>`],
+  ];
+  let helpTopic = 0;
+  const showHelp = (on) => { const o = $('#help'); if (!on) { o.classList.remove('show'); return; }
+    o.innerHTML = `<div class="frame box"><h2>Как играть</h2><div class="hb"><div class="ht">${HELP.map(([n], i) => `<button class="btn ${i === helpTopic ? 'on' : ''}" data-i="${i}">${n}</button>`).join('')}</div>
+      <div class="hc">${HELP[helpTopic][1]()}</div></div><div class="col"><button class="btn" id="h-close">Закрыть (Esc)</button></div></div>`;
+    o.querySelectorAll('.ht .btn').forEach((b) => { b.onclick = () => { helpTopic = +b.dataset.i; AUDIO.ui('click'); showHelp(true); }; });
+    $('#h-close').onclick = () => showHelp(false); hideTip(); o.classList.add('show'); };
+  UI.help = showHelp;
+
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
     big: `Сид не больше ${C.SEED.max}`, format: `Только цифры: целое от 0 до ${C.SEED.max}` };
@@ -207,11 +232,13 @@
     $('#b-menu').addEventListener('click', openMenu);
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', closeMenu);
+    $('#p-help').addEventListener('click', () => { AUDIO.ui('click'); showHelp(true); });
     $('#p-restart').addEventListener('click', () => { APP.newGame(undefined, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('gmenu', false); persist(); });
     $('#p-menu').addEventListener('click', () => { persist(); showOverlay('gmenu', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
       if ($('#meta').classList.contains('show')) { if (k === 'Escape') { showOverlay('meta', false); e.preventDefault(); } return; }   // экран открытий поверх меню
+      if ($('#help').classList.contains('show')) { if (k === 'Escape') { showHelp(false); e.preventDefault(); } return; }   // справка поверх меню
       // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
       if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
@@ -288,8 +315,8 @@
       ${hy ? '' : `<div class="role">${d.role}</div>`}
       ${hy ? mixLine(hy) : ''}
       <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
-      ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}
-      ${hy && SIM.auraOf(tw) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : ''}</div>${grimLine(S, tw)}
+      ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b data-v="aura">${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}
+      ${hy && SIM.auraOf(tw) ? `<div><span>Усиливает</span><b data-v="aura">${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : ''}</div>${grimLine(S, tw)}
       ${boostLine(st)}`;
   };
   // бонус Алтаря крови в итоговых характеристиках башни (st.altar от логики) — одной строкой под характеристиками
@@ -382,6 +409,7 @@
     p.querySelectorAll('.tb').forEach((b) => { const c = trackCls(SIM.canUpgrade(S, tw.cell, b.dataset.t)); for (const k of ['green', 'poor', 'off']) b.classList.toggle(k, k === c); });
     p.querySelectorAll('.perk').forEach((b) => b.classList.toggle('poor', SIM.canPerk(S, tw.cell, b.dataset.p).reason === 'souls'));
     const kills = p.querySelector('[data-v="kills"]'); if (kills && kills.textContent !== String(tw.kills)) kills.textContent = tw.kills;
+    const aura = p.querySelector('[data-v="aura"]'), na = `${SIM.auraTargets(S, tw.cell).length} баш.`; if (aura && aura.textContent !== na) aura.textContent = na;   // соседа продали или построили
     const mv = p.querySelector('.move'); if (mv) mv.classList.toggle('off', !SIM.canMove(S, tw.cell).ok);
     const mg = p.querySelector('.merge'); if (mg) { const n = SIM.mergeTargets(S, tw.cell).length; mg.classList.toggle('off', !n); mg.classList.toggle('green', !!n); }
     const go = p.querySelector('.mgo'); if (go && ui.mergeTo >= 0) { const r = SIM.canMerge(S, ui.merge, ui.mergeTo).reason; go.classList.toggle('poor', r === 'souls'); go.classList.toggle('off', !!r && r !== 'souls'); }
@@ -461,28 +489,41 @@
   const toast = (html, cls = '', ms = 2600) => { toastQ.push({ html, cls, ms }); if (toastQ.length > TOAST_QUEUE) toastQ.shift();
     if (!toastOn) toastNext(); else if (toastQ.length === 1) { clearTimeout(toastTimer); toastTimer = setTimeout(toastNext, TOAST_RUSH); } };
   let neQueue = [];
-  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
+  // карточка врага: цифры этой волны (со свойством — оно названо строкой под цифрами, чтобы текст и цифры сходились);
+  // boss — номер будущей волны с боссом: карточка в паузе перед ней, цифры и имя — из превью этой волны
+  const MODS = { hp: 'HP', speed: 'скорость', armor: 'броня', mres: 'защита от магии', heal: 'лечение', bounty: 'награда' };
+  const traitLine = (tr) => { if (!tr) return ''; const parts = Object.entries(tr.mods || {}).filter(([k]) => MODS[k])
+      .map(([k, v]) => (k === 'armor' || k === 'mres' ? `${MODS[k]} +${Math.round(v * 100)}%` : `${MODS[k]} ${v >= 1 ? '+' : '−'}${Math.abs(Math.round((v - 1) * 100))}%`));
+    return `<div class="trait">⚑ Волна «${tr.name}»: ${parts.length ? parts.join(' · ') + ' — уже в цифрах' : tr.desc}</div>`; };
+  const showNewEnemy = (type, boss) => { const d = EN[type], o = $('#newenemy'), S = APP.play, w = boss ? SIM.preview(S, boss) : SIM.WAVEGEN.wave(S.seed, Math.max(1, S.wave));
+    const st = boss && w ? w.stats[type] : SIM.enemyStats(S, type), name = boss && w ? w.bossName : d.name;
     const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
     const own = 'en_' + (d.look ? d.look.as : type), css = has(own) ? (d.look ? d.look.css : '') : 'sepia(1) saturate(2.2) brightness(1.1)';   // без своего арта — как на поле
-    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
-      <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
+    o.innerHTML = `<div class="frame box ${boss ? 'boss' : ''}"><h2>${boss ? `Босс ${boss}-й волны` : 'Новый враг'}</h2><div class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${name}</div>
+      <div class="tags">${tags}</div>${boss ? '' : traitLine(w && w.trait)}<p>${d.desc}</p>${boss ? `<p class="bnote">Придёт со следующей волной. Пропуск стоит ${d.leak} прочности склепа — готовь оборону сейчас.</p>` : ''}
+      <div class="col"><button class="btn green" id="ne-ok">${boss ? 'Готовиться (Enter)' : 'К бою (Enter)'}</button></div></div>`;
     if (!o.classList.contains('show')) neWas = APP.paused;            // после окна — та пауза, что была до него
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
-  const closeNewEnemy = () => { if (neQueue.length) { showNewEnemy(neQueue.shift()); return; } showOverlay('newenemy', false); APP.paused = neWas; };
-  let neWas = false;
+  const closeNewEnemy = () => { if (neQueue.length) { showNewEnemy(...[].concat(neQueue.shift())); return; } showOverlay('newenemy', false); APP.paused = neWas; };
+  let neWas = false, bossPending = 0;
+  const bossShown = new Set();                                     // волны с боссом, чья карточка уже показана в паузе перед ними
   // непрокачанная башня, которой хватает душ на ступень; башня, которой открыт выбор перка
   const raw = (S) => S.towers.find((t) => t && !SIM.steps(t) && C.TRACKS.some((k) => SIM.canUpgrade(S, t.cell, k).ok));
   const mergeReady = (S) => S.phase === 'prep' && S.towers.find((t) => t && SIM.mergeTargets(S, t.cell).length);
   const perkReady = (S) => S.towers.find((t) => t && SIM.freeSlots(t) && Object.keys(T[t.type].perks).length && SIM.canPerk(S, t.cell, Object.keys(T[t.type].perks)[0]).need === 0);
+  // оборона хоть как-то готова к первой волне: три башни, или две, если на третью уже не хватает душ
+  const defenseReady = (S) => { const n = S.towers.filter(Boolean).length, cheapest = Math.min(...C.TOWER_ORDER.filter((k) => !locked(S, k)).map((k) => T[k].base.cost));
+    return n >= 3 || (n >= 2 && S.souls < cheapest); };
   const COACH = [
     { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
-      text: 'Нажми на свободную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
-    { id: 'call', when: (S) => S.wave === 0 && S.towers.some(Boolean), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
+      text: 'Нажми на подсвеченную клетку у дороги, затем выбери башню внизу слева. Клетки внутри петель бьют сразу по нескольким участкам дороги.' },
+    { id: 'call', when: (S) => S.wave === 0 && defenseReady(S), at: () => { const b = $('#wavebtn'); return [b.offsetLeft + b.offsetWidth / 2, b.offsetTop + b.offsetHeight / 2]; },
+      rect: () => { const b = $('#wavebtn'); return [b.offsetLeft, b.offsetTop, b.offsetWidth, b.offsetHeight]; },
       text: 'Когда оборона готова — призови первую волну. Следующие тоже зовёшь сам, когда готов, — или включи автоплей ⟳ рядом с кнопкой.' },
     { id: 'upgrade', when: (S) => S.wave >= 2 && S.phase === 'prep' && !!raw(S), at: (S) => SIM.cellXY(S, raw(S).cell),
       text: 'Нажми на башню и прокачай её ветки: урон, дальность, скорость. Прокачка часто выгоднее новой башни в стороне от дороги.' },
     { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
-      text: `В башню вложено ${C.PERK_AT} ступеней — выбери один из трёх перков. Выбор навсегда, читай подсказки.` },
+      text: (S) => `В башню вложено ${SIM.perkAt(S)} ступеней — выбери один из трёх перков. На кнопке — что перк делает; выбор навсегда.` },
     { id: 'merge', when: (S) => !!mergeReady(S), at: (S) => SIM.cellXY(S, mergeReady(S).cell),
       text: 'Две соседние башни прокачаны до предела — их можно слить в гибрид: нажми на башню и «Слить с соседом». Порядок важен: гибрид стреляет как первая.' },
   ];
@@ -495,13 +536,28 @@
   let best = { key: '', cell: -1 };
   const bestCell = (S) => { const open = C.TOWER_ORDER.filter((k) => T[k].attack && T[k].attack !== 'summon' && !locked(S, k));
     const r = ui.armed && T[ui.armed] ? T[ui.armed].base.range : Math.min(...open.map((k) => T[k].base.range), C.TYPICAL_RANGE);
-    const key = S.seed + ':' + S.map.road.length + ':' + r; if (best.key !== key) best = { key, cell: SIM.rankCells(S, r)[0] }; return best.cell; };
+    const key = S.seed + ':' + S.map.road.length + ':' + r + ':' + S.towers.map((t) => (t ? 1 : 0)).join('');
+    if (best.key !== key) { const all = SIM.rankCells(S, r), ok = all.filter((c) => { const b = SIM.cellBonus(S, c); return !(b && b.cost); });   // не там, где постройка дороже
+      best = { key, cell: ok.length ? ok[0] : all[0] }; }
+    return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
-    if (!c || APP.paused || S.phase === 'relic') { el.classList.remove('show'); return; }
-    if (el.textContent !== c.text) el.textContent = c.text;
+    if (!c || APP.paused || S.phase === 'relic') { el.classList.remove('show'); coachPoint(null); return; }
+    const text = typeof c.text === 'function' ? c.text(S) : c.text; if (el.textContent !== text) el.textContent = text;
     el.classList.add('show');
-    const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
+    const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px';
+    coachPoint([l, t, el.offsetWidth, el.offsetHeight], c.rect ? c.rect(S) : cellRect(S, SIM.MAPGEN.cellAt(S.map, x, y))); };
+  // стрелка от подсказки к цели и пульсирующая рамка вокруг цели (клетки, башни или кнопки): box, target — [x, y, w, h]
+  const coachPoint = (box, target) => { const ar = $('#coach-arrow'), ring = $('#coach-ring');
+    if (!box || !target) { ar.classList.remove('show'); ring.classList.remove('show'); return; }
+    const pad = 4; Object.assign(ring.style, { left: target[0] - pad + 'px', top: target[1] - pad + 'px', width: target[2] + 2 * pad + 'px', height: target[3] + 2 * pad + 'px' }); ring.classList.add('show');
+    // от ближайшей точки рамки подсказки к ближайшей точке рамки цели
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v)), tc = [target[0] + target[2] / 2, target[1] + target[3] / 2];
+    const p0 = [clamp(tc[0], box[0], box[0] + box[2]), clamp(tc[1], box[1], box[1] + box[3])];
+    const p1 = [clamp(p0[0], target[0] - pad, target[0] + target[2] + pad), clamp(p0[1], target[1] - pad, target[1] + target[3] + pad)];
+    const len = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]);
+    if (len < 14) { ar.classList.remove('show'); return; }
+    Object.assign(ar.style, { left: p0[0] + 'px', top: p0[1] - 3 + 'px', width: len + 'px', transform: `rotate(${Math.atan2(p1[1] - p0[1], p1[0] - p0[0])}rad)` }); ar.classList.add('show'); };
   const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && SIM.steps(t) > 0)) || (q.id === 'perk' && S.towers.some((t) => t && SIM.perksOf(t).length)) || (q.id === 'merge' && S.stats.merges > 0);
 
   // ---------------------------------------------------------------- оверлеи
@@ -518,7 +574,7 @@
     // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
     inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
     $('#m-meta').onclick = () => { AUDIO.ui('click'); showMeta(); };
-    $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
+    $('#m-help').onclick = () => showHelp(!$('#help').classList.contains('show')); };
   // новый забег — по сиду (ввод на титульном экране, «Переиграть сид») или по случайному
   const startRun = (seed) => { APP.newGame(seed, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
   const clock = (sec) => { const t = Math.floor(sec), hh = Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = String(t % 60).padStart(2, '0');
@@ -552,15 +608,20 @@
   UI.showMeta = showMeta;
   // Экран конца забега. Победа на последней волне — сначала выбор: продолжить в бесконечном режиме или закончить;
   // итоги (после «Закончить» и после поражения) — сид, волна, время, убийства; новый забег или переигровка того же сида.
+  // поражение: кто отнял прочность склепа (SIM.leakReport) — картинка, имя, сколько прорвалось и сколько прочности
+  const enemyPic = (type) => { const d = EN[type], own = 'en_' + (d.look ? d.look.as : type), css = has(own) ? (d.look ? d.look.css : '') : 'sepia(1) saturate(2.2) brightness(1.1)';
+    return `<span class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</span>`; };
+  const leaksHTML = (S) => { const rep = SIM.leakReport(S); if (!rep.length) return '';
+    return `<div class="leaks"><div class="uh">Прочность склепа отняли</div><div class="gl">${rep.slice(0, 6).map((r) => `<div class="lk">${enemyPic(r.type)}<span>${r.name} ×${r.n}</span><b>−${r.hp}</b></div>`).join('')}</div></div>`; };
   const showEnd = (S, final) => { const won = S.phase === 'won', choice = won && !final && SIM.canEndless(S), R = SIM.waveCount();
     const text = won ? (choice ? `Последний паладин рассыпался в прах. Можно закончить забег — или держать оборону дальше: волны будут расти без предела, босс — каждые 10 волн.`
       : 'Последний паладин рассыпался в прах. Некрополис спит спокойно.')
       : S.endless ? `Бесконечный режим: враги прорвались на ${S.wave}-й волне. Отбито волн: ${S.wave - 1}, из них после победы — ${S.wave - 1 - R}.`
-      : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`;
+      : `Враги прорвались на ${S.wave}-й волне.`;
     const btns = choice ? `<button class="btn green two" id="e-endless"><span class="l1">Продолжить</span><span class="l2">бесконечный режим</span></button><button class="btn" id="e-finish">Закончить забег</button>`
       : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
-      <p>${text}</p>
+      <p>${text}</p>${won ? '' : leaksHTML(S)}
       ${gotHTML(runGot)}
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.endless ? `${S.wave} · ∞` : `${S.wave} / ${R}`}</b><span>Время</span><b>${clock(S.stats.time)}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Собрано душ</span><b>${S.stats.earned}</b></div>
@@ -576,7 +637,7 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { neWas = false; detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); toastQ = []; toastOn = null; clearTimeout(toastTimer); $('#toasts').innerHTML = ''; $('#ui').classList.remove('toasting'); panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { neWas = false; bossPending = 0; bossShown.clear(); detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); toastQ = []; toastOn = null; clearTimeout(toastTimer); $('#toasts').innerHTML = ''; $('#ui').classList.remove('toasting'); panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
@@ -602,7 +663,7 @@
   UI.frame = (A, t) => {
     const S = A.play;
     $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#autobtn').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
-    if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
+    if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); coachPoint(null); return; }
     $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
@@ -617,27 +678,33 @@
     $('#autobtn').classList.toggle('on', S.auto); $('#a-st').textContent = S.auto ? 'ВКЛ' : 'ВЫКЛ';
     const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.lastWave(S);
     wb.classList.toggle('hidden', !canCall);
+    const wp = $('#waveplate'), live = S.phase === 'wave'; wp.classList.toggle('show', live);
+    if (live) { const n = SIM.remaining(S), l1 = `Волна ${S.wave}${SIM.isBoss(S.wave) ? ' · босс' : ''}`, l2 = `идёт бой · осталось ${n}`;
+      if ($('#wp-l1').textContent !== l1) $('#wp-l1').textContent = l1; if ($('#wp-l2').textContent !== l2) $('#wp-l2').textContent = l2; }
     if (canCall) { const nx = S.wave + 1, boss = SIM.isBoss(nx), auto = SIM.autoIn(S), haste = SIM.hasteSouls(S);
       $('#w-l1').textContent = S.wave === 0 ? 'Начать волну 1' : `Призвать волну ${nx}`;
       // вторая строка: без автоплея — без отсчёта; с автоплеем — через сколько начнётся сама; окно «Нетерпения» — только с реликвией
       const l2 = paused ? 'пауза · Пробел' : auto !== null ? `сама через ${Math.ceil(auto)} с` : haste ? `⌛ +${haste} душ сейчас` : 'Enter';
       $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + l2;
-      wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean) && !paused); }
+      wb.classList.toggle('pulse', S.wave === 0 && defenseReady(S) && !paused); }
     // события → звук, тосты, новые враги, сейв
     for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name}<small>пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 2200);
+      if (e.k === 'waveClear' && SIM.isBoss(e.wave + 1) && e.wave < SIM.lastWave(S)) bossPending = e.wave + 1;   // босс в следующей волне — карточка в паузе
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
       if (e.k === 'relic') { const r = SIM.relicsOf(S).find((x) => x.id === e.id); if (r) toast(`${r.icon} ${r.name}<small>реликвия взята — описание при наведении на значок</small>`, '', 2200); savedAt = 0; }
       if (e.k === 'relicOffer' || e.k === 'haste') savedAt = 0;
       if (e.k === 'haste') toast(`Нетерпение<small>+${e.souls} душ за раннюю волну</small>`, '', 2200);
       if (e.k === 'endless') { toast('Бесконечный режим<small>Волны растут без предела · босс каждые 10 волн</small>', 'big', 3000); savedAt = 0; }
-      if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
+      if (e.k === 'newEnemy' && e.type !== 'militia' && !(EN[e.type].boss && bossShown.has(S.wave))) { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
       if (e.k === 'merge') { const hi = S.towers[e.cell] && SIM.hybridInfo(S, S.towers[e.cell]); if (hi) toast(`${hi.icon} Гибрид ${hi.name}<small>примесь «${hi.mixName}» · ветки до ${hi.cap} ступени</small>`, 'big', 2200); savedAt = 0; }
       if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'grim' || e.k === 'wave') savedAt = 0;
     }
     if (seenEv.size > 3000) markSeen();
+    if (bossPending && S.phase === 'prep' && S.wave + 1 === bossPending) { const n = bossPending, w = SIM.preview(S, n); bossPending = 0;
+      const b = w && w.squads.find((q) => q.boss); if (b) { bossShown.add(n); if ($('#newenemy').classList.contains('show')) neQueue.push([b.type, n]); else showNewEnemy(b.type, n); } }
     if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
     if (isEnded && !wasEnded) { select(-1); dropOwn(); runGot = credit(S); setTimeout(() => showEnd(APP.play), 900); }

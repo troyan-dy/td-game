@@ -48,7 +48,8 @@
     return `<div class="hd"><button class="btn nav prev${w.n <= r.from ? ' off' : ''}" title="Раньше (←)">◂</button>
       <div class="tt">ВОЛНА ${w.n} <small>${when} · ${w.n - r.from + 1}/${r.to - r.from + 1}</small></div>
       <button class="btn nav next${w.n >= r.to ? ' off' : ''}" title="Дальше (→)">▸</button><button class="btn nav x" title="Свернуть (I)">▴</button></div>
-      ${w.boss ? `<div class="bossline">☠ БОСС: ${w.bossName}</div>` : ''}
+      ${w.boss ? `<div class="bossline">☠ БОСС: ${w.bossName} ☠<small>HP ${num(w.stats[C.WAVEGEN.bossType].hp)} · пропуск — ${EN[C.WAVEGEN.bossType].leak} прочности</small></div>` : ''}
+      ${w.power > 1.005 ? `<div class="power" data-tip="Волна упёрлась в предел ${C.WAVEGEN.maxEnemies} врагов: лишняя угроза ушла в силу — HP и награда врагов выше.">▲ Предел врагов: враги толще — HP ×${(Math.round(w.power * 100) / 100).toFixed(2)}</div>` : ''}
       ${w.trait ? `<div class="trait" data-tip="${esc(w.trait.name + ': ' + w.trait.desc)}"><b>⚑ ${w.trait.name}:</b> <span class="mods">${modText(w.trait.mods)}</span></div>` : ''}
       <div class="grid"><div class="sq head"><div class="who">Отряд</div><span>HP</span><span>Броня</span><span>Магия</span><span>Скор.</span><span>Души</span></div>${squadRows(w)}</div>
       ${w.extra.map((x) => `<div class="extra">+${x.count} × ${x.name} из «${EN[x.from].name}», HP ${num(x.hp)}</div>`).join('')}
@@ -114,14 +115,15 @@
     const bk = prep ? JSON.stringify([S.seed, S.wave, can, expanded(S)]) : 'w' + S.wave + ':' + SIM.remaining(S);
     if (bk !== barKey) { barKey = bk;
       if (can) { const w = preview(S, r.from), all = w.total.count + w.total.extra;
-        bar.innerHTML = `<span>ВОЛНА ${w.n}</span>${w.boss ? '<span class="bad">☠ БОСС</span>' : ''}<span>${all} ${enemyWord(all)}</span>${w.trait ? `<span class="tr">⚑ ${w.trait.name}</span>` : ''}<span class="ar">${expanded(S) ? '▴' : '▾'}</span>`; }
+        const bn = w.boss ? 0 : [...Array(r.to - r.from).keys()].map((i) => r.from + 1 + i).find((n) => SIM.isBoss(n));   // босс дальше в разведке
+        bar.innerHTML = `<span>ВОЛНА ${w.n}</span>${w.boss ? '<span class="bad">☠ БОСС</span>' : ''}${bn ? `<span class="bad">☠ на ${bn}-й</span>` : ''}<span>${all} ${enemyWord(all)}</span>${w.trait ? `<span class="tr">⚑ ${w.trait.name}</span>` : ''}<span class="ar">${expanded(S) ? '▴' : '▾'}</span>`; }
       else if (prep) bar.innerHTML = '<span class="k">РАЗВЕДКА</span><span>волн больше нет</span>';
       else { const n = SIM.remaining(S); bar.innerHTML = `<span class="k">ВОЛНА ${S.wave}</span><span>осталось <b>${n}</b> ${enemyWord(n)}</span>`; }
-      bar.classList.toggle('live', !prep); }
+      bar.classList.toggle('live', !prep); bar.classList.toggle('boss', !!(can && preview(S, r.from).boss)); }
     bar.classList.add('show');
     const show = !!next && expanded(S);
     if (show) place(S, r);
     box.classList.toggle('show', show); if (!show) hideTip();
-    if (show) { const key = JSON.stringify([S.seed, S.wave, next.n]); if (key !== boxKey) { boxKey = key; box.innerHTML = panelHTML(S, next, r); hideTip(); } }
+    if (show) { const key = JSON.stringify([S.seed, S.wave, next.n]); if (key !== boxKey) { boxKey = key; box.innerHTML = panelHTML(S, next, r); box.classList.toggle('boss', !!next.boss); hideTip(); } }
   };
 })();
