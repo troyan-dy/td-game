@@ -13,7 +13,7 @@
 const V = Date.now(), STATIC = !!window.__STATIC__;
 const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src + '?v=' + V; s.onload = res; s.onerror = () => rej(new Error('failed ' + src)); document.head.appendChild(s); });
 (async () => {
-  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js']) await load(f);
+  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js', 'relics.js']) await load(f);
   const q = new URLSearchParams(location.search), render = q.has('render');
   const VW = SIM.VIEW.W, VH = SIM.VIEW.H, stage = document.getElementById('stage'), cv = document.getElementById('c');
   const fit = () => { const k = Math.min(innerWidth / VW, innerHeight / VH); stage.style.width = VW * k + 'px'; stage.style.height = VH * k + 'px';
@@ -51,7 +51,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
     else if (e.code === 'Period') { stepOnce = true; APP.paused = true; }
   });
   document.addEventListener('visibilitychange', () => { if (document.hidden && APP.play && !APP.paused && UI.autoPause) UI.autoPause(); });
-  UI.init(APP, cv); SCOUT.init(APP, cv);
+  UI.init(APP, cv); SCOUT.init(APP, cv); RELICS_UI.init(APP);
   let last = performance.now(), fpsAcc = 0, fpsN = 0, fps = 60, acc = 0;
   const loop = () => {
     const now = performance.now(), wall = Math.min(1 / 20, (now - last) / 1000); last = now;   // dt ограничен: после лага не «телепортируемся»
@@ -66,13 +66,13 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
       SCENE.state = APP.play;
     } else SCENE.state = null;
     try { SCENE.render(APP.simT); } catch (e) { if (!window.__renderErr) { window.__renderErr = e; console.error(e); } }
-    UI.frame(APP, APP.simT); SCOUT.frame(APP);
+    UI.frame(APP, APP.simT); SCOUT.frame(APP); RELICS_UI.frame(APP);
     if (!STATIC) { dev.style.display = (APP.devSpeed !== 1 || q.has('dev')) ? 'block' : 'none'; dev.textContent = `LIVE ${APP.play ? 'play' : 'menu'} ${APP.devSpeed}× ${fps.toFixed(0)} fps   [ ] dev-скорость  . шаг`; }
     requestAnimationFrame(loop);
   };
   loop();
   if (STATIC) { dev.style.display = 'none'; return; }
-  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'config.js', 'ui.js', 'scout.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
+  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'config.js', 'ui.js', 'scout.js', 'relics.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
   const poll = async () => {
     for (const f of WATCH) {
       try { const r = await fetch(f + '?poll=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified') + r.headers.get('content-length');
@@ -84,7 +84,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   poll();
 })().catch((e) => { console.error(e); document.body.insertAdjacentHTML('beforeend', '<pre style="color:#f88;position:absolute;top:0;left:0;background:#000c;padding:12px;font:13px monospace;white-space:pre-wrap">' + e.stack + '</pre>');
   if (window.__STATIC__) return;
-  const f = ['scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'config.js', 'ui.js', 'scout.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
+  const f = ['scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'config.js', 'ui.js', 'scout.js', 'relics.js', 'lib.js', 'gl.js', 'assets.js', 'index.html'], st = {};
   setInterval(async () => { for (const x of f) { try { const r = await fetch(x + '?p=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified');
     if (st[x] && st[x] !== m) location.reload(); st[x] = m; } catch (e) {} } }, 800); });
 </script></body></html>

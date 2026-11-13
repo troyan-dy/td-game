@@ -8,7 +8,7 @@
   // дополнительных характеристик типа за ступень этой ветки (например, замедление Духов растёт со ступенями урона)
   const track = (first, k, also) => Object.assign({ cost: TRACK_COST.map((m) => Math.round(first * m / 5) * 5), k }, also ? { also } : null);
   const C = {
-    VERSION: 5,                    // 5: башня — ветки, потолок, слоты и список перков (4: препятствия и особые клетки)
+    VERSION: 6,                    // 6: реликвии (5: башня — ветки, потолок, слоты и список перков; 4: препятствия и особые клетки)
     UNIT: 48,
     DT: 1 / 120,                   // шаг симуляции по умолчанию; забег может задать свой (create(seed, { dt }))
     DT_MAX: 0.1,                   // самый крупный шаг, с которым сохранённый забег считается годным (SIM.loadable)
@@ -93,7 +93,7 @@
     //              rate — секунд между выстрелами, range — радиус в единицах UNIT
     //   tracks   — ветки dmg | range | rate: track(первая цена, k, also). Урон и радиус растут на k за ступень,
     //              скорострельность тоже: интервал делится на 1 + k·ступени
-    //   attack   — вид атаки, обработчик в live/sim.js (ATTACKS): 'bolt' | 'ghost' | 'blob' | 'beam'; нет поля — башня не стреляет
+    //   attack   — вид атаки, обработчик в live/sim.js (ATTACKS): 'bolt' | 'ghost' | 'blob' | 'beam' | 'pulse'; нет поля — башня не стреляет
     //   extra    — дополнительные характеристики типа (скорость снаряда, замедление, облако…): попадают в SIM.towerStats
     //   muzzle   — высота точки выстрела над центром клетки, px (у вида 1; каждый следующий вид — на LOOK_MUZZLE выше)
     //   names    — подписи веток, если не как в TRACK_NAMES; fmt — формат значения ветки (шаблон SIM.fill), если не как в
@@ -163,12 +163,29 @@
           split: { name: 'Двойной луч', cost: 180, set: { split: 0.5 }, desc: 'Луч задевает и вторую по живучести цель в радиусе — {split%} урона.' },
         },
       },
+      // Колокол: удар по площади вокруг себя (вид атаки pulse). stun — оглушение, с (растёт с веткой урона); guard — сколько
+      // очнувшийся враг невосприимчив к новому оглушению, с (иначе несколько колоколов держат врага вечно); боссы не оглушаются
+      bell: {
+        name: 'КОЛОКОЛ', short: 'КОЛОКОЛ', title: 'Погребальный колокол', dmgType: 'phys', attack: 'pulse', muzzle: 70,
+        art: { sprite: 'dark', tint: [1.55, 1.12, 0.55, 0.9], css: 'sepia(0.85) saturate(1.7) hue-rotate(-12deg) brightness(1.05)',
+          color: [1.0, 0.74, 0.32], ui: '#e8a948', fx: 'crown', sound: 'bell' },
+        base: { cost: 140, dmg: 14, rate: 2.0, range: 2.0 },
+        tracks: { dmg: track(50, 0.35, { stun: 0.04 }), range: track(40, 0.08), rate: track(50, 0.12) },
+        extra: { stun: 0.6, guard: 1.0 },
+        show: [['Оглушение', '{stun} с']],
+        desc: 'Бьёт разом всех врагов вокруг себя и ненадолго оглушает. Радиус малый — ставь у поворотов. Боссы не оглушаются.',
+        perks: {
+          toll: { name: 'Набат', cost: 180, add: { stun: 0.5 }, desc: 'Оглушение держится на {stun} с дольше.' },
+          knell: { name: 'Погребальный звон', cost: 180, set: { curse: 0.2, curseTime: 2.5 }, desc: 'Все задетые, и боссы тоже, получают +{curse%} урона от всех башен {curseTime} с.' },
+          drone: { name: 'Гул', cost: 180, set: { drag: 0.35, dragTime: 2 }, desc: 'Очнувшийся враг ещё {dragTime} с замедлен на {drag%}; босс замедляется сразу.' },
+        },
+      },
     },
     TRACK_NAMES: { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' },
     TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
     ART: { sprite: 'bones', tint: null, css: '', color: [0.8, 0.8, 0.8], ui: '#bbbbbb', fx: null, sound: null, flip: false },   // вид башни по умолчанию
     LOOK_MUZZLE: 4,
-    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark'],
+    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark', 'bell'],
 
     // Враги. speed — ед/с вдоль дороги, armor/mres — доли. Для генератора волн (live/wavegen.js): threat — цена угрозы
     // (в ополченцах), minWave — с какой волны тип может выйти, weight — как часто выбирается в отряд, gap — интервал между
@@ -233,6 +250,39 @@
       grow: (w, mult) => (C.WAVEGEN.budget(w) * mult(w)) / (C.WAVEGEN.budget(C.RUN_WAVES) * mult(C.RUN_WAVES)),
       bossNames: ['Паладин', 'Паладин-командор', 'Великий паладин'],   // k-й босс забега; дальше — последнее имя
     },
+    // Реликвии: после волн, где положена реликвия (SIM.relicDue по C.RELIC), забег встаёт на выбор одной из RELIC_OFFER
+    // (поток 'relics' от сида и номера волны; только открытые и ещё не взятые).
+    RELIC_OFFER: 3,
+    // id → { name, icon, kind: 'num' (меняет цифры) | 'rule' (меняет правило), desc (шаблон SIM.fill по числам реликвии) }.
+    //   tower — числа башен, как у перков: { only: [типы] (нет — все), on: вид особой клетки под башней (нет — любая),
+    //           set | mul | add — что делает с характеристиками, haste — скорость стрельбы: интервал ÷ (1 + haste) }
+    //   take  — сразу при выборе: { souls, hp }
+    //   waveSouls, killSouls, trackDiscount — суммы по взятым реликвиям: души за волну, за убийство, скидка на ступени веток
+    //   остальные числа — параметры реликвии-правила; правило работает в одной точке sim.js (поиск по id: hasRelic(S, 'id'))
+    // id реликвий не совпадают с id башен: открытое — один список (create(seed, { unlocked })).
+    RELICS: {
+      marrow: { name: 'Костный мозг', icon: '➹', kind: 'num', tower: { only: ['bones'], haste: 0.15 }, desc: 'Кости стреляют на {haste%} чаще.' },
+      lampoil: { name: 'Лампадное масло', icon: '☼', kind: 'num', tower: { only: ['spirits'], add: { slow: 0.08 } }, desc: 'Замедление Духов сильнее на {slow п} пунктов.' },
+      bile: { name: 'Чёрная желчь', icon: '⚱', kind: 'num', tower: { only: ['plague'], mul: { dmg: 1.25 } }, desc: 'Яд Чумы на {dmg+%} сильнее.' },
+      lens: { name: 'Линза пустоты', icon: '◉', kind: 'num', tower: { only: ['dark'], add: { range: 0.8 } }, desc: 'Обелиски Тьмы бьют дальше: +{range кл}' },
+      dust: { name: 'Могильная пыль', icon: '✧', kind: 'num', tower: { mul: { dmg: 1.1 } }, desc: 'Все башни наносят на {dmg+%} больше урона.' },
+      tithe: { name: 'Десятина', icon: '✠', kind: 'num', waveSouls: 15, desc: '+{waveSouls} душ за каждую отбитую волну.' },
+      coin: { name: 'Кровавая монета', icon: '◈', kind: 'num', killSouls: 1, desc: '+{killSouls} душа за каждого убитого врага.' },
+      ossuary: { name: 'Оссуарий', icon: '⛫', kind: 'num', take: { hp: 5 }, desc: 'Склеп сразу получает +{hp} прочности.' },
+      hoard: { name: 'Клад некроманта', icon: '♛', kind: 'num', take: { souls: 150 }, desc: 'Сразу +{souls} душ.' },
+      chisel: { name: 'Резец каменщика', icon: '⚙', kind: 'num', trackDiscount: 0.15, desc: 'Ступени веток прокачки на {trackDiscount%} дешевле.' },
+      caustic: { name: 'Едкая плоть', icon: '❦', kind: 'rule', burst: 1, desc: 'Яд Чумы при заражении сразу наносит урон за {burst} с — не дожидаясь, пока подействует.' },
+      deal: { name: 'Честная сделка', icon: '⚖', kind: 'rule', refund: 1, desc: 'Продажа башни возвращает {refund%} вложенного.' },
+      twin: { name: 'Двойной курган', icon: '⛰', kind: 'rule', tower: { on: 'mound', mul: { dmg: 2, rate: 1.7 } }, desc: 'Башни на кургане бьют вдвое сильнее (×{dmg} урона), но перезаряжаются в {rate} раза дольше.' },
+      restless: { name: 'Беспокойные мёртвые', icon: '⇄', kind: 'rule', desc: 'Раз за волну одну башню можно перенести прямо во время боя.' },
+      cornerstone: { name: 'Первый камень', icon: '⌂', kind: 'rule', firstOff: 0.5, desc: 'Башня типа, которого сейчас нет на поле, стоит на {firstOff%} дешевле.' },
+      hallowed: { name: 'Освящённая скверна', icon: '✝', kind: 'rule', desc: 'Проклятая земля больше не берёт наценку за постройку — её бонус к урону остаётся.' },
+      toll: { name: 'Плата за проход', icon: '⚑', kind: 'rule', desc: 'Враг, прорвавшийся к склепу, всё равно приносит свою награду душами.' },
+      haste: { name: 'Нетерпение', icon: '⌛', kind: 'rule', perSec: 2, desc: 'Призыв волны раньше срока: +{perSec} души за каждую оставшуюся секунду паузы.' },
+      insight: { name: 'Раннее озарение', icon: '✺', kind: 'rule', perkAt: 4, desc: 'Перк башни открывается уже после {perkAt} вложенных ступеней.' },
+      usury: { name: 'Ростовщик', icon: '¤', kind: 'rule', interest: 0.05, interestMax: 50, desc: 'После каждой отбитой волны +{interest%} к душам в запасе (не больше {interestMax}).' },
+    },
+
     // Свойства волн: только числа, код их не различает по имени. Множители: hp, speed, bounty, heal, gap (интервал),
     // budget (бюджет угрозы, то есть число врагов). Прибавки (доли): armor, mres. share — доля бюджета, отданная типу врага
     // (тип добавляется в волну, если его не было). minWave — с какой волны свойство возможно.
