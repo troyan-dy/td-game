@@ -4,6 +4,7 @@
 // Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
+// Гримуар: {k:'grim',line} — ступень линии общей прокачки в любой фазе (SIM.grimLines, SIM.canGrim); ступени — в S.grim.
 // Конец забега: победа на последней волне (C.RUN_WAVES) — фаза 'won'; {k:'endless'} после неё (SIM.canEndless) продолжает забег
 // в бесконечном режиме (S.endless): волны идут дальше без предела (SIM.lastWave), забег кончается только поражением.
 // Реликвии (C.RELICS): после волн, где положена реликвия (relicDue), забег в фазе 'relic' стоит, пока не выбрана реликвия
@@ -88,6 +89,17 @@
   const perksOf = (tw) => tw.perks.slice();
   const hasPerk = (tw, p) => tw.perks.includes(p);
   const freeSlots = (tw) => Math.max(0, tw.slots - tw.perks.length);
+  // Гримуар: линии из C.GRIMOIRE — общие по веткам (id = ветка) и по одной на тип (id = тип). Ступень линии — S.grim[id],
+  // ступеней — сколько цен. { id, group: 'all' | 'type', type, track — какую ветку усиливает, k — доля за ступень, cost }
+  const GRIM = C.TRACKS.map((id) => Object.assign({ id, group: 'all', type: null, track: id }, C.GRIMOIRE.all[id]))
+    .concat(C.TOWER_ORDER.map((type) => Object.assign({ id: type, group: 'type', type }, C.GRIMOIRE.type, TW[type].grim || {})));
+  const GRIM_BY = {};
+  for (const l of GRIM) { if (own(GRIM_BY, l.id)) throw new Error(`линия Гримуара ${l.id} повторяется: id веток и типов должны различаться`); GRIM_BY[l.id] = l; }
+  const grimStep = (S, id) => (S.grim && S.grim[id]) || 0;
+  // доли прибавки Гримуара к веткам башни типа type: { dmg, range, rate } — общие линии плюс линия типа
+  const grimBonus = (S, type) => { const b = Object.fromEntries(C.TRACKS.map((k) => [k, 0]));
+    for (const l of GRIM) if (l.group === 'all' || l.type === type) b[l.track] += l.k * grimStep(S, l.id);
+    return b; };
   // Характеристики башни считаются только здесь, в два явных этапа; стрельба, снаряды, панель и подсказки читают результат.
   //  ownStats   — СВОИ: база типа → ветки (основные dmg/range/rate и прибавки also к extra) → перки башни (set, затем mul, затем add).
   //               От них считаются эффекты, которые башня даёт другим (аура Алтаря берёт свои характеристики соседа, а не
@@ -108,7 +120,7 @@
   };
   // внешние бонусы к своим характеристикам o — единственное место для них. Сейчас — особая клетка под башней: курган
   // прибавляет дальность после веток, проклятая земля умножает итоговый урон (у облака — яд в секунду), источник душ
-  // кладёт своё число (well). Дальше сюда же — аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте.
+  // кладёт своё число (well); затем реликвии; последним Гримуар умножает ветки (grimBonus). Дальше сюда же — аура соседей (от их ownStats). Меняет o на месте.
   const externalBonus = (S, tw, o) => {
     if (tw.cell >= 0) { o.range += bonusOf(S, tw.cell, 'range'); o.dmg *= 1 + bonusOf(S, tw.cell, 'dmg'); const w = bonusOf(S, tw.cell, 'souls'); if (w) o.well = w; }
     // реликвии про башни (поле tower в C.RELICS): для своих типов (only) и своей особой клетки (on) — set, mul, add, haste
@@ -118,6 +130,7 @@
       for (const [key, v] of Object.entries(b.mul || {})) o[key] = (o[key] || 0) * v;
       for (const [key, v] of Object.entries(b.add || {})) o[key] = (o[key] || 0) + v;
       if (b.haste) o.rate /= 1 + b.haste; }
+    const g = grimBonus(S, tw.type); o.dmg *= 1 + g.dmg; o.range *= 1 + g.range; o.rate /= 1 + g.rate;   // Гримуар — после клетки и реликвий
     o.rangePx = o.range * UNIT; return o; };
   const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
@@ -171,6 +184,7 @@
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
       relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
+      grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
     };
   };
 
@@ -248,6 +262,26 @@
     if (S.souls < cost) return no('souls');
     return { ok: true, reason: null, cost, need };
   };
+  // можно ли купить следующую ступень линии Гримуара id: { ok, reason, cost, step, max }. reason: null | 'line' (нет такой
+  // линии) | 'locked' (линия закрытого типа) | 'max' | 'ended' | 'phase' (выбор реликвии) | 'souls'. Гримуар доступен и во время волны.
+  // cost — цена следующей ступени (null на пределе), step — купленных ступеней, max — всего ступеней
+  const canGrim = (S, id) => {
+    const l = own(GRIM_BY, id) ? GRIM_BY[id] : null, step = l ? grimStep(S, id) : 0, max = l ? l.cost.length : 0;
+    const cost = l && step < max ? l.cost[step] : null, no = (reason) => ({ ok: false, reason, cost, step, max });
+    if (!l) return no('line');
+    if (l.type && S.unlocked && !S.unlocked.includes(l.type)) return no('locked');
+    if (step >= max) return no('max');
+    if (ended(S)) return no('ended');
+    if (S.phase === 'relic') return no('phase');                         // на выборе реликвии забег стоит, команды не действуют
+    if (S.souls < cost) return no('souls');
+    return { ok: true, reason: null, cost, step, max };
+  };
+  // линии Гримуара для окна, без закрытых типов: общие по порядку веток, затем типы по порядку карточек.
+  // { id, group, type, track, k, step, max, costs, cost — следующей ступени или null, bonus — доля сейчас, next — после покупки или null }
+  const grimLines = (S) => GRIM.filter((l) => !l.type || !S.unlocked || S.unlocked.includes(l.type)).map((l) => {
+    const step = grimStep(S, l.id), max = l.cost.length, more = step < max;
+    return { id: l.id, group: l.group, type: l.type, track: l.track, k: l.k, step, max, costs: l.cost.slice(), cost: more ? l.cost[step] : null,
+      bonus: l.k * step, next: more ? l.k * (step + 1) : null }; });
   // ---------------------------------------------------------------- сид и сейв
   // сид из поля ввода: целое 0..C.SEED.max цифрами; пробелы по краям и ведущие нули не мешают.
   // → { ok, seed, reason: null | 'empty' | 'negative' | 'big' | 'format' }; причину словами показывает интерфейс
@@ -336,6 +370,7 @@
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
       if (!relicsOk(S)) return false;
+      if (!GRIM.every((l) => int(S.grim[l.id], 0, l.cost.length))) return false;   // ступени Гримуара — целые до предела линии
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
         const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null, blk = def && tw.cell === i ? cellBlock(S, i) : 'bounds';
@@ -407,6 +442,10 @@
       if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
       S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave;
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
+    } else if (c.k === 'grim') {                                      // { k: 'grim', line } — ступень линии Гримуара
+      const cg = canGrim(S, c.line); if (!cg.ok) return;
+      pay(S, cg.cost); S.grim[c.line]++;
+      ev(S, 'grim', { line: c.line, step: S.grim[c.line] });
     } else if (c.k === 'call') {
       if (S.phase !== 'prep' || S.wave >= lastWave(S)) return;
       if (S.prepT > 0 && hasRelic(S, 'haste')) { const g = Math.floor(S.prepT * RL.haste.perSec);   // Нетерпение: души за оставшуюся паузу
@@ -730,7 +769,7 @@
     create, step, at, selfCheck, doCmd, waveCount, lastWave, canEndless, relicDue, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
-    canMove, moveCells, moveRangePx,
+    canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
     hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
