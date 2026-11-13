@@ -148,6 +148,7 @@
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
+      wonStats: null,                                                       // счётчики на момент победы (время победы — для рекордов)
     };
   };
 
@@ -601,7 +602,7 @@
     else if (S.phase === 'wave' && S.qi >= S.queue.length && !S.enemies.length) {
       const bonus = C.WAVE_BONUS(S.wave); S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
-      if (S.wave >= lastWave(S)) { S.phase = 'won'; ev(S, 'win', {}); }
+      if (S.wave >= lastWave(S)) { S.phase = 'won'; S.wonStats = Object.assign({}, S.stats); ev(S, 'win', {}); }
       else { S.phase = 'prep'; S.prepT = C.PREP_TIME; }
     }
     pruneEv(S);
