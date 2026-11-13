@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 
-export const MODEL = { K: 0.191, ALPHA: 0.9, BETA: 1, MIX: { phys: 0.4, magic: 0.25, poison: 0.35 }, TOP: 20, SAT: 320, SAT_REF: 0.62, ZONE: 2500, TYPICAL: 200 };
+export const MODEL = { K: 0.36, ALPHA: 0.9, BETA: 1.5, MIX: { phys: 0.4, magic: 0.25, poison: 0.35 }, TOP: 20, SAT: 320, SAT_REF: 0.62, ZONE: 2500, TYPICAL: 200 };
 
 const setCfg = (C, list) => { for (const [path, expr] of list) { const keys = path.split('.'), last = keys.pop();
   const o = keys.reduce((x, k) => { if (!x || typeof x[k] !== 'object') throw new Error('нет поля конфига ' + path); return x[k]; }, C);

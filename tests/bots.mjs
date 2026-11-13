@@ -125,11 +125,12 @@ const moves = (S, mem, o) => {
       if (!best || gain > best.gain) best = { cmd: { k: 'build', cell, type }, cost: cb.cost, gain: gain * (o.like && o.like[type] || 1) }; }
     if (best && best.gain > 0) out.push(best); }
   // ступени и перки
+  const pair = o.merge ? pairOf(S, mem) : null, bonus = pair ? pairBonus(S, mem, pair) : 0;
   for (const tw of S.towers) { if (!tw) continue;
-    const aura = SIM.hasAura(tw.type), base = aura ? 0 : towerPower(S, mem, tw), like = o.like && o.like[tw.type] || 1;
+    const aura = SIM.hasAura(tw.type), base = aura ? 0 : towerPower(S, mem, tw), like = o.like && o.like[tw.type] || 1, inPair = pair && pair.includes(tw.cell);
     for (const track of C.TRACKS) { const cu = SIM.canUpgrade(S, tw.cell, track); if (cu.cost === null) continue;
       const gain = aura ? delta(S, mem, () => { tw.tracks[track]++; return () => { tw.tracks[track]--; }; }, near(S, tw.cell, 3)) : towerPower(S, mem, tw, track) - base;
-      out.push({ cmd: { k: 'upgrade', cell: tw.cell, track }, cost: cu.cost, gain: gain * like }); }
+      out.push({ cmd: { k: 'upgrade', cell: tw.cell, track }, cost: cu.cost, gain: gain * like + (inPair && tw.tracks[track] < C.TRACK_MAX ? bonus : 0) }); }
     if (SIM.freeSlots(tw)) { let best = null;
       for (const p of Object.keys(TW[tw.type].perks)) { const cp = SIM.canPerk(S, tw.cell, p); if (cp.reason && cp.reason !== 'souls') continue;
         const gain = aura ? delta(S, mem, () => { tw.perks.push(p); return () => { tw.perks.pop(); }; }, near(S, tw.cell, 3))
@@ -143,6 +144,38 @@ const moves = (S, mem, o) => {
   if (o.merge) out.push(...mergeMoves(S, mem));
   return out;
 };
+// Пара под слияние (сильный бот): две соседние стреляющие башни, не гибриды, ближе всех к потолку веток. Первая — та, что
+// сильнее (гибрид атакует как первая). [первая, вторая] или null. Каждой недостающей до потолка ступени пары бот прибавляет
+// к выгоде долю будущей выгоды слияния (pairBonus) — так он доводит пару до слияния, а не ждёт, пока она дорастёт сама.
+// Сильный бот идёт на слияние целенаправленно: пока прошлая волна прошла без потерь прочности, будущая выгода слияния
+// в ступенях пары считается без вычета цены докачки и вдвое (рывок к гибриду); как только склеп начал терять прочность —
+// только чистая выгода (за вычетом второй башни и докачки гибрида по цене такой же новой башни), то есть сначала оборона.
+export const PAIR = { rush: 2, share: 0.4 };
+// Рывок — только пока в паре не больше PAIR.share всего вложенного: остальная оборона растёт вместе с парой
+const pairBonus = (S, mem, pair) => { let inv = 0, all = 0; for (const t of S.towers) if (t) { all += t.invested; if (pair.includes(t.cell)) inv += t.invested; }
+  return calm(S, mem) && inv <= PAIR.share * all ? PAIR.rush * pairBonus0(S, mem, pair, 0) : pairBonus0(S, mem, pair, 1); };
+// прошлая волна прошла без потерь прочности (прочность в начале текущей и прошлой волны помнится в mem)
+const calm = (S, mem) => { if (mem.hpWave !== S.wave) { mem.hpPrev = mem.hpNow === undefined ? S.hp : mem.hpNow; mem.hpNow = S.hp; mem.hpWave = S.wave; }
+  return S.hp >= mem.hpPrev; };
+const pairBonus0 = (S, mem, [ca, cb], PAIR_COST) => { const a = S.towers[ca], b = S.towers[cb], M = C.MERGE;
+  const left = C.TRACKS.reduce((n, k) => n + Math.max(0, C.TRACK_MAX - a.tracks[k]) + Math.max(0, C.TRACK_MAX - b.tracks[k]), 0); if (!left) return 0;
+  const hw = Object.assign({}, a, { mix: b.type, cap: M.cap, slots: M.slots, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, M.cap])), perks: a.perks.concat(b.perks) });
+  const top = (t) => Object.assign({}, t, { tracks: Object.fromEntries(C.TRACKS.map((k) => [k, C.TRACK_MAX])) });
+  // сколько стоит башня на потолке и докачка гибрида — и что на эти души дала бы такая же новая башня
+  const price = (t, from, to) => C.TRACKS.reduce((n, k) => n + TW[t.type].tracks[k].cost.slice(from, to).reduce((x, y) => x + y, 0), 0);
+  const pa = towerPower(S, mem, top(a)), perSoul = pa / (TW[a.type].base.cost + price(a, 0, C.TRACK_MAX));
+  const net = towerPower(S, mem, hw) - pa - (towerPower(S, mem, top(b)) + (M.cost + price(a, C.TRACK_MAX, M.cap)) * perSoul) * PAIR_COST;
+  return Math.max(0, net) / left; };
+const pairOf = (S, mem) => {
+  const ok = (t) => t && TW[t.type].attack && !SIM.isHybrid(t);
+  if (mem.pair && mem.pair.every((c) => ok(S.towers[c]))) return mem.pair;
+  const ts = S.towers.filter(ok); mem.pair = null; if (ts.length < 4) return null;
+  let best = null;
+  for (const a of ts) for (const b of ts) if (a !== b && gridDist(S, a.cell, b.cell) === 1) {
+    if (towerPower(S, mem, a) < towerPower(S, mem, b)) continue;
+    const v = SIM.steps(a) + SIM.steps(b); if (!best || v > best.v) best = { v, p: [a.cell, b.cell] }; }
+  return (mem.pair = best ? best.p : null);
+};
 // Слияние башен в гибриды: две соседние башни на потолке всех веток → гибрид первой с примесью второй (вторая уходит
 // с поля), потолок веток выше. Оценка смотрит вперёд: гибрид, докачанный до нового потолка, против двух башен сейчас;
 // в цену хода (per) входят и будущие ступени — платится сейчас только само слияние (cost).
@@ -154,7 +187,8 @@ const mergeMoves = (S, mem) => {
         perks: a.perks.concat(b.perks.filter((p) => !a.perks.includes(p))) });
       let later = 0; for (const k of C.TRACKS) for (let n = a.tracks[k]; n < M.cap; n++) later += TW[a.type].tracks[k].cost[n] || 0;
       const gain = towerPower(S, mem, hw) - towerPower(S, mem, a) - towerPower(S, mem, b);
-      if (gain > 0) out.push({ cmd: { k: 'merge', cell: a.cell, other: o }, cost: M.cost, per: gain / (M.cost + later), gain }); } }
+      const planned = mem.pair && mem.pair[0] === a.cell && mem.pair[1] === o;   // задуманная пара сливается при первой возможности
+      if (gain > 0 || planned) out.push({ cmd: { k: 'merge', cell: a.cell, other: o }, cost: M.cost, per: planned ? Infinity : gain / (M.cost + later), gain: Math.max(gain, 1) }); } }
   return out;
 };
 
@@ -259,6 +293,7 @@ export const play = (bot, seed = 1, maxT = 5400, dt, opts = {}) => {
   SIM.step(S, { cmds: [{ k: 'call' }] });
   let i = 0, win = null;
   const waveLog = [], every = Math.max(1, Math.round(0.1 / S.dt)), stop = C.RUN_WAVES + (opts.endless || 0);
+  let firstMerge = null, souls20 = null, earned10 = null, earned20 = null;
   while (S.phase !== 'lost' && S.t < maxT + (opts.endless ? 3600 : 0)) {
     if (S.phase === 'won') { win = Math.round(S.t); if (!opts.endless) break; SIM.step(S, { cmds: [{ k: 'endless' }, { k: 'call' }] }); continue; }
     if (S.endless && S.phase === 'prep' && S.wave >= stop) break;
@@ -266,9 +301,13 @@ export const play = (bot, seed = 1, maxT = 5400, dt, opts = {}) => {
     const cmds = (i++ % every === 0) ? bot(S, mem) : null;          // бот «кликает» 10 раз в секунду
     const w = S.wave;
     SIM.step(S, cmds ? { cmds } : null);
-    if (S.wave !== w) waveLog.push({ wave: w, t: +S.t.toFixed(0), hp: S.hp, souls: S.souls });
+    if (S.wave !== w) { waveLog.push({ wave: w, t: +S.t.toFixed(0), hp: S.hp, souls: S.souls });
+      if (S.wave === 11) earned10 = S.stats.earned; if (S.wave === C.RUN_WAVES) { souls20 = S.souls; earned20 = S.stats.earned; } }
+    if (firstMerge === null && S.stats.merges) firstMerge = S.wave;
   }
   const grimSpent = SIM.grimLines(S).reduce((a, l) => a + l.costs.slice(0, l.step).reduce((x, y) => x + y, 0), 0);
+  // firstMerge — после какой волны первое слияние; souls20 — душ на руках к началу последней волны; earned10/20 — заработано к 10-й и 20-й
   return { phase: win !== null ? 'won' : S.phase, end: S.phase, wave: S.wave, hp: S.hp, t: Math.round(S.t), win, kills: S.stats.kills, souls: S.souls, grim: grimSpent,
+    merges: S.stats.merges || 0, firstMerge, souls20, earned10, earned20,
     relics: S.relics.slice(), towers: S.towers.filter(Boolean).map((t) => t.type[0] + SIM.steps(t) + '*'.repeat(SIM.perksOf(t).length)).join(' '), waveLog };
 };

@@ -33,7 +33,7 @@ const parseSet = (s) => String(s || '').split(';').map((x) => x.trim()).filter(B
 
 if (!isMainThread) {
   const B = await import('../tests/bots.mjs');
-  Object.assign(B.EFF, workerData.eff);
+  Object.assign(B.EFF, workerData.eff); if (process.env.PAIR_RUSH) B.PAIR.rush = +process.env.PAIR_RUSH; if (process.env.PAIR_SHARE) B.PAIR.share = +process.env.PAIR_SHARE;
   setCfg(B.SIM.CONFIG, workerData.set);
   parentPort.on('message', (job) => {
     if (!job) return process.exit(0);
@@ -68,7 +68,9 @@ if (!isMainThread) {
       ` | победа: ${f1(avg(won.map((r) => r.win / 60)))} мин (${won.length ? f1(Math.min(...won.map((r) => r.win / 60))) + '–' + f1(Math.max(...won.map((r) => r.win / 60))) : '—'}), прочность ${f1(avg(won.map((r) => r.hp)))}` +
       ` | проигрыш на волне: ${Object.entries(hist).map(([w, n]) => w + (n > 1 ? '×' + n : '')).join(' ') || '—'}` +
       (endless ? ` | бесконечный: +${f1(avg(won.map((r) => r.wave - 20)))} волн (мин ${won.length ? Math.min(...won.map((r) => r.wave - 20)) : '—'})` : '') +
-      (bot.startsWith('grim') ? ` | в Гримуар ${Math.round(avg(rs.map((r) => r.grim)))} душ` : ''));
+      (bot.startsWith('grim') ? ` | в Гримуар ${Math.round(avg(rs.map((r) => r.grim)))} душ, первое слияние после волны ${f1(avg(rs.filter((r) => r.firstMerge).map((r) => r.firstMerge)))} (слияний ${f1(avg(rs.map((r) => r.merges)))})` : ''));
+    const e10 = rs.filter((r) => r.earned10 !== null), e20 = rs.filter((r) => r.souls20 !== null);
+    if (e10.length) console.log(`${''.padEnd(14)} заработано к 10-й ${Math.round(avg(e10.map((r) => r.earned10)))}, к 20-й ${e20.length ? Math.round(avg(e20.map((r) => r.earned20))) : '—'}; на руках к 20-й ${e20.length ? Math.round(avg(e20.map((r) => r.souls20))) : '—'} душ`);
     if (arg('list', false)) for (const r of rs) console.log(`   сид ${String(r.seed).padStart(4)} ${r.win !== null ? 'победа' : 'проигр'} волна ${String(r.wave).padStart(2)} hp ${String(r.hp).padStart(2)} ${String(Math.round((r.win || r.t) / 60)).padStart(3)} мин ${r.relics.join(',')} | ${r.towers}`);
   }
   const jf = arg('json', null); if (jf) fs.writeFileSync(jf, JSON.stringify({ dt, open, res }, null, 0));

@@ -47,12 +47,12 @@ const fires = (S, tw, n = 1, after = 1.2) => { let k = 0;
 const firsts = C.TOWER_ORDER.filter((t) => T[t].attack), all = C.TOWER_ORDER;
 const json = (S) => JSON.parse(JSON.stringify(S));
 
-test('у каждого типа в конфиге есть примесь: имя, значок, числа и описание из данных; цена слияния — как у перка', () => {
+test('у каждого типа в конфиге есть примесь: имя, значок, числа и описание из данных; цена слияния — не дороже перка', () => {
   for (const type of all) { const m = T[type].mix;
     assert.ok(m && m.name && m.icon && m.add && Object.keys(m.add).length, 'нет примеси у ' + type);
     const txt = SIM.mixText(type); assert.ok(!/[{}]/.test(txt) && txt.length > 15, `${type}: ${txt}`);
     assert.ok(!/\d/.test(m.desc.replace(/\{[^}]*\}/g, '')), `${type}: число вписано в описание примеси руками`); }
-  for (const type of all) for (const p of Object.values(T[type].perks)) assert.equal(M.cost, p.cost, 'цена слияния не как у перка');
+  for (const type of all) for (const p of Object.values(T[type].perks)) assert.ok(M.cost > 0 && M.cost <= p.cost, 'слияние дороже перка');
   assert.ok(M.cap === 8 && M.slots === 2);
   assert.deepEqual(firsts, all.filter((t) => t !== 'altar'), 'первой может быть любая башня с атакой, кроме Алтаря');
 });

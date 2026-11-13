@@ -43,7 +43,7 @@ test('постройка на свободной клетке; отказ на �
   assert.equal(SIM.canBuild(S, S.map.cols * S.map.rows, 'bones').reason, 'bounds');
 });
 
-test('три ветки качаются каждая отдельно до своего потолка; цена ступени растёт и берётся из конфига', () => {
+test('три ветки качаются каждая отдельно до своего потолка; цена ступени растёт (у гибрида — своим рядом) и берётся из конфига', () => {
   const S = SIM.create(5), cell = freeCell(S); S.souls = 1e6;
   SIM.step(S, { cmds: [{ k: 'build', cell, type: 'bones' }] });
   const tw = S.towers[cell];
@@ -52,7 +52,8 @@ test('три ветки качаются каждая отдельно до св
   assert.equal(tw.cap, C.TRACK_MAX);
   const costs = T.bones.tracks.dmg.cost;
   assert.ok(costs.length >= C.TRACK_MAX, 'цен меньше, чем ступеней обычной башни');
-  for (let i = 1; i < costs.length; i++) assert.ok(costs[i] > costs[i - 1], 'цена ступени не растёт: ' + costs);
+  // цена растёт в ступенях обычной башни (1..TRACK_MAX) и отдельно в ступенях гибрида (дальше, до C.MERGE.cap)
+  for (let i = 1; i < costs.length; i++) if (i !== C.TRACK_MAX) assert.ok(costs[i] > costs[i - 1], 'цена ступени не растёт: ' + costs);
   // ступени урона одна за другой: каждая списывает свою цену, другие ветки не трогаются
   for (let i = 0; i < C.TRACK_MAX; i++) {
     const cu = SIM.canUpgrade(S, cell, 'dmg');
