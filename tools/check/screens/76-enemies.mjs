@@ -12,7 +12,8 @@ const before = (ctx, { s, n }) => ctx.eval(([s, n]) => { APP.play = SIM.create(s
   S.seen = Object.fromEntries(Object.keys(SIM.CONFIG.ENEMIES).map((k) => [k, 1])); APP.paused = false; APP.speed = 1; SCENE.ui.sel = -1; }, [s, n]);
 
 export const steps = {
-  enemies_scout: async (ctx) => {
+  enemies_scout: async (ctx, g) => {
+    await g.newGame(ctx);                                          // меню закрыто: поле и разведка не под оверлеем
     const at = await pick(ctx); expect(at, 'нет волны с разведчиком и знаменосцем');
     await before(ctx, at);
     await ctx.page.waitForFunction((n) => { const t = document.querySelector('#scout-panel.show .tt'); return !!t && t.textContent.includes('ВОЛНА ' + n); }, at.n, { timeout: 5000 })
@@ -26,12 +27,14 @@ export const steps = {
     }
     // подсказка способности знаменосца
     const name = await ctx.eval(() => SIM.CONFIG.ENEMIES.banner.name);
-    await (await ctx.need(`#scout-panel .sq[data-tip^="${name}:"]`)).hover();
+    const sel = `#scout-panel .sq[data-tip^="${name}:"]`;
+    await ctx.need(sel); await ctx.page.locator(sel).hover({ timeout: 5000 });   // локатор, а не снимок элемента: панель может перерисоваться
     await ctx.page.waitForFunction((nm) => { const t = document.getElementById('scout-tip'); return t.classList.contains('show') && t.textContent.startsWith(nm); }, name, { timeout: 3000 })
       .catch(() => { throw new Error('подсказка способности знаменосца не появилась'); });
     await ctx.shot('enemies_scout');
   },
-  enemies_field: async (ctx) => {
+  enemies_field: async (ctx, g) => {
+    await g.newGame(ctx);                                          // меню закрыто: поле и разведка не под оверлеем
     const at = await pick(ctx); expect(at, 'нет волны с разведчиком и знаменосцем');
     await before(ctx, at);
     await ctx.eval(() => { APP.cmd({ k: 'call' }); APP.speed = 3; });
