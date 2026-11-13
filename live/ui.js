@@ -601,7 +601,7 @@
     if (ti.dataset.w !== String(tw)) { ti.dataset.w = tw; ti.style.width = Math.max(0, tw) + 'px'; ti.classList.toggle('narrow', tw < 330); ti.classList.toggle('tiny', tw < 270); }
     // пауза, скорость, автоплей: состояние кнопок и метка «Пауза» (класс paused на слое интерфейса)
     const paused = !!A.paused, pb = $('#b-pause'); $('#ui').classList.toggle('paused', paused); pb.classList.toggle('on', paused);
-    if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '' : '❚❚';   // в паузе — треугольник «продолжить» (CSS) pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }
+    if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '' : '❚❚'; pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }   // в паузе — треугольник «продолжить» (CSS)
     document.querySelectorAll('#speeds .sp').forEach((b) => b.classList.toggle('on', +b.dataset.s === A.speed));
     $('#autobtn').classList.toggle('on', S.auto); $('#a-st').textContent = S.auto ? 'ВКЛ' : 'ВЫКЛ';
     const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.lastWave(S);
