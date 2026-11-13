@@ -39,7 +39,8 @@
     return A.css ? html.replace('<img ', `<img style="filter:${A.css}" `) : html; };
   const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд' };
   const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом' };
-  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡' };
+  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡',
+    legion: '⚔', grip: '✊', burst: '✸' };
   const UI = (window.UI = {});
   let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
   const seenEv = new Set();
@@ -84,12 +85,12 @@
       <div class="seednote" id="m-seednote"></div>
       <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
-      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
+      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–${C.TOWER_ORDER.length}). Можно и наоборот: выбери башню и нажми на клетку.<br>
       <b>Бесконечный режим:</b> после победы на ${SIM.waveCount()}-й волне можно держать оборону дальше — волны растут без предела, босс каждые 10 волн; итог — достигнутая волна.<br>
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
-      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
+      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, скелеты Казармы держат врагов под огнём.<br>
       <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
@@ -160,7 +161,7 @@
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
-      const dg = /^Digit([1-4])$/.exec(k) || /^Numpad([1-4])$/.exec(k); if (dg) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
+      const dg = /^Digit([1-9])$/.exec(k) || /^Numpad([1-9])$/.exec(k); if (dg) { if (C.TOWER_ORDER[+dg[1] - 1]) cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }   // клавиши — по порядку карточек
       const tk = { KeyQ: 'dmg', KeyW: 'range', KeyE: 'rate' }[k]; if (tk) { upgrade(tk); return; }
       if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); } else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
       else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
@@ -207,7 +208,7 @@
         ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}
         <div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
         <div class="st prices">${prices}</div>
-        <div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
+        <div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–${C.TOWER_ORDER.length}.</div>`;
   };
   const towerPic = (tw) => { const lk = SIM.look(tw); return typePic(tw.type, lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
   const towerHead = (S, tw) => {

@@ -151,6 +151,31 @@
     if (Object.keys(e.poison).length) L.puff(x, y - h * 0.4, h * 0.45, COL.poison, 0.22, e.id + Math.floor(t * 4));
   };
 
+  // ---------------------------------------------------------------- скелеты Казармы
+  // перекрашенный риг ополченца (бледный, с бирюзовыми глазами): поднимается из земли, в бою переминается и на каждом
+  // ударе делает выпад к врагу; над схваткой — скрещённые кости (враг задержан)
+  const SKEL_TINT = [1.25, 1.55, 2.0, 0.85], SKEL_H = 31;
+  const drawSkel = (ST, s, GT, t) => {
+    const rise = Math.min(1, Math.max(0, GT - s.born) / 0.35), h = SKEL_H * (0.35 + 0.65 * rise), fight = s.foe > 0;
+    const lunge = Math.max(0, 1 - (GT - s.hitT) / 0.22), x = Math.round(s.x + s.face * 8 * lunge), y = Math.round(s.y);
+    L.shadow(x, y + 2, h * 0.45, h * 0.16, 0.5);
+    L.glow(x, y - 2, 20, COL.soul, 0.14 + (fight ? 0.08 : 0));
+    const rig = window.RIGS && window.RIGS.militia, k = rig ? h / rig.H : 1, rph = fight ? GT * 9 + s.id : 0;
+    if (rig && rig.parts.every((p) => has(p.tex))) {
+      for (const p of rig.parts) {
+        const a = p.rest + (fight ? p.swing * 0.6 * Math.sin(rph + p.phase) : 0) + (p.kind === 'limb' && p.at[1] < -300 ? -0.9 * lunge : 0);   // рука замахивается
+        const tx = window.ASSETS[p.tex], sc = k * p.sc, w = tx.w * sc, hh = tx.h * sc;
+        const tn = p.dark < 1 ? [SKEL_TINT[0] * p.dark, SKEL_TINT[1] * p.dark, SKEL_TINT[2] * p.dark, SKEL_TINT[3]] : SKEL_TINT;
+        L.sprite(p.tex, 0, 0, { m: M.of(M.t(x, y + 1), M.s(s.face, 1), M.t(p.at[0] * k, p.at[1] * k), M.r(a)), w, h: hh, pivot: [p.jt[0] * sc, p.jt[1] * sc], u: { tint: tn, alpha: 0.6 + 0.4 * rise } });
+      }
+    } else { const w = h * 0.45; L.solid(x - w / 2, y - h, w, h * 0.75, COL.bone); L.solid(x - w * 0.3, y - h * 1.1, w * 0.6, h * 0.3, [0.95, 0.93, 0.85]); }
+    L.glow(x + s.face * 3, y - h * 0.86, 8, COL.soul, 0.75);                                   // глаза-души
+    if (fight) { const e = ST.enemies.find((o) => o.id === s.foe); if (e) {
+      const mx = (x + e.x) / 2, my = Math.min(y, e.y) - h - 6, pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
+      L.glow(mx, my, 16, [1, 0.9, 0.7], 0.25 * pulse);
+      L.solid(mx, my, 18, 3, COL.bone, 0.75, 9, 1.5, pulse); L.solid(mx, my, 18, 3, COL.bone, -0.75, 9, 1.5, pulse); } }
+  };
+
   // ---------------------------------------------------------------- клетки и радиус
   // рамка клетки: ok — можно строить (светлая), no — нельзя (красноватая), sel — выбранная (золотая)
   const drawCell = (ST, cell, kind, t) => {
@@ -245,7 +270,8 @@
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, BLOCKED.includes(SIM.canBuild(ST, ui.hover, pType).reason) ? 'no' : 'ok', t);
-      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.towerStats(ST, selT).rangePx, tcol(selT.type), t); }
+      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.towerStats(ST, selT).rangePx, tcol(selT.type), t);
+        if (C.TOWERS[selT.type].attack === 'summon') fillCells(ST, SIM.skelCells(ST, selT).sort((a, b) => a - b), tcol(selT.type), 0.16 + 0.04 * Math.sin(t * 3)); }   // куда Казарма ставит скелетов
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), tcol(pType), t, 0.8); }
       else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && !BLOCKED.includes(SIM.canBuild(ST, ui.hover, ui.armed).reason)) {
         const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), tcol(ui.armed), t, 0.7); }
@@ -265,6 +291,7 @@
     const Y = [];
     ST.towers.forEach((tw) => { if (tw) Y.push([SIM.cellXY(ST, tw.cell)[1], 0, tw.id, () => drawTower(ST, tw, GT, t, ui.sel === tw.cell || ui.hover === tw.cell)]); });
     for (const e of ST.enemies) Y.push([e.y, 1, e.id, () => drawEnemy(ST, e, GT, t)]);
+    for (const s of ST.skels || []) Y.push([s.y, 1, s.id, () => drawSkel(ST, s, GT, t)]);
     Y.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).forEach((d) => d[3]());
     if (S.bgCode) L.sprite('bg_over', ox, oy, { w: W, h: H });          // перемычки арок входа и склепа: враги проходят под ними
     drawMarks();                                                       // метки ступеней — поверх башен, врагов и перемычек
@@ -307,6 +334,11 @@
       if (e.k === 'sell' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 8; j++) L.puff(e.x + (j - 3.5) * 9, e.y - 10 - 30 * q, 10 + 10 * q, [0.5, 0.45, 0.6], 0.5 * (1 - q), j); }
       if (e.k === 'heal' && e.any && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y - 14, 20 + 50 * q, (20 + 50 * q) * 0.55, COL.heal, 0.7 * (1 - q), 0.12); }
       if (e.k === 'miss' && a < 0.4) { const q = a / 0.4; L.ring(e.x, e.y, 18 + 26 * q, (18 + 26 * q) * 0.9, COL.ward, 0.8 * (1 - q), 0.15); }
+      if (e.k === 'summon' && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y, 14 + 26 * q, (14 + 26 * q) * 0.45, COL.soul, 0.8 * (1 - q), 0.15);   // скелет встаёт из земли
+        for (let j = 0; j < 4; j++) L.puff(e.x + (j - 1.5) * 8, e.y - 4 - 16 * q, 6 + 6 * q, [0.5, 0.45, 0.6], 0.4 * (1 - q), j + e.t); }
+      if (e.k === 'skelDie' && a < 0.7) { const q = a / 0.7; for (let j = 0; j < 6; j++) L.solid(e.x + (rnd(e.t, j) - 0.5) * 30 * (0.3 + q), e.y - 18 + 26 * q * q - 14 * Math.sin(Math.PI * q) * rnd(e.t, j + 3), 7, 2.5, COL.bone, rnd(e.t, j + 7) * 6 + q * 5, 3.5, 1.2, 1 - q);
+        L.puff(e.x, e.y - 8, 10 + 10 * q, [0.6, 0.58, 0.7], 0.4 * (1 - q), e.t * 3); }
+      if (e.k === 'burst' && a < 0.5) { const q = a / 0.5; L.ring(e.x, e.y - 8, e.r * (0.3 + 0.7 * q), e.r * (0.3 + 0.7 * q) * 0.6, COL.bone, 0.9 * (1 - q), 0.2); L.glow(e.x, e.y - 10, e.r * 0.6, COL.soul, 0.5 * (1 - q)); }
       if (e.k === 'freeze' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 4; j++) L.star(e.x + (j - 1.5) * 8, e.y - 20 - 10 * q, 8, COL.frost, 1 - q); }
       if (e.k === 'leak' && a < 0.8) { const q = a / 0.8; L.ring(e.x, e.y - 20, 40 + 90 * q, (40 + 90 * q) * 0.6, [1, 0.35, 0.4], 0.9 * (1 - q), 0.12); }
       if (e.k === 'harvest' && a < 0.7) { const q = a / 0.7; L.glow(e.x, e.y - 30 - 30 * q, 14, COL.dark, 0.7 * (1 - q)); }
@@ -334,6 +366,9 @@
       const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 10);
       L.solid(x - 1, y - 1, w + 2, 6, [0.05, 0.03, 0.08]); L.solid(x, y, w, 4, [0.35, 0.08, 0.1]);
       L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow); }
+    // полоски HP скелетов — бирюзовые, тоньше вражеских
+    for (const s of ST.skels || []) { const k = Math.max(0, s.hp / s.max), x = Math.round(s.x - 10), y = Math.round(s.y - SKEL_H - 9);
+      L.solid(x - 1, y - 1, 22, 5, [0.05, 0.03, 0.08]); L.solid(x, y, 20, 3, [0.12, 0.2, 0.3]); L.solid(x, y, Math.round(20 * k), 3, COL.soul); }
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
