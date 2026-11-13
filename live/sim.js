@@ -865,7 +865,7 @@
       const e = s.foe ? findEnemy(S, s.foe) : null; if (!e) continue;
       s.face = e.x >= s.x ? 1 : -1;
       if (s.grip) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, s.grip); e.curseT = Math.max(e.curseT, 0.25); }   // Мёртвая хватка
-      if (s.cd <= 0) { s.cd = s.hit; s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
         if (e.dead) { s.foe = 0; continue; } }
       s.hp -= (EN[e.type].melee === undefined ? C.MELEE : EN[e.type].melee) * DT;
     }
@@ -940,7 +940,9 @@
     }
     S.clouds = S.clouds.filter((c) => c.t > 0);
     // башни
-    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? st.rate : 0.05; } }
+    // перезарядка с переносом остатка шага: средний интервал выстрелов — ровно rate при любом шаге (иначе крупный шаг
+    // округляет каждый интервал вверх до целого числа шагов и скорострельные башни теряют до нескольких процентов урона)
+    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? Math.max(0, tw.cd + st.rate) : 0.05; } }
     stepShots(S);
     S.enemies = S.enemies.filter((e) => !e.dead);
     S.beams = S.beams.filter((b) => S.t - b.t < 0.35);
