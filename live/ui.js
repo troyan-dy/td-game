@@ -291,10 +291,9 @@
     if (typed) $('#m-seed').value = typed; if (focused) $('#m-seed').focus();
     // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
     const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
-    const start = startRun;
-    $('#m-new').onclick = () => start();
+    $('#m-new').onclick = () => startRun();
     const inp = $('#m-seed'); inp.oninput = seedInput; seedInput();
-    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); start(r.seed); } else AUDIO.ui('deny'); };
+    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); startRun(r.seed); } else AUDIO.ui('deny'); };
     // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
     inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
@@ -309,7 +308,7 @@
       : 'Последний паладин рассыпался в прах. Некрополис спит спокойно.')
       : S.endless ? `Бесконечный режим: враги прорвались на ${S.wave}-й волне. Отбито волн: ${S.wave - 1}, из них после победы — ${S.wave - 1 - R}.`
       : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`;
-    const btns = choice ? `<button class="btn green" id="e-endless">Продолжить · бесконечный режим</button><button class="btn" id="e-finish">Закончить забег</button>`
+    const btns = choice ? `<button class="btn green two" id="e-endless"><span class="l1">Продолжить</span><span class="l2">бесконечный режим</span></button><button class="btn" id="e-finish">Закончить забег</button>`
       : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
       <p>${text}</p>
