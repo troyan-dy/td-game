@@ -95,7 +95,33 @@
   // кладёт своё число (well). Дальше сюда же — аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте.
   const externalBonus = (S, tw, o) => {
     if (tw.cell >= 0) { o.range += bonusOf(S, tw.cell, 'range'); o.dmg *= 1 + bonusOf(S, tw.cell, 'dmg'); const w = bonusOf(S, tw.cell, 'souls'); if (w) o.well = w; }
+    const au = auraOn(S, tw); if (au) { o.dmg *= 1 + au.dmg; o.rate /= 1 + au.rate; o.range += au.range; o.altar = au; }   // Алтарь крови
     o.rangePx = o.range * UNIT; return o; };
+  // ---- аура Алтаря крови (#8). Тип с аурой — с auraR в extra. Аура действует на башни с видом атаки на клетках не дальше
+  // auraR по сетке и берётся от СВОИХ характеристик алтаря (ownStats): алтари рядом не зацикливаются, алтарь ауру не получает.
+  // Несколько алтарей не складываются: по каждой прибавке (урон, скорость, дальность) — сильнейший.
+  const hasAura = (type) => own(TW, type) && !!TW[type].extra && own(TW[type].extra, 'auraR');
+  const gridDist = (S, a, b) => { const n = S.map.cols; return Math.max(Math.abs(a % n - b % n), Math.abs(Math.floor(a / n) - Math.floor(b / n))); };
+  // { dmg, rate, range } — что башня tw получает от алтарей вокруг, или null
+  const auraOn = (S, tw) => {
+    if (!(tw.cell >= 0) || !attackOf(tw)) return null; let out = null;
+    for (const a of S.towers) if (a && a !== tw && a.cell !== tw.cell && hasAura(a.type)) { const st = ownStats(S, a);
+      if (gridDist(S, a.cell, tw.cell) > st.auraR) continue;
+      out = out || { dmg: 0, rate: 0, range: 0 };
+      out.dmg = Math.max(out.dmg, st.auraDmg); out.rate = Math.max(out.rate, st.auraRate); out.range = Math.max(out.range, st.auraRange); }
+    return out; };
+  // алтарь на клетке cell: будущий типа type (превью постройки) или стоящий там (type не задан); null — там не алтарь
+  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && hasAura(tw.type) ? tw : null; };
+  // клетки башен, которые усилит алтарь на клетке cell (превью постройки, подсветка на карте); [] — не алтарь или некого
+  const auraTargets = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
+    const r = ownStats(S, tw).auraR;
+    for (const t of S.towers) if (t && t !== tw && t.cell !== cell && attackOf(t) && gridDist(S, t.cell, cell) <= r) out.push(t.cell);
+    return out; };
+  // клетки поля, которые накрывает аура алтаря на клетке cell (рамка ауры на карте), с самой клеткой; [] — не алтарь
+  const auraCells = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
+    const r = ownStats(S, tw).auraR;
+    for (let i = 0; i < cellCount(S); i++) if (gridDist(S, i, cell) <= r) out.push(i);
+    return out; };
   const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
   // итоговые характеристики будущей башни типа type на клетке cell (подсказка карточки, меню постройки); cell -1 — без клетки
@@ -637,6 +663,7 @@
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
+    hasAura, auraTargets, auraCells,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;
