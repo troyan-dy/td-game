@@ -27,9 +27,12 @@ export const steps = {
     await ctx.page.waitForFunction(() => APP.play.grim.dmg === 1 && APP.play.grim.bones === 1, null, { timeout: 3000 }).catch(() => { throw new Error('клик по кнопке линии не купил ступень'); });
     await buy(ctx, [['dmg', 1], ['range', 3], ['spirits', 2]]);
     const r = await rows(ctx); expect(same(r), 'окно не сходится с логикой: ' + JSON.stringify(r));
-    const st = await ctx.eval((c) => ({ dmg: SIM.towerStats(APP.play, APP.play.towers[c]).dmg, saved: (JSON.parse(localStorage.getItem('necropolis.save') || 'null') || { S: {} }).S.grim }), spot);
-    expect(st.dmg > before, `урон башни не вырос после покупки: ${before} → ${st.dmg}`);
-    expect(st.saved && st.saved.dmg === 2 && st.saved.range === 3, 'покупки Гримуара не попали в сейв: ' + JSON.stringify(st.saved));
+    const dmg = await ctx.eval((c) => SIM.towerStats(APP.play, APP.play.towers[c]).dmg, spot);
+    expect(dmg > before, `урон башни не вырос после покупки: ${before} → ${dmg}`);
+    // сейв пишется в кадре после покупки: ждём его, а не фиксированное время
+    const saved = () => (JSON.parse(localStorage.getItem('necropolis.save') || 'null') || { S: {} }).S.grim;
+    await ctx.page.waitForFunction(() => { const g = (JSON.parse(localStorage.getItem('necropolis.save') || 'null') || { S: {} }).S.grim; return !!g && g.dmg === 2 && g.range === 3; }, null, { timeout: 5000 })
+      .catch(async () => { throw new Error('покупки Гримуара не попали в сейв: ' + JSON.stringify(await ctx.eval(saved))); });
     await ctx.shot('grim_partial');
     // Esc закрывает окно, а не ставит паузу; панель башни показывает строку Гримуара и выросший урон
     await ctx.page.keyboard.press('Escape'); await waitOpen(ctx, false, 'Esc не закрыл Гримуар');
