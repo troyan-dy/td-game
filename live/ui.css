@@ -72,7 +72,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 @keyframes gain { 50% { transform: scale(1.08); filter: brightness(1.4); } }
 #stats .ibtn { width: 44px; height: 44px; padding: 0; font-size: 20px; display: flex; align-items: center; justify-content: center; }
 #stats .ibtn.on { border-color: var(--soul); color: var(--soul); }
-#stats #b-pause.on { border-color: var(--gold); color: var(--gold); font: 24px/1 var(--body); }
+#stats #b-pause.on { border-color: var(--gold); color: var(--gold); }
+#stats #b-pause.on::before { content: ''; margin-left: 4px; border-left: 15px solid currentColor; border-top: 10px solid transparent; border-bottom: 10px solid transparent; }
 
 /* кнопка волны у ворот */
 #wavebtn { position: absolute; left: 14px; top: 150px; width: 190px; height: 64px; padding: 6px 8px 7px; text-align: center; }

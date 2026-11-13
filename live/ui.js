@@ -114,8 +114,7 @@
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
       <b>Гримуар</b> (кнопка ✦ вверху справа или G) — в любой момент за души усиливает сразу все башни, и построенные позже: урон, дальность, скорость и отдельно каждый тип.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Колокол оглушает всех вокруг себя, Алтарь крови усиливает башни на соседних клетках, скелеты Казармы держат врагов под огнём.<br>
-      <b>Волны</b> сами не начинаются: готовься сколько нужно и зови следующую кнопкой слева вверху или Enter. Автоплей (кнопка ⟳ рядом или A) начинает следующую волну сам через ${C.RUN_CONTROL.autoDelay} с после зачистки.<br>
-      <b>Управление:</b> Пробел — пауза (поле и панели видны, действия ждут), F — скорость ×1 / ×2 / ×4, Enter — призвать волну, A — автоплей, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
+      <b>Управление:</b> Enter — призвать волну (сама она не идёт), A — автоплей, Пробел — пауза, F — скорость ×1/×2/×4, Esc — меню. Забег сохраняется: после перезагрузки нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
     big: `Сид не больше ${C.SEED.max}`, format: `Только цифры: целое от 0 до ${C.SEED.max}` };
@@ -173,10 +172,11 @@
   const openMenu = () => { if (!APP.play || ended() || menuOpen()) return; menuWas = APP.paused; APP.paused = true; showOverlay('gmenu', true); };
   const closeMenu = () => { if (!menuOpen()) return; showOverlay('gmenu', false); APP.paused = menuWas; };
   UI.autoPause = () => togglePause(true);
-  // в паузе действие не выполняется: отказ звуком и (не чаще раза в 1.5 с) подсказка, как продолжить; true — действие отменено
+  // в паузе действие не выполняется: отказ звуком и (не чаще раза в 1.5 с) подсказка, как продолжить — если причину не пишут
+  // открытые панель башни или Гримуар; true — действие отменено
   let heldAt = -1e9;
   const held = () => { if (!APP.paused) return false; AUDIO.ui('deny');
-    if (performance.now() - heldAt > 1500) { heldAt = performance.now(); toast('Пауза<small>Действия недоступны — Пробел продолжает игру</small>', '', 1600); }
+    if (!$('#panel.show, #grim.show') && performance.now() - heldAt > 1500) { heldAt = performance.now(); toast('Пауза<small>Действия недоступны — Пробел продолжает игру</small>', '', 1600); }
     return true; };
   UI.held = held;
   // скорость ×1 / ×2 / ×4 — выбор игрока, запоминается в настройках браузера; F перебирает по кругу
@@ -590,7 +590,7 @@
   let lastSouls = -1, lastHp = -1, wasEnded = false;
   UI.frame = (A, t) => {
     const S = A.play;
-    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
+    $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#autobtn').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
     $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
@@ -601,7 +601,7 @@
     if (ti.dataset.w !== String(tw)) { ti.dataset.w = tw; ti.style.width = Math.max(0, tw) + 'px'; ti.classList.toggle('narrow', tw < 330); ti.classList.toggle('tiny', tw < 270); }
     // пауза, скорость, автоплей: состояние кнопок и метка «Пауза» (класс paused на слое интерфейса)
     const paused = !!A.paused, pb = $('#b-pause'); $('#ui').classList.toggle('paused', paused); pb.classList.toggle('on', paused);
-    if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '▶' : '❚❚'; pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }
+    if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '' : '❚❚';   // в паузе — треугольник «продолжить» (CSS) pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }
     document.querySelectorAll('#speeds .sp').forEach((b) => b.classList.toggle('on', +b.dataset.s === A.speed));
     $('#autobtn').classList.toggle('on', S.auto); $('#a-st').textContent = S.auto ? 'ВКЛ' : 'ВЫКЛ';
     const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.lastWave(S);

@@ -68,7 +68,8 @@ export const steps = {
     await ctx.shot('controls_auto_on');
     await ctx.page.waitForFunction(() => APP.play.phase === 'wave' && APP.play.wave === 2, null, { timeout: 60000 })
       .catch(() => { throw new Error('автоплей не начал волну 2 за задержку'); });
-    await ctx.click('#autobtn'); expect(!(await st(ctx)).auto, 'кнопка автоплея не выключила его');
+    await ctx.click('#autobtn');
+    await ctx.page.waitForFunction(() => !APP.play.auto, null, { timeout: 5000 }).catch(() => { throw new Error('кнопка автоплея не выключила его'); });
   },
   controls_speed: async (ctx) => {
     const on = () => ctx.eval(() => [...document.querySelectorAll('#speeds .sp')].map((b) => (b.classList.contains('on') ? b.dataset.s : '')).join(''));
