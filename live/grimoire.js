@@ -2,7 +2,7 @@
 // Только показывает ответы логики: SIM.grimLines (линии без закрытых типов, ступени, цены, доли бонуса) и SIM.canGrim
 // (можно ли купить и почему нет). Покупка — команда { k: 'grim', line } через APP.cmd; бонусы видны в панели башни (ui.js).
 // Кнопка — в верхней полосе HUD, рядом с настройками; клавиша G. Окно поверх поля, игра не встаёт; закрывается по Esc,
-// по G, по ✕ и по клику мимо окна.
+// по G, по ✕ и по клику мимо окна. В паузе окно открывается и листается, покупки ждут конца паузы.
 (function () {
   const C = SIM.CONFIG, T = C.TOWERS;
   const $ = (s, r = document) => r.querySelector(s);
@@ -29,10 +29,10 @@
     win.innerHTML = `<button class="btn x" title="Закрыть (Esc)">✕</button><div class="hd"><span class="tt">ГРИМУАР</span><span class="sl">${SOUL}<b>${S.souls}</b></span></div>
       <div class="sec">ВСЕ БАШНИ</div>${all.map((l) => row(S, l)).join('')}
       ${types.length ? `<div class="sec">ТИПЫ БАШЕН</div>${types.map((l) => row(S, l)).join('')}` : ''}
-      <div class="note">${NOTE}</div>`;
+      ${APP.paused ? '<div class="pnote">❚❚ Пауза: покупки недоступны. Пробел — продолжить</div>' : ''}<div class="note">${NOTE}</div>`;
     win.querySelector('.x').onclick = () => toggle(false);
     win.querySelectorAll('.gb').forEach((b) => {
-      b.onclick = () => { const cg = SIM.canGrim(APP.play, b.dataset.l);
+      b.onclick = () => { if (UI.held()) return; const cg = SIM.canGrim(APP.play, b.dataset.l);
         if (cg.ok) { APP.cmd({ k: 'grim', line: b.dataset.l }); AUDIO.ui('click'); } else AUDIO.ui('deny'); };
       b.onmouseenter = () => { const S2 = APP.play, cg = SIM.canGrim(S2, b.dataset.l);
         win.querySelector('.note').textContent = cg.ok ? `Ступень ${cg.step + 1} из ${cg.max} за ${cg.cost} душ` : WHY[cg.reason] ? WHY[cg.reason](cg, S2) : NOTE; };
@@ -60,7 +60,7 @@
     // раньше игровых клавиш (захват): открытое окно забирает себе Esc, клавиша G открывает и закрывает
     addEventListener('keydown', (e) => {
       if (!APP.play || e.repeat || $('.overlay.show')) return;
-      if ((e.code === 'Escape' && open) || (e.code === 'KeyG' && !APP.paused)) { toggle(e.code === 'KeyG' ? undefined : false); e.preventDefault(); e.stopPropagation(); }
+      if ((e.code === 'Escape' && open) || e.code === 'KeyG') { toggle(e.code === 'KeyG' ? undefined : false); e.preventDefault(); e.stopPropagation(); }
     }, true);
   };
 
@@ -69,7 +69,7 @@
     if (!S || S.phase === 'relic') open = false;                       // выбор реликвии затемняет поле, забег стоит
     wrap.classList.toggle('show', open); btn.classList.toggle('on', open);
     if (!open) { key = ''; return; }
-    const k = JSON.stringify([S.seed, S.grim, S.unlocked, S.phase === 'won' || S.phase === 'lost']);
+    const k = JSON.stringify([S.seed, S.grim, S.unlocked, S.phase === 'won' || S.phase === 'lost', !!A.paused]);
     if (k !== key || S !== lastS) { key = k; lastS = S; render(S); } else refresh(S);
   };
 })();

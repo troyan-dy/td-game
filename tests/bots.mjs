@@ -285,17 +285,17 @@ export const planned = (mix, perks = PERK) => (S, mem) => {
 };
 
 // ---------------------------------------------------------------- партия
-// Первая волна по кнопке, дальше по таймеру (бот не зовёт раньше). dt — шаг времени; opts.unlocked — открытое (по умолчанию
+// Первая волна по кнопке, дальше автоплей (бот не зовёт раньше). dt — шаг времени; opts.unlocked — открытое (по умолчанию
 // всё); opts.endless — сколько волн играть после победы в бесконечном режиме (0 — закончить на победе).
-// Итог: { phase, wave, hp, t — секунд игры, win — время победы или null, kills, souls, towers, waveLog, grim — душ в Гримуар }
+// Итог: { phase, wave, hp, t — секунд игры, win — время победы (секунд идущих волн, как в рекордах) или null, kills, souls, towers, waveLog, grim — душ в Гримуар }
 export const play = (bot, seed = 1, maxT = 5400, dt, opts = {}) => {
   const S = SIM.create(seed, { dt, unlocked: opts.unlocked || null }), mem = {};
-  SIM.step(S, { cmds: [{ k: 'call' }] });
+  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   let i = 0, win = null;
   const waveLog = [], every = Math.max(1, Math.round(0.1 / S.dt)), stop = C.RUN_WAVES + (opts.endless || 0);
   let firstMerge = null, souls20 = null, earned10 = null, earned20 = null;
   while (S.phase !== 'lost' && S.t < maxT + (opts.endless ? 3600 : 0)) {
-    if (S.phase === 'won') { win = Math.round(S.t); if (!opts.endless) break; SIM.step(S, { cmds: [{ k: 'endless' }, { k: 'call' }] }); continue; }
+    if (S.phase === 'won') { win = Math.round(S.stats.time); if (!opts.endless) break; SIM.step(S, { cmds: [{ k: 'endless' }, { k: 'call' }] }); continue; }
     if (S.endless && S.phase === 'prep' && S.wave >= stop) break;
     if (!S.endless && S.t >= maxT) break;
     const cmds = (i++ % every === 0) ? bot(S, mem) : null;          // бот «кликает» 10 раз в секунду

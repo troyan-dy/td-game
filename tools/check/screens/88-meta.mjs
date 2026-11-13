@@ -28,7 +28,7 @@ export const steps = {
     // новый профиль: закрыты типы после стартовых; если в конфиге их ещё нет — забег с закрытым последним типом (вид тот же)
     let lockedType = await ctx.eval(() => SIM.CONFIG.TOWER_ORDER.find((k) => APP.play.unlocked && !APP.play.unlocked.includes(k)) || null);
     if (!lockedType) lockedType = await ctx.eval(() => { const O = SIM.CONFIG.TOWER_ORDER; APP.newGame(5, { unlocked: O.slice(0, -1) }); return O[O.length - 1]; });
-    await ctx.eval(() => { APP.play.souls = 99999; }); await g.freeze(ctx);
+    await ctx.eval(() => { APP.play.souls = 99999; });
     const cell = (await g.spots(ctx))[0];
     await g.build(ctx, cell, lockedType);
     if (await ctx.eval((c) => !!APP.play.towers[c], cell)) throw new Error('закрытый тип ' + lockedType + ' построился');

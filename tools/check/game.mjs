@@ -3,7 +3,7 @@
 //
 // Устройство:
 //   tools/check/game.mjs       — страница, окна, боты, открытие страницы, проверка вёрстки и ПОМОЩНИКИ состояния игры
-//                                (новая партия по сиду, заморозка отсчёта, места под постройку, постройка, ступени веток,
+//                                (новая партия по сиду, места под постройку, постройка, ступени веток,
 //                                перк, выбор башни, ожидание применения команд).
 //   tools/check/screens/*.mjs  — по файлу на экран. Каркас берёт их по отсортированному имени; каждый файл получает
 //                                свежую страницу (open) и экспортирует steps — упорядоченные шаги этого экрана.
@@ -40,7 +40,7 @@ export async function open(ctx) {
 // ---------------------------------------------------------------- помощники состояния игры
 // Экраны играют только на фиксированных сидах: случайная карта делала проверку то зелёной, то красной.
 // Новая партия через меню по сиду (поле сида и «По сиду» — тот же путь, что у игрока). Все враги уже встречены: карточка
-// «Новый враг» ставит игру на паузу и встала бы посреди сценария (саму карточку показывает 40-hints); отсчёт заморожен.
+// «Новый враг» ставит игру на паузу и встала бы посреди сценария (саму карточку показывает 40-hints).
 export async function newGame(ctx, seed) {
   if (!Number.isInteger(seed)) throw new Error('g.newGame(ctx, seed): экраны играют на фиксированном сиде — передай сид');
   await ctx.need('#m-seedgo');
@@ -48,16 +48,12 @@ export async function newGame(ctx, seed) {
     document.getElementById('m-seedgo').click(); }, seed);
   await ctx.page.waitForFunction((seed) => !!(window.APP && APP.play && APP.play.seed === seed), seed);
   await ctx.eval(() => { const S = APP.play; for (const k of Object.keys(SIM.CONFIG.ENEMIES)) S.seen[k] = 1; });
-  await freeze(ctx);
 }
-// Заморозить отсчёт паузы между волнами: волна не начнётся сама посреди экрана. Только в паузе (на выборе реликвии таймер
-// ждёт сам); у забега без отсчёта (нет prepT) — ничего не делает.
-export const freeze = (ctx) => ctx.eval(() => { const S = APP.play; if (S && S.phase === 'prep' && 'prepT' in S) S.prepT = -1; });
-// Бесконечные души и прочие «худшие значения» для HUD; отсчёт до волны не идёт.
-export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = SIM.waveCount() - 1; S.phase = 'prep'; S.prepT = -1; APP.paused = false; });
+// Бесконечные души и прочие «худшие значения» для HUD.
+export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = SIM.waveCount() - 1; S.phase = 'prep'; APP.paused = false; });
 // Два кадра игры: интерфейс перерисован по новому состоянию (вместо паузы наугад).
 export const frames = (ctx) => ctx.eval(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
-// Команды игры применяются на следующем кадре (и на паузе): ждём, пока очередь команд опустеет, и ещё кадры — интерфейс перерисован.
+// Команды игры применяются на следующем кадре: ждём, пока очередь команд опустеет, и ещё кадры — интерфейс перерисован.
 export const applied = (ctx) => ctx.page.waitForFunction(() => !APP.cmds.length).then(() => frames(ctx));
 // Типы башен в порядке карточек.
 export const towerTypes = (ctx) => ctx.eval(() => SIM.CONFIG.TOWER_ORDER.slice());

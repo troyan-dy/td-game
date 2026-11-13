@@ -31,17 +31,18 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   // ---- цикл: APP — мост между ui.js (DOM) и симом
   const dev = document.getElementById('dev'), flash = document.getElementById('flash');
   const APP = window.APP = { play: null, speed: 1, paused: false, simT: 0, cmds: [], devSpeed: 1 };
-  APP.cmd = (c) => APP.cmds.push(c);
+  // команда игрока; в паузе действия не выполняются (false) — кроме переключения автоплея: это настройка забега, а не действие
+  APP.cmd = (c) => { if (APP.paused && c.k !== 'auto') return false; APP.cmds.push(c); return true; };
   // новый забег: сид введённый (SIM.parseSeed) или случайный 1..CONFIG.SEED.random (виден в HUD), карта генерируется от него;
   // opts — как у SIM.create (unlocked — открытое по профилю игрока, его даёт ui.js)
-  APP.newGame = (seed, opts) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * SIM.CONFIG.SEED.random) : seed, opts); APP.paused = false; APP.speed = 1; };
+  APP.newGame = (seed, opts) => { APP.play = SIM.create(seed === undefined ? 1 + Math.floor(Math.random() * SIM.CONFIG.SEED.random) : seed, opts); APP.paused = false; };   // скорость — выбор игрока, переживает забег (ui.js)
   // негодное или старое состояние не грузим; checked — состояние уже проверено SIM.loadable (меню), повторно не проверяем
   // сбой самой проверки (не создался образец в SIM.loadable) — ошибка разработки: громко в консоль, забег не грузим
   APP.load = (S, checked) => { try { if (!checked && !SIM.loadable(S)) return false; } catch (e) { console.error(e); return false; }
     APP.play = S; APP.paused = false; return true; };
   APP.toMenu = () => { APP.play = null; };
   try { const sv = JSON.parse(sessionStorage.getItem('live') || 'null');
-    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = sv.speed || 1; if (sv.play && !APP.load(sv.play)) sessionStorage.removeItem('live'); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
+    if (sv && !STATIC) { APP.simT = sv.simT; APP.speed = [1, 2, 4].includes(sv.speed) ? sv.speed : 1; if (sv.play && !APP.load(sv.play)) sessionStorage.removeItem('live'); APP.paused = !!sv.paused; flash.style.opacity = 1; setTimeout(() => (flash.style.opacity = 0), 1200); } } catch (e) {}
   const saveLive = () => { try { sessionStorage.setItem('live', JSON.stringify({ simT: APP.simT, speed: APP.speed, paused: APP.paused, play: APP.play })); } catch (e) {} };
   let stepOnce = false;
   addEventListener('keydown', (e) => {
@@ -59,10 +60,13 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
     APP.simT += wall;                                                                      // мировое время: атмосфера живёт и на паузе
     if (APP.play) {
       const frozen = APP.paused && !stepOnce;
+      // скорость ×N — честные N шагов симуляции за то же время (шаг не крупнее), поэтому исход тот же, что на ×1
       acc += frozen ? 0 : (stepOnce ? 1 / 60 : wall * APP.speed * APP.devSpeed); stepOnce = false;
       const dt = APP.play.dt;                                                                // шаг времени — параметр забега
-      if (APP.cmds.length) { SIM.step(APP.play, { cmds: APP.cmds.splice(0) }); acc = Math.max(0, acc - dt); }
+      // команды — в начале следующего шага, как SIM.step(S, { cmds }), но без лишнего шага времени (и в паузе тоже)
+      for (const c of APP.cmds.splice(0)) SIM.doCmd(APP.play, c);
       let n = 0; while (acc >= dt && n++ < 600) { SIM.step(APP.play, null); acc -= dt; }
+      if (acc >= dt) acc = 0;                                                                // не догоняем лаг рывком
       SCENE.state = APP.play;
     } else SCENE.state = null;
     try { SCENE.render(APP.simT); } catch (e) { if (!window.__renderErr) { window.__renderErr = e; console.error(e); } }

@@ -7,7 +7,7 @@ const arg = (k, d) => { const i = process.argv.indexOf('--' + k); return i < 0 ?
 const pos = process.argv.slice(2).filter((x, i, a) => !x.startsWith('--') && !(i > 0 && a[i - 1].startsWith('--')));
 const seed = +pos[0] || 1, name = pos[1] || 'smart', [k, a] = name.split(':'), bot = a ? B[k](a) : B[k];
 const S = SIM.create(seed, { dt: 1 / +arg('dt', 30), unlocked: arg('open', 'new') === 'all' ? null : B.NEW_PROFILE }), mem = {};
-SIM.step(S, { cmds: [{ k: 'call' }] });
+SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
 let i = 0, w = 1, leaked = 0; const every = Math.max(1, Math.round(0.1 / S.dt)), bought = [];
 const sum = (f) => { const o = {}; for (const t of S.towers) if (t) o[t.type] = (o[t.type] || 0) + Math.round(f(t)); return JSON.stringify(o); };
 while (S.phase === 'prep' || S.phase === 'wave' || S.phase === 'relic') {
