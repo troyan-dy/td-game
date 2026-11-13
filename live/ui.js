@@ -446,8 +446,12 @@
   const placeNear = (S, x, y, w, h) => {
     const avoid = rectsOf('#panel.show, #scout.show, #scout-panel.show').map(([l, t, pw, ph]) => [l - 6, t - 6, pw + 12, ph + 12]);
     return spotNear(S, { x, y, w, h, keep: [x - 40, y - 40, 80, 80], avoid, maxDist: COACH_MAX, cache: coachCache, soft: S.map.road.map((i) => cellRect(S, i)) }); };
-  let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
-  const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, C.TYPICAL_RANGE)[0] }; return best.cell; };
+  // лучшая клетка карты для подсказки — по радиусу выбранной карточки, без выбора — по самому короткому радиусу открытых
+  // стреляющих башен: подсказанная клетка достаёт до дороги любой из них (считается раз на карту и радиус)
+  let best = { key: '', cell: -1 };
+  const bestCell = (S) => { const open = C.TOWER_ORDER.filter((k) => T[k].attack && T[k].attack !== 'summon' && !locked(S, k));
+    const r = ui.armed && T[ui.armed] ? T[ui.armed].base.range : Math.min(...open.map((k) => T[k].base.range), C.TYPICAL_RANGE);
+    const key = S.seed + ':' + S.map.road.length + ':' + r; if (best.key !== key) best = { key, cell: SIM.rankCells(S, r)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
     for (const q of COACH) if (!prefs.tips[q.id] && done(q, S)) { prefs.tips[q.id] = 1; store.set(PREF_KEY, prefs); }
     if (!c || APP.paused || S.phase === 'relic') { el.classList.remove('show'); return; }

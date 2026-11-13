@@ -2,8 +2,9 @@
 // Координаты в логическом пространстве карты 1600×900. UNIT (48 px) — единица радиусов башен, клетка сетки — GRID.tile (64 px).
 (function () {
   // цены ступеней ветки: первая цена × TRACK_COST[i], с округлением до 5 душ. Ступеней с ценой восемь: обычная башня
-  // упирается в свой потолок (TRACK_MAX), гибрид качается дальше; цен 6–8 у обычной башни просто не бывает в ходу
-  const TRACK_COST = [1, 1.5, 2.1, 2.9, 3.9, 5.2, 6.8, 8.8];
+  // упирается в свой потолок (TRACK_MAX), гибрид качается дальше (C.MERGE.cap). Ступени гибрида 6–8 дешевле 5-й: слияние
+  // забирает вторую башню целиком, и докачка гибрида (6–8) должна окупаться не хуже новой башни
+  const TRACK_COST = [1, 1.2, 1.45, 1.75, 2.1, 1.2, 1.35, 1.5];
   // ветка: cost — цены ступеней 1..n, k — прибавка основной характеристики за ступень в долях базы, also — прибавка
   // дополнительных характеристик типа за ступень этой ветки (например, замедление Духов растёт со ступенями урона)
   const track = (first, k, also) => Object.assign({ cost: TRACK_COST.map((m) => Math.round(first * m / 5) * 5), k }, also ? { also } : null);
@@ -24,7 +25,9 @@
     SELL_REFUND: 0.7,
     PREP_TIME: 15,                 // секунд между волнами (кроме первой: она стартует по кнопке)
     WAVE_BONUS: (w) => 30 + 8 * w, // души за зачистку волны w
-    HP_MULT: (w) => 1 + 0.11 * (w - 1),
+    // мягко до середины забега (место для слияния), круто к концу; в бесконечном режиме (после RUN_WAVES) — ровно +5% за волну
+    // сверх роста бюджета угрозы: давление растёт плавно, без обрыва
+    HP_MULT: (w) => (w <= C.RUN_WAVES ? 1 + 0.03 * (w - 1) + 0.0009 * (w - 1) ** 3 : C.HP_MULT(C.RUN_WAVES) * (1 + 0.05 * (w - C.RUN_WAVES))),
     BOUNTY_MULT: (w) => 1 + 0.04 * (w - 1),
     ROAD_HALF: 27,
     TYPICAL_RANGE: 3.4,            // типичный радиус башни, ед.: покрытие дороги клеткой (меню постройки, подсказки, боты)                 // полуширина нарисованной дороги, px
@@ -94,7 +97,7 @@
     // видом атаки (Алтарь крови — только второй). Для Гримуара и реликвий гибрид — башня первого типа; сила ауры примеси
     // Алтаря растёт от линии Гримуара Алтаря.
     // tint — перекраска спрайта первой башни в цвет второй, если у типа второй своей перекраски нет: [k — яркость цвета, сила]
-    MERGE: { cost: 180, cap: 8, slots: 2, tint: [1.8, 0.7] },
+    MERGE: { cost: 100, cap: 8, slots: 2, tint: [1.8, 0.7] },
     VIEW_TOP: 56,                  // выше этой линии (низ плашек HUD) башня не рисуется: высокие башни верхнего ряда ужимаются
 
     // Башни — данные; новый тип добавляется записью здесь (код ветвится по виду атаки, а не по имени типа).
@@ -130,11 +133,11 @@
       bones: {
         name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys', attack: 'bolt', muzzle: 58,
         art: { sprite: 'bones', color: [0.90, 0.85, 0.72], ui: '#e6d9b8', sound: 'bones', flip: true },
-        base: { cost: 100, dmg: 24, rate: 1.0, range: 3.6 },
-        tracks: { dmg: track(45, 0.35), range: track(35, 0.08), rate: track(40, 0.12) },
+        base: { cost: 100, dmg: 26, rate: 1.0, range: 3.6 },
+        tracks: { dmg: track(45, 0.35), range: track(20, 0.08), rate: track(40, 0.12) },
         extra: { speed: 900 },
         desc: 'Дальний одиночный выстрел. Дёшево, но броня рыцарей гасит почти половину урона.',
-        mix: { name: 'Пронзание', icon: '➶', add: { pierceN: 1, pierceK: 0.5, pierceR: 1.2 }, desc: 'Удар проходит насквозь: ещё {pierceN} враг рядом с целью (до {pierceR кл}) получает {pierceK%} урона.' },
+        mix: { name: 'Пронзание', icon: '➶', add: { pierceN: 1, pierceK: 0.7, pierceR: 1.2 }, desc: 'Удар проходит насквозь: ещё {pierceN} враг рядом с целью (до {pierceR кл}) получает {pierceK%} урона.' },
         perks: {
           pierce: { name: 'Пронзающий болт', cost: 180, needs: 'bolt', set: { pierce: 4, pierceFalloff: 0.15 }, desc: 'Болт пробивает до {pierce} врагов по линии, −{pierceFalloff%} урона за каждого.' },
           volley: { name: 'Залп', cost: 180, needs: 'bolt', set: { bolts: 3, boltMult: 0.4 }, desc: 'Болты по {bolts} разным целям за выстрел, каждый — {boltMult%} урона.' },
@@ -144,12 +147,12 @@
       spirits: {
         name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic', attack: 'ghost', muzzle: 70,
         art: { sprite: 'spirits', color: [0.30, 0.95, 0.88], ui: '#6ff2e2', fx: 'orbs', sound: 'spirits' },
-        base: { cost: 110, dmg: 10, rate: 0.8, range: 3.2 },
-        tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(35, 0.08), rate: track(40, 0.12) },
-        extra: { speed: 380, slow: 0.30, slowTime: 1.5 },
+        base: { cost: 100, dmg: 14, rate: 0.8, range: 3.2 },
+        tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(20, 0.08), rate: track(40, 0.12) },
+        extra: { speed: 380, slow: 0.35, slowTime: 1.5 },
         show: [['Замедление', '{slow%} · {slowTime} с']],
         desc: 'Призраки замедляют врагов. Урон небольшой, зато соседние башни успевают больше.',
-        mix: { name: 'Замедление', icon: '❄', add: { slow: 0.2, slowTime: 1.5 }, desc: 'Попадание замедляет врага на {slow%} на {slowTime} с (у Духов — сверх их замедления).' },
+        mix: { name: 'Замедление', icon: '❄', add: { slow: 0.3, slowTime: 1.5 }, desc: 'Попадание замедляет врага на {slow%} на {slowTime} с (у Духов — сверх их замедления).' },
         perks: {
           frost: { name: 'Ледяной ужас', cost: 180, set: { freezeChance: 0.15, freeze: 0.6 }, desc: 'Шанс {freezeChance%} сковать врага ужасом на {freeze} с.' },
           pack: { name: 'Стая', cost: 180, needs: 'ghost', set: { bounces: 2, bounceMult: 0.8, bounceRange: 1.5 }, desc: 'Призрак перескакивает ещё на {bounces} цели, каждый раз с {bounceMult%} урона.' },
@@ -159,13 +162,13 @@
       plague: {
         name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison', attack: 'blob', muzzle: 44,
         art: { sprite: 'plague', color: [0.45, 0.90, 0.25], ui: '#8be04e', fx: 'fumes', sound: 'plague' },
-        base: { cost: 130, dmg: 12, rate: 2.2, range: 3.0 },
-        tracks: { dmg: track(50, 0.35), range: track(35, 0.08), rate: track(45, 0.12) },
+        base: { cost: 130, dmg: 8, rate: 2.2, range: 3.0 },
+        tracks: { dmg: track(50, 0.35), range: track(20, 0.08), rate: track(45, 0.12) },
         extra: { cloudR: 0.9, cloudTime: 3, linger: 1.0, flight: 0.6 },
         names: { dmg: 'Яд' }, fmt: { dmg: '{dmg}/с' },
         show: [['Облако', '{cloudR кл} · {cloudTime} с']],
         desc: 'Ядовитое облако травит всех внутри. Яд не замечает брони.',
-        mix: { name: 'Яд', icon: '☣', add: { venom: 0.3, venomTime: 3 }, desc: 'Попадание отравляет: {venom%} урона попадания в секунду, {venomTime} с, сквозь броню.' },
+        mix: { name: 'Яд', icon: '☣', add: { venom: 0.45, venomTime: 3 }, desc: 'Попадание отравляет: {venom%} урона попадания в секунду, {venomTime} с, сквозь броню.' },
         perks: {
           pestilence: { name: 'Мор', cost: 180, set: { pestR: 0.7, pestTime: 2 }, desc: 'Отравленный враг при смерти оставляет облако на {pestTime} с (без цепной реакции).' },
           acid: { name: 'Кислота', cost: 180, set: { shred: 0.30, shredTime: 2 }, desc: 'Облако снижает броню врагов на {shred п} пунктов на {shredTime} с.' },
@@ -175,12 +178,12 @@
       dark: {
         name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
         art: { sprite: 'dark', color: [0.80, 0.38, 1.0], ui: '#c86bff', fx: 'crown', sound: 'dark' },
-        base: { cost: 150, dmg: 20, rate: 1.3, range: 3.2 },
-        tracks: { dmg: track(55, 0.35), range: track(40, 0.08), rate: track(50, 0.12) },
+        base: { cost: 125, dmg: 30, rate: 1.2, range: 3.2 },
+        tracks: { dmg: track(55, 0.35), range: track(25, 0.08), rate: track(50, 0.12) },
         extra: { heavy: 2 },
         show: [['По тяжёлым', '×{heavy}']],
         desc: 'Луч бьёт самую живучую цель, пробивает защиту священников, вдвое сильнее по повозкам и боссам.',
-        mix: { name: 'Пробой', icon: '✷', add: { pen: 0.3, mpen: 0.3 }, skip: ['poison'], desc: 'Удар не замечает {pen%} брони и {mpen%} магической защиты цели.' },
+        mix: { name: 'Пробой', icon: '✷', add: { pen: 0.45, mpen: 0.45 }, skip: ['poison'], desc: 'Удар не замечает {pen%} брони и {mpen%} магической защиты цели.' },
         perks: {
           harvest: { name: 'Жатва', cost: 180, set: { harvest: 2 }, desc: '+{harvest} души за каждого врага, погибшего в радиусе.' },
           curse: { name: 'Проклятие', cost: 180, set: { curse: 0.2, curseTime: 3 }, desc: 'Цель получает +{curse%} урона от всех башен {curseTime} с.' },
@@ -193,12 +196,12 @@
         name: 'КОЛОКОЛ', short: 'КОЛОКОЛ', title: 'Погребальный колокол', dmgType: 'phys', attack: 'pulse', muzzle: 70,
         art: { sprite: 'dark', tint: [1.55, 1.12, 0.55, 0.9], css: 'sepia(0.85) saturate(1.7) hue-rotate(-12deg) brightness(1.05)',
           color: [1.0, 0.74, 0.32], ui: '#e8a948', fx: 'crown', sound: 'bell' },
-        base: { cost: 140, dmg: 14, rate: 2.0, range: 2.0 },
-        tracks: { dmg: track(50, 0.35, { stun: 0.04 }), range: track(40, 0.08), rate: track(50, 0.12) },
+        base: { cost: 140, dmg: 12, rate: 2.0, range: 2.4 },
+        tracks: { dmg: track(50, 0.35, { stun: 0.04 }), range: track(25, 0.08), rate: track(50, 0.12) },
         extra: { stun: 0.6, guard: 1.0 },
         show: [['Оглушение', '{stun} с']],
         desc: 'Бьёт разом всех врагов вокруг себя и ненадолго оглушает. Радиус малый — ставь у поворотов. Боссы не оглушаются.',
-        mix: { name: 'Мини-оглушение', icon: '♫', add: { stunChance: 0.15, stunMini: 0.4 }, desc: 'Шанс {stunChance%} оглушить цель на {stunMini} с (кроме боссов).' },
+        mix: { name: 'Мини-оглушение', icon: '♫', add: { stunChance: 0.25, stunMini: 0.4 }, desc: 'Шанс {stunChance%} оглушить цель на {stunMini} с (кроме боссов).' },
         perks: {
           toll: { name: 'Набат', cost: 180, needs: 'pulse', add: { stun: 0.5 }, desc: 'Оглушение держится на {stun} с дольше.' },
           knell: { name: 'Погребальный звон', cost: 180, set: { curse: 0.2, curseTime: 2.5 }, desc: 'Все задетые, и боссы тоже, получают +{curse%} урона от всех башен {curseTime} с.' },
@@ -212,15 +215,15 @@
       barracks: {
         name: 'КАЗАРМА', short: 'КАЗАРМА', title: 'Костяная казарма', dmgType: 'phys', attack: 'summon', muzzle: 40,
         art: { sprite: 'bones', tint: [0.62, 0.80, 1.35, 0.65], css: 'sepia(1) hue-rotate(175deg) saturate(1.7) brightness(0.95)', color: [0.55, 0.72, 1.0], ui: '#8cb8ff', sound: null },
-        base: { cost: 120, dmg: 12, rate: 7.5, range: 3.0 },
-        tracks: { dmg: track(45, 0.25, { hp: 30 }), range: track(30, 0.10), rate: track(40, 0.20) },
+        base: { cost: 110, dmg: 18, rate: 7.5, range: 3.0 },
+        tracks: { dmg: track(45, 0.25, { hp: 30 }), range: track(20, 0.10), rate: track(40, 0.20) },
         extra: { hp: 120, limit: 2, hit: 1.0, reach: 0.55 },
         names: { dmg: 'Скелет', rate: 'Призыв' }, fmt: { dmg: '{hp} HP · {dmg}', rate: '{rate} с' },
         show: [['Скелетов', 'до {limit}']],
         desc: 'Ставит скелетов на ближайшую дорогу. Скелет держит врага, пока другие башни его добивают. Боссы скелетов не замечают.',
         // примесь: убитый гибридом враг встаёт скелетом гибрида (не чаще раза в raiseCd с, не больше raiseMax сразу); у скелета
         // raiseHp HP, удар — raiseDmg урона гибрида раз в raiseHit с, хватает врага в raiseReach (ед. UNIT); его удары — с эффектами гибрида
-        mix: { name: 'Подъём мёртвых', icon: '☠', add: { raiseCd: 5, raiseMax: 2, raiseHp: 100, raiseDmg: 0.5, raiseHit: 1, raiseReach: 0.55 },
+        mix: { name: 'Подъём мёртвых', icon: '☠', add: { raiseCd: 5, raiseMax: 3, raiseHp: 100, raiseDmg: 0.5, raiseHit: 1, raiseReach: 0.55 },
           desc: 'Убитый враг встаёт скелетом на {raiseHp} HP (удар — {raiseDmg%} урона гибрида): не чаще раза в {raiseCd} с, до {raiseMax} сразу.' },
         perks: {
           legion: { name: 'Костяной легион', cost: 180, needs: 'summon', add: { limit: 1 }, desc: 'Скелетов в строю на {limit} больше.' },
@@ -237,11 +240,11 @@
     //          своей записью grim (например, у небоевой башни — другая ветка)
     GRIMOIRE: {
       all: {
-        dmg: { k: 0.06, cost: [120, 180, 260, 360, 480] },
-        range: { k: 0.04, cost: [100, 150, 220, 300, 400] },
-        rate: { k: 0.05, cost: [120, 180, 260, 360, 480] },
+        dmg: { k: 0.09, cost: [200, 300, 420, 580, 780] },
+        range: { k: 0.04, cost: [160, 240, 350, 480, 640] },
+        rate: { k: 0.07, cost: [200, 300, 420, 580, 780] },
       },
-      type: { track: 'dmg', k: 0.12, cost: [100, 170, 260] },
+      type: { track: 'dmg', k: 0.12, cost: [160, 270, 420] },
     },
     TRACK_NAMES: { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' },
     TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
@@ -264,7 +267,7 @@
         threat: 1, minWave: 1, weight: 3, gap: 0.8,
         desc: 'Быстрый и хрупкий. Опасен толпой.' },
       knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1, melee: 16,
-        threat: 4, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
+        threat: 3.5, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
         desc: 'Щит гасит 45% физического урона. Против него — Чума и Тьма.' },
       priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1, melee: 6,
         heal: 12, healEvery: 4, healR: 1.5, healTargets: 3, healLock: 1.5,   // до 3 самых раненых; одного — не чаще раза в healLock с
@@ -274,22 +277,22 @@
       // в радиусе hasteR (единицы UNIT) вокруг знаменосца, сам он не ускоряется, ауры не складываются.
       // look — вид на поле и в интерфейсе без своего арта: спрайт и риг типа as, перекрашенные tint [r, g, b, сила], и CSS-фильтр картинки
       scout: { name: 'Разведчик', hp: 42, speed: 112, armor: 0, mres: 0, bounty: 8, leak: 1, size: 1, ward: 1, melee: 6,
-        threat: 2, minWave: 4, weight: 1.5, gap: 0.9, ability: 'Очень быстрый; первое попадание по нему — промах',
+        threat: 1.6, minWave: 4, weight: 1.5, gap: 0.9, ability: 'Очень быстрый; первое попадание по нему — промах',
         look: { as: 'militia', tint: [0.55, 1.35, 0.55, 0.6], css: 'hue-rotate(70deg) saturate(1.8) brightness(1.1)' },
         desc: 'Очень быстрый. Первое попадание по нему проходит мимо — против него хороши скорострельные башни.' },
       banner: { name: 'Знаменосец', hp: 210, speed: 44, armor: 0.2, mres: 0.1, bounty: 16, leak: 1, size: 1, melee: 14,
         haste: 0.3, hasteR: 2,
-        threat: 6, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
+        threat: 5, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
         look: { as: 'knight', tint: [1.45, 0.45, 0.35, 0.55], css: 'hue-rotate(-35deg) saturate(2.4) brightness(0.95)' },
         desc: 'Знамя гонит соседей вперёд: +30% скорости всем рядом. Убей его первым — ускорение пропадёт.' },
       cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true, melee: 35,
         spawnOnDeath: { type: 'militia', n: 2 },
-        threat: 22, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
+        threat: 18, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
         desc: 'Медленная и толстая. При поломке из неё выскакивают ополченцы.' },
-      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true, unstoppable: true,
+      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 6, size: 2.2, heavy: true, boss: true, unstoppable: true,
         aura: 0.15, auraR: 1.5,
         threat: 100, minWave: 10, ability: 'Аура: +{aura%}% брони соседям; пропуск — {leak} прочности',
-        desc: 'Босс. Аура укрепляет броню соседей. Пропуск стоит 10 прочности склепа.' },
+        desc: 'Босс. Аура укрепляет броню соседей. Пропуск стоит 6 прочности склепа.' },
     },
 
     // Генератор волн (live/wavegen.js): волна n собирается от сида забега и номера, для любого n (и после RUN_WAVES).
@@ -303,14 +306,14 @@
       pace: (w) => Math.max(0.4, 1 - 0.035 * (w - 1)),   // множитель интервалов между врагами: чем дальше забег, тем плотнее
       maxEnemies: 160,                    // предел врагов в волне (с теми, кто выйдет из убитых): бюджет сверх него — в HP и награду
       maxDuration: 75,                    // предел длительности выхода волны, с: интервалы сжимаются
-      powerBounty: 1,                     // награда растёт как power ** powerBounty (1 — души волны те же, что без предела)
+      powerBounty: 0.5,                   // награда растёт как power ** powerBounty (1 — души волны те же, что без предела; меньше — поздние волны скупее)
       stagger: 0.45,                      // отряды после первого стартуют в случайный момент первых 45% длительности первого
       traitChance: 0.35, traitFrom: 3,    // доля волн со свойством; раньше traitFrom и на боссах свойства нет
-      bossEvery: 10, bossEscort: 0.6, bossAt: 0.4,   // босс каждые bossEvery волн; свите — доля бюджета; выход босса — доля длительности свиты
+      bossEvery: 10, bossEscort: 0.75, bossAt: 0.4,   // босс каждые bossEvery волн; свите — доля бюджета; выход босса — доля длительности свиты
       bossType: 'paladin',
-      // 10-я: 4000/150, 20-я: 10000/250. В бесконечном режиме (после RUN_WAVES) босс растёт вместе с волной: HP и награда
+      // 10-я: 3500/150, 20-я: 22400/250 — пик забега. В бесконечном режиме (после RUN_WAVES) босс растёт вместе с волной: HP и награда
       // последней волны забега × рост бюджета угрозы × множителя HP (награды) — его доля в волне остаётся как на последней
-      bossHp: (w) => (w <= C.RUN_WAVES ? Math.round(4000 * 2.5 ** Math.log2(w / 10)) : Math.round(C.WAVEGEN.bossHp(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.HP_MULT))),
+      bossHp: (w) => (w <= C.RUN_WAVES ? Math.round(3500 * 6.4 ** Math.log2(w / 10)) : Math.round(C.WAVEGEN.bossHp(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.HP_MULT))),
       bossBounty: (w) => (w <= C.RUN_WAVES ? 50 + 10 * w : Math.round(C.WAVEGEN.bossBounty(C.RUN_WAVES) * C.WAVEGEN.grow(w, C.BOUNTY_MULT))),
       grow: (w, mult) => (C.WAVEGEN.budget(w) * mult(w)) / (C.WAVEGEN.budget(C.RUN_WAVES) * mult(C.RUN_WAVES)),
       bossNames: ['Паладин', 'Паладин-командор', 'Великий паладин'],   // k-й босс забега; дальше — последнее имя
@@ -352,9 +355,9 @@
     // budget (бюджет угрозы, то есть число врагов). Прибавки (доли): armor, mres. share — доля бюджета, отданная типу врага
     // (тип добавляется в волну, если его не было). minWave — с какой волны свойство возможно.
     TRAITS: {
-      armored: { name: 'Бронированная', desc: 'Враги в латах и оберегах, но их меньше.', armor: 0.2, mres: 0.15, budget: 0.85 },
-      fast: { name: 'Быстрая', desc: 'Враги бегут, а не идут, но легче падают.', speed: 1.35, hp: 0.85 },
-      horde: { name: 'Толпа', desc: 'Много слабых врагов плотным потоком.', budget: 1.7, hp: 0.55, gap: 0.6, bounty: 0.6 },
+      armored: { name: 'Бронированная', desc: 'Враги в латах и оберегах, но их меньше.', armor: 0.2, mres: 0.15, budget: 0.9 },
+      fast: { name: 'Быстрая', desc: 'Враги бегут, а не идут, но легче падают.', speed: 1.35, hp: 0.9 },
+      horde: { name: 'Толпа', desc: 'Много слабых врагов плотным потоком.', budget: 1.7, hp: 0.6, gap: 0.6, bounty: 0.6 },
       healers: { name: 'С лекарями', desc: 'Священники идут с отрядом и лечат сильнее.', share: { priest: 0.35 }, heal: 1.5, minWave: 5 },
       rich: { name: 'Богатая', desc: 'Враги несут добычу: живучее, но щедрее.', bounty: 1.75, hp: 1.15 },
     },
@@ -396,13 +399,13 @@
     name: 'АЛТАРЬ', short: 'АЛТАРЬ', title: 'Алтарь крови', dmgType: 'aura', muzzle: 60,
     art: { sprite: 'spirits', tint: [1.9, 0.32, 0.38, 0.85], css: 'sepia(1) saturate(4) hue-rotate(-40deg) brightness(0.9)', color: [1.0, 0.26, 0.30], ui: '#ff4d5e', fx: 'orbs' },
     base: { cost: 120, dmg: 0, rate: 1, range: 0 },
-    tracks: { dmg: track(50, 0, { auraDmg: 0.03 }), range: track(40, 0, { auraRange: 0.15 }), rate: track(45, 0, { auraRate: 0.03 }) },
+    tracks: { dmg: track(50, 0, { auraDmg: 0.03 }), range: track(25, 0, { auraRange: 0.15 }), rate: track(45, 0, { auraRate: 0.03 }) },
     extra: { auraR: 1, auraDmg: 0.15, auraRate: 0.10, auraRange: 0 },
     fmt: { dmg: '+{auraDmg%}', range: '+{auraRange кл}', rate: '+{auraRate%}' },
     show: [['Охват', '{auraR} кл. вокруг']],
     desc: 'Не стреляет. Башни на восьми соседних клетках бьют сильнее и чаще; ветки качают бонус соседям. Алтари не складываются — берётся сильнейший.',
     // примесь: ослабленная аура (гибрид сам себя не усиливает); перки Алтаря на гибриде её усиливают
-    mix: { name: 'Аура', icon: '♥', add: { auraR: 1, auraDmg: 0.08, auraRate: 0.05, auraRange: 0 }, desc: 'Ослабленная аура: башни на соседних клетках бьют на {auraDmg%} сильнее и на {auraRate%} чаще.' },
+    mix: { name: 'Аура', icon: '♥', add: { auraR: 1, auraDmg: 0.12, auraRate: 0.08, auraRange: 0 }, desc: 'Ослабленная аура: башни на соседних клетках бьют на {auraDmg%} сильнее и на {auraRate%} чаще.' },
     perks: {
       offering: { name: 'Кровавое подношение', cost: 180, add: { auraDmg: 0.12 }, desc: 'Урон соседних башен растёт ещё на {auraDmg п} пунктов.' },
       frenzy: { name: 'Исступление', cost: 180, add: { auraRate: 0.12 }, desc: 'Соседние башни стреляют чаще ещё на {auraRate п} пунктов.' },
