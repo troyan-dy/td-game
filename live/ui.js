@@ -37,9 +37,9 @@
   const typePic = (type, lk, ph) => { const A = SIM.art(type), n = [3, 2, 1].map((l) => 'tw_' + A.sprite + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
     const html = img(n || 'tw_' + A.sprite + '_' + lk, `<div class="ph" style="${ph || ''}background:${A.ui}"></div>`);
     return A.css ? html.replace('<img ', `<img style="filter:${A.css}" `) : html; };
-  const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд' };
-  const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом' };
-  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡' };
+  const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд', aura: 'аура соседям' };
+  const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом', aura: 'аура соседям' };
+  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡', offering: '♥', frenzy: '↯', circle: '◎' };
   const UI = (window.UI = {});
   let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
   const seenEv = new Set();
@@ -84,11 +84,11 @@
       <div class="seednote" id="m-seednote"></div>
       <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
-      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
+      <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–${C.TOWER_ORDER.length}). Можно и наоборот: выбери башню и нажми на клетку.<br>
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
-      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
+      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Алтарь крови усиливает башни на соседних клетках.<br>
       <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
@@ -159,7 +159,7 @@
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
-      const dg = /^Digit([1-4])$/.exec(k) || /^Numpad([1-4])$/.exec(k); if (dg) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
+      const dg = /^Digit([1-9])$/.exec(k) || /^Numpad([1-9])$/.exec(k); if (dg && C.TOWER_ORDER[+dg[1] - 1]) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
       const tk = { KeyQ: 'dmg', KeyW: 'range', KeyE: 'rate' }[k]; if (tk) { upgrade(tk); return; }
       if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); } else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
       else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
@@ -202,11 +202,14 @@
     const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
     const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
       return `<div><span>${T[k].name}</span><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
+    // превью Алтаря: каких соседей он усилит на этой клетке (ответ логики; на карте те же клетки подсвечены)
+    const aura = C.TOWER_ORDER.filter((k) => SIM.hasAura(k)).map((k) => { const n = SIM.auraTargets(S, ui.sel, k).length;
+      return n ? `<div class="note aura">${T[k].title} здесь усилит башен: <b>${n}</b></div>` : ''; }).join('');
     p.innerHTML = `${closeBtn}<div class="nm">${b ? b.name : 'Свободная клетка'}</div>
         ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}
         <div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
         <div class="st prices">${prices}</div>
-        <div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
+        ${aura}<div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–${C.TOWER_ORDER.length}.</div>`;
   };
   const towerPic = (tw) => { const lk = SIM.look(tw); return typePic(tw.type, lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
   const towerHead = (S, tw) => {
@@ -214,8 +217,13 @@
     return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
       <div><div class="nm">${d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
       <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
-      <div><span>Убито</span><b data-v="kills">${tw.kills}</b></div></div>`;
+      ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}</div>
+      ${boostLine(st)}`;
   };
+  // бонус Алтаря крови в итоговых характеристиках башни (st.altar от логики) — одной строкой под характеристиками
+  const boostLine = (st) => { const a = st.altar; if (!a) return '';
+    const parts = [`+${Math.round(a.dmg * 100)}% урона`, `+${Math.round(a.rate * 100)}% скорости`].concat(a.range ? [`+${SIM.rangeTiles(a.range).toFixed(1)} кл.`] : []);
+    return `<div class="boost">♥ Алтарь крови: ${parts.join(' · ')}</div>`; };
   // почему ступень или перк недоступны — словами (подсказка при наведении); пустая строка — доступно
   const trackWhy = (S, cu) => ({ max: 'Ветка прокачана до предела этой башни', price: 'Следующая ступень этой ветки пока недоступна', souls: `Не хватает ${cu.cost - S.souls} душ`, ended: 'Забег окончен' }[cu.reason] || '');
   const perkWhy = (S, cp) => ({ steps: `Откроется после ${C.PERK_AT} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
