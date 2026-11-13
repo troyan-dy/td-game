@@ -75,7 +75,7 @@
     wire();
   };
   // волна, на которой игрок продолжит: идущая, а в паузе — следующая
-  const waveOf = (S) => Math.min(SIM.waveCount(), Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
+  const waveOf = (S) => Math.min(SIM.lastWave(S), Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
   const menuHTML = () => { const sv = saved();
     return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
       <div class="col">${sv ? `<button class="btn green two" id="m-cont"><span class="l1">Продолжить</span><span class="l2">волна ${waveOf(sv.S)} · сид ${sv.S.seed}</span></button>` : ''}
@@ -85,6 +85,7 @@
       <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
+      <b>Бесконечный режим:</b> после победы на ${SIM.waveCount()}-й волне можно держать оборону дальше — волны растут без предела, босс каждые 10 волн; итог — достигнутая волна.<br>
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
@@ -341,7 +342,8 @@
   let neQueue = [];
   const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
     const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
-    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${has('en_' + type) ? '' : 'filter:sepia(1) saturate(2.2) brightness(1.1)'}">${img(has('en_' + type) ? 'en_' + type : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
+    const own = 'en_' + (d.look ? d.look.as : type), css = has(own) ? (d.look ? d.look.css : '') : 'sepia(1) saturate(2.2) brightness(1.1)';   // без своего арта — как на поле
+    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
@@ -380,21 +382,37 @@
     if (typed) $('#m-seed').value = typed; if (focused) $('#m-seed').focus();
     // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
     const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
-    const start = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
-    $('#m-new').onclick = () => start();
+    $('#m-new').onclick = () => startRun();
     const inp = $('#m-seed'); inp.oninput = seedInput; seedInput();
-    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); start(r.seed); } else AUDIO.ui('deny'); };
+    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); startRun(r.seed); } else AUDIO.ui('deny'); };
     // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
     inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
-  const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
+  // новый забег — по сиду (ввод на титульном экране, «Переиграть сид») или по случайному
+  const startRun = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+  const clock = (sec) => { const t = Math.floor(sec), hh = Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = String(t % 60).padStart(2, '0');
+    return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`; };
+  // Экран конца забега. Победа на последней волне — сначала выбор: продолжить в бесконечном режиме или закончить;
+  // итоги (после «Закончить» и после поражения) — сид, волна, время, убийства; новый забег или переигровка того же сида.
+  const showEnd = (S, final) => { const won = S.phase === 'won', choice = won && !final && SIM.canEndless(S), R = SIM.waveCount();
+    const text = won ? (choice ? `Последний паладин рассыпался в прах. Можно закончить забег — или держать оборону дальше: волны будут расти без предела, босс — каждые 10 волн.`
+      : 'Последний паладин рассыпался в прах. Некрополис спит спокойно.')
+      : S.endless ? `Бесконечный режим: враги прорвались на ${S.wave}-й волне. Отбито волн: ${S.wave - 1}, из них после победы — ${S.wave - 1 - R}.`
+      : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`;
+    const btns = choice ? `<button class="btn green two" id="e-endless"><span class="l1">Продолжить</span><span class="l2">бесконечный режим</span></button><button class="btn" id="e-finish">Закончить забег</button>`
+      : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
-      <p>${won ? 'Последний паладин рассыпался в прах. Некрополис спит спокойно.' : `Враги прорвались на ${S.wave}-й волне. Попробуй другое сочетание башен.`}</p>
-      <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${SIM.waveCount()}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
-      <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
-      <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
+      <p>${text}</p>
+      <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.endless ? `${S.wave} · ∞` : `${S.wave} / ${R}`}</b><span>Время</span><b>${clock(S.stats.time)}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
+      <span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Собрано душ</span><b>${S.stats.earned}</b></div>
+      <div class="col">${btns}</div></div>`;
     showOverlay('end', true);
-    $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
+    if (choice) {
+      $('#e-endless').onclick = () => { APP.cmd({ k: 'endless' }); showOverlay('end', false); AUDIO.ui('start'); };
+      $('#e-finish').onclick = () => showEnd(S, true);
+      return; }
+    $('#e-again').onclick = () => startRun();
+    $('#e-replay').onclick = () => { const r = SIM.parseSeed(String(S.seed)); if (r.ok) startRun(r.seed); else AUDIO.ui('deny'); };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
@@ -426,11 +444,11 @@
     const S = A.play;
     $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); return; }
-    $('#s-wave').textContent = `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
+    $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
     $('#b-pause').classList.toggle('on', A.paused); $('#b-speed').textContent = A.speed === 2 ? '▶▶' : '▶'; $('#b-speed').classList.toggle('on', A.speed === 2);
-    const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.waveCount();
+    const wb = $('#wavebtn'), canCall = S.phase === 'prep' && S.wave < SIM.lastWave(S);
     wb.classList.toggle('hidden', !canCall);
     if (canCall) { const nx = S.wave + 1, boss = SIM.isBoss(nx);
       $('#w-l1').textContent = S.wave === 0 ? 'Начать волну 1' : `Призвать волну ${nx}`;
@@ -442,6 +460,7 @@
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
+      if (e.k === 'endless') { toast('Бесконечный режим<small>Волны растут без предела · босс каждые 10 волн</small>', 'big', 3000); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
       if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'grim' || e.k === 'wave') savedAt = 0;
     }
