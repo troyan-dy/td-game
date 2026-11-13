@@ -29,6 +29,17 @@
     checked = { raw, ok };
     if (ok) return sv;
     store.del(SAVE_KEY); return null; };
+  // Профиль открытий и рекордов (live/meta.js) — свой ключ. Испорченный или чужой версии читается как новый профиль
+  // (META.load), меню от него не падает. Пишется после каждого итога забега и по «Открыть всё».
+  const PROFILE_KEY = 'necropolis.profile';
+  let profileFailed = false;
+  const profile = () => META.load(store.get(PROFILE_KEY));
+  const saveProfile = (p) => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify(p)); }
+    catch (e) { if (!profileFailed) { profileFailed = true; toast('Открытия не сохраняются<small>Хранилище браузера недоступно или переполнено</small>', '', 5000); } } };
+  // закрыт ли тип башни в этом забеге (список открытого забег получил при создании) и чем он открывается
+  const locked = (S, type) => !!(S && S.unlocked && !S.unlocked.includes(type));
+  const howOpen = (id) => { const it = META.view(profile()).items.find((x) => x.id === id);
+    return it && it.ach ? `${it.ach.name}: ${it.ach.desc.toLowerCase()}` : 'Кнопка «Открыть всё» на экране «Открытия»'; };
   const dropOldSaves = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith(SAVE_KEY + '.')) localStorage.removeItem(k); } catch (e) {} };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
@@ -60,7 +71,7 @@
     const cards = h('div', 'frame', ''); cards.id = 'cards';
     cards.style.setProperty('--n', C.TOWER_ORDER.length);            // ширина карточки считается в CSS от числа типов: полоса не шире своей зоны
     if (C.TOWER_ORDER.length > 5) cards.classList.add('many');
-    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
+    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div><div class="lock">🔒</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
     const panel = h('div', 'frame', ''); panel.id = 'panel'; root.append(panel);
@@ -70,8 +81,8 @@
     const tip = h('div', 'frame', ''); tip.id = 'tip'; root.append(tip);
     const toasts = h('div', '', ''); toasts.id = 'toasts'; root.append(toasts);
     const coach = h('div', 'frame', ''); coach.id = 'coach'; root.append(coach);
-    root.append(h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''));
-    const [menu, pause, end, ne] = root.querySelectorAll('.overlay'); menu.id = 'menu'; pause.id = 'pause'; end.id = 'end'; ne.id = 'newenemy';
+    root.append(h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''), h('div', 'overlay', ''));
+    const [menu, pause, end, ne, meta] = root.querySelectorAll('.overlay'); menu.id = 'menu'; pause.id = 'pause'; end.id = 'end'; ne.id = 'newenemy'; meta.id = 'meta';
     pause.innerHTML = `<div class="frame box"><h2>Пауза</h2>
       <div class="set"><span>Громкость</span><input type="range" min="0" max="1" step="0.05" id="vol"></div>
       <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
@@ -85,6 +96,7 @@
       <button class="btn ${sv ? '' : 'green'}" id="m-new" title="Новая карта по случайному сиду">Новая игра</button>
       <div class="seedrow"><input id="m-seed" type="text" inputmode="numeric" maxlength="40" autocomplete="off" spellcheck="false" placeholder="сид карты" aria-label="Сид карты"><button class="btn" id="m-seedgo" disabled>По сиду</button></div>
       <div class="seednote" id="m-seednote"></div>
+      <button class="btn" id="m-meta">Открытия</button>
       <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи ${SIM.waveCount()} волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–${C.TOWER_ORDER.length}). Можно и наоборот: выбери башню и нажми на клетку.<br>
@@ -115,6 +127,7 @@
   const flashPoor = (type) => { const c = $(`.card[data-type="${type}"]`); if (c) { c.animate([{ transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 220 }); }
     const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
   const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
+    if (locked(S, type)) { AUDIO.ui('deny'); toast(`${T[type].title} закрыта<small>${howOpen(type)}</small>`, '', 2600); return; }
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
     ui.armed = ui.armed === type ? null : type; ui.sel = -1; ui.move = -1; renderPanel(true); };
   const upgrade = (track) => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
@@ -154,10 +167,11 @@
     $('#b-menu').addEventListener('click', () => togglePause(true));
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', () => togglePause(false));
-    $('#p-restart').addEventListener('click', () => { APP.newGame(); resetRun(); showOverlay('pause', false); persist(); });
+    $('#p-restart').addEventListener('click', () => { APP.newGame(undefined, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('pause', false); persist(); });
     $('#p-menu').addEventListener('click', () => { persist(); showOverlay('pause', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
+      if ($('#meta').classList.contains('show')) { if (k === 'Escape') { showOverlay('meta', false); e.preventDefault(); } return; }   // экран открытий поверх меню
       // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
       if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
@@ -186,6 +200,7 @@
     t.style.left = Math.max(10, Math.min(1590 - t.offsetWidth, x)) + 'px'; t.style.top = Math.max(58, Math.min(890 - t.offsetHeight, y - t.offsetHeight)) + 'px'; };
   const hideTip = () => $('#tip').classList.remove('show');
   const showCardTip = (c) => { const k = c.dataset.type, d = T[k], st = SIM.buildStats(APP.play, -1, k);
+    if (locked(APP.play, k)) { tipAt(`<h4>${d.title} · закрыта</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">Откроется: <b>${howOpen(k)}</b></div>`, c.offsetLeft + 10, 900 - 150); return; }
     tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType] || ''}</div>`, c.offsetLeft + 10, 900 - 150); };
 
   // ---------------------------------------------------------------- панель
@@ -206,6 +221,7 @@
   const buildMenu = (S, p) => {
     const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
     const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
+      if (cb.reason === 'locked') return `<div class="lk"><span>${T[k].name}</span><span>🔒 закрыта</span></div>`;
       return `<div><span>${T[k].name}</span><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
     // превью Алтаря: каких соседей он усилит на этой клетке (ответ логики; на карте те же клетки подсвечены)
     const aura = C.TOWER_ORDER.filter((k) => SIM.hasAura(k)).map((k) => { const n = SIM.auraTargets(S, ui.sel, k).length;
@@ -332,7 +348,7 @@
     const free = (i) => S && i >= 0 && !S.towers[i] && !isRoad(i), spot = free(ui.sel) ? ui.sel : ui.armed && free(ui.hover) ? ui.hover : -1;
     document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, cb = S ? SIM.canBuild(S, spot >= 0 ? spot : -1, k) : null, cost = cb ? cb.cost : T[k].base.cost, poor = S && S.souls < cost;
       const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', !!cb && cb.cost !== cb.base);
-      c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
+      c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); c.classList.toggle('locked', locked(S, k)); });
     if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], moving = ui.move === ui.sel;
     // в ключе и сами итоговые характеристики: они меняются и извне (алтарь рядом, Гримуар, клетка) — панель покажет новые
@@ -398,11 +414,39 @@
     $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); startRun(r.seed); } else AUDIO.ui('deny'); };
     // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
     inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
+    $('#m-meta').onclick = () => { AUDIO.ui('click'); showMeta(); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
   // новый забег — по сиду (ввод на титульном экране, «Переиграть сид») или по случайному
-  const startRun = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+  const startRun = (seed) => { APP.newGame(seed, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
   const clock = (sec) => { const t = Math.floor(sec), hh = Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = String(t % 60).padStart(2, '0');
     return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`; };
+  // Итог забега идёт в профиль один раз, когда забег кончился (победа — сразу, ещё до выбора; поражение в бесконечном режиме —
+  // продолжение уже засчитанной победы, META.apply не считает её второй раз). runGot — что открылось, его показывает экран итогов.
+  let runGot = null;
+  const credit = (S) => { if (S.demo) return null; const r = META.apply(profile(), META.result(S)); saveProfile(r.profile); return r; };
+  const KIND = { tower: 'Башня', relic: 'Реликвия' };
+  const gotHTML = (got) => { if (!got || (!got.opened.length && !got.done.length)) return '';
+    const by = new Set(got.opened.map((o) => o.by)), names = (id) => (C.UNLOCKS.achievements.find((a) => a.id === id) || {}).name || id;
+    const items = got.opened.map((o) => `<div class="got new"><b>${KIND[o.kind]}: ${o.name}</b><small>за «${o.byName}»</small></div>`)
+      .concat(got.done.filter((id) => !by.has(id)).map((id) => `<div class="got"><b>Достижение: ${names(id)}</b></div>`));
+    return `<div class="unlocks"><div class="uh">${got.opened.length ? 'Открыто в этом забеге' : 'Достижения забега'}</div><div class="gl">${items.join('')}</div></div>`; };
+  // Экран открытий (из меню): рекорды, башни и реликвии — открытые и закрытые с условием, достижения; «Открыть всё»
+  const showMeta = () => { const p = profile(), V = META.view(p), m = $('#meta');
+    const chip = (it) => `<div class="chip ${it.open ? 'on' : 'off'}" data-id="${it.id}"><b>${it.open ? '' : '🔒 '}${it.name}</b>${it.open ? '' : `<small>${it.ach ? it.ach.desc : 'только «Открыть всё»'}</small>`}</div>`;
+    const sect = (kind, title) => { const list = V.items.filter((it) => it.kind === kind); if (!list.length) return '';
+      return `<div class="sh">${title} <i>${list.filter((it) => it.open).length} / ${list.length}</i></div><div class="chips ${kind}">${list.map(chip).join('')}</div>`; };
+    const all = META.unlocked(p) === null || V.items.every((it) => it.open);
+    m.innerHTML = `<div class="frame box"><h2>Открытия</h2>
+      <div class="recs"><div><span>Лучшая волна</span><b>${p.best > SIM.waveCount() ? p.best + ' · ∞' : p.best || '—'}</b></div><div><span>Побед</span><b>${p.wins}</b></div>
+        <div><span>Быстрейшая победа</span><b>${p.fastest === null ? '—' : clock(p.fastest)}</b></div><div><span>Забегов</span><b>${p.runs}</b></div><div><span>Врагов повержено</span><b>${Math.round(p.totals.kills || 0)}</b></div></div>
+      ${sect('tower', 'Башни')}${sect('relic', 'Реликвии')}
+      <div class="sh">Достижения <i>${V.achievements.filter((a) => a.done).length} / ${V.achievements.length}</i></div>
+      <div class="achs">${V.achievements.map((a) => `<div class="ach ${a.done ? 'on' : ''}" title="${a.desc}"><b>${a.done ? '✔' : '○'} ${a.name}</b><small>${a.desc}</small></div>`).join('')}</div>
+      <div class="row2"><button class="btn ${all ? 'off' : 'green'}" id="mt-all" ${all ? 'disabled' : ''}>${all ? 'Всё открыто' : 'Открыть всё'}</button><button class="btn" id="mt-back">Назад</button></div></div>`;
+    showOverlay('meta', true);
+    $('#mt-all').onclick = () => { saveProfile(META.unlockAll(profile())); AUDIO.ui('start'); showMeta(); };
+    $('#mt-back').onclick = () => { showOverlay('meta', false); AUDIO.ui('click'); }; };
+  UI.showMeta = showMeta;
   // Экран конца забега. Победа на последней волне — сначала выбор: продолжить в бесконечном режиме или закончить;
   // итоги (после «Закончить» и после поражения) — сид, волна, время, убийства; новый забег или переигровка того же сида.
   const showEnd = (S, final) => { const won = S.phase === 'won', choice = won && !final && SIM.canEndless(S), R = SIM.waveCount();
@@ -414,6 +458,7 @@
       : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
       <p>${text}</p>
+      ${gotHTML(runGot)}
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.endless ? `${S.wave} · ∞` : `${S.wave} / ${R}`}</b><span>Время</span><b>${clock(S.stats.time)}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Собрано душ</span><b>${S.stats.earned}</b></div>
       <div class="col">${btns}</div></div>`;
@@ -428,7 +473,7 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { detached = false; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
@@ -481,7 +526,7 @@
     if (seenEv.size > 3000) markSeen();
     if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
-    if (isEnded && !wasEnded) { select(-1); dropOwn(); setTimeout(() => showEnd(APP.play), 900); }
+    if (isEnded && !wasEnded) { select(-1); dropOwn(); runGot = credit(S); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     renderPanel(false); coach(S);
