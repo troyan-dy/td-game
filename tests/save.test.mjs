@@ -233,6 +233,37 @@ for (const [name, spoil] of Object.entries(BAD)) test(`сейв отвергае
   assert.equal(SIM.loadable(S), false);
 });
 
+// забег с гибридом (Кости с примесью Духов, перки обеих) в паузе между волнами
+const hybridRun = () => {
+  const S = SIM.create(5), n = S.map.cols; S.souls = 1e6;
+  const near = (c) => [-n - 1, -n, -n + 1, -1, 1, n - 1, n, n + 1].map((d) => c + d).filter((i) => Math.abs((i % n) - (c % n)) <= 1 && SIM.canBuild(S, i, 'bones').ok);
+  const a = SIM.rankCells(S, C.TYPICAL_RANGE).find((c) => near(c).length), b = near(a)[0], cmds = [];
+  for (const [cell, type, p] of [[a, 'bones', 'crush'], [b, 'spirits', 'frost']]) { cmds.push({ k: 'build', cell, type });
+    for (const k of C.TRACKS) for (let i = 0; i < C.TRACK_MAX; i++) cmds.push({ k: 'upgrade', cell, track: k }); cmds.push({ k: 'perk', cell, p }); }
+  cmds.push({ k: 'merge', cell: a, other: b }); SIM.step(S, { cmds });
+  assert.ok(S.towers[a] && S.towers[a].mix === 'spirits' && S.towers[a].perks.length === 2, 'гибрид не собрался');
+  return json(S); };
+const HYB = hybridRun();
+const hyb = (S) => S.towers.find((t) => t && t.mix);
+test('сейв: забег с гибридом годен', () => { assert.equal(SIM.loadable(json(HYB)), true); assert.equal(HYB.stats.merges, 1); });
+const BAD_HYB = {
+  'примесь неизвестного типа': (S) => { hyb(S).mix = 'nope'; },
+  'примесь-свойство объекта': (S) => { hyb(S).mix = 'constructor'; },
+  'примесь — число': (S) => { hyb(S).mix = 5; },
+  'нет поля примеси': (S) => { delete hyb(S).mix; },
+  'Алтарь крови первой башней гибрида': (S) => { const t = hyb(S); t.type = 'altar'; t.perks = []; },
+  'гибрид с потолком обычной башни': (S) => { const t = hyb(S); t.cap = C.TRACK_MAX; },
+  'гибрид с одним слотом перков': (S) => { const t = hyb(S); t.slots = C.PERK_SLOTS; t.perks = t.perks.slice(0, 1); },
+  'гибрид из непрокачанной башни': (S) => { hyb(S).tracks.dmg = C.TRACK_MAX - 1; },
+  'перк не своего типа и не примеси': (S) => { hyb(S).perks[1] = 'curse'; },
+  'два перка одного типа у гибрида разных типов': (S) => { hyb(S).perks = ['crush', 'volley']; },
+  'обычная башня с потолком и слотами гибрида, но без примеси — перк чужого типа': (S) => { const t = hyb(S); t.mix = null; },
+  'счётчик слияний строкой': (S) => { S.stats.merges = '1'; },
+};
+for (const [name, spoil] of Object.entries(BAD_HYB)) test(`сейв с гибридом отвергается: ${name}`, () => {
+  const S = json(HYB); spoil(S); assert.equal(SIM.loadable(S), false);
+});
+
 test('сейв: не-объекты и обрывки отвергаются без исключений', () => {
   for (const x of [null, undefined, 0, 'мусор', [], {}, { v: C.VERSION }, { v: C.VERSION, wave: 3, phase: 'prep' }, Object.assign(fresh(), { towers: [] })])
     assert.equal(SIM.loadable(x), false, JSON.stringify(x));
