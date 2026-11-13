@@ -188,6 +188,18 @@
         heal: 12, healEvery: 4, healR: 1.5, healTargets: 3, healLock: 1.5,   // до 3 самых раненых; одного — не чаще раза в healLock с
         threat: 4, minWave: 5, weight: 1.5, gap: 2.2, alone: false, ability: 'Лечит до {healTargets} союзников на {heal} HP раз в {healEvery} с',
         desc: 'Лечит союзников рядом. Магия Духов вязнет в его вере, Кости и Тьма — нет.' },
+      // ward — сколько первых попаданий (любых: болт, призрак, луч, яд) проходят мимо; haste — прибавка к скорости врагов
+      // в радиусе hasteR (единицы UNIT) вокруг знаменосца, сам он не ускоряется, ауры не складываются.
+      // look — вид на поле и в интерфейсе без своего арта: спрайт и риг типа as, перекрашенные tint [r, g, b, сила], и CSS-фильтр картинки
+      scout: { name: 'Разведчик', hp: 42, speed: 112, armor: 0, mres: 0, bounty: 8, leak: 1, size: 1, ward: 1,
+        threat: 2, minWave: 4, weight: 1.5, gap: 0.9, ability: 'Очень быстрый; первое попадание по нему — промах',
+        look: { as: 'militia', tint: [0.55, 1.35, 0.55, 0.6], css: 'hue-rotate(70deg) saturate(1.8) brightness(1.1)' },
+        desc: 'Очень быстрый. Первое попадание по нему проходит мимо — против него хороши скорострельные башни.' },
+      banner: { name: 'Знаменосец', hp: 210, speed: 44, armor: 0.2, mres: 0.1, bounty: 16, leak: 1, size: 1,
+        haste: 0.3, hasteR: 2,
+        threat: 6, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
+        look: { as: 'knight', tint: [1.45, 0.45, 0.35, 0.55], css: 'hue-rotate(-35deg) saturate(2.4) brightness(0.95)' },
+        desc: 'Знамя гонит соседей вперёд: +30% скорости всем рядом. Убей его первым — ускорение пропадёт.' },
       cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true,
         spawnOnDeath: { type: 'militia', n: 2 },
         threat: 22, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',

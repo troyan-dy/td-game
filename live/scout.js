@@ -35,8 +35,10 @@
     const d = Math.round((v - 1) * 100); return `${name} ${d >= 0 ? '+' : '−'}${Math.abs(d)}%`;
   }).join(' · ');
   const enemyWord = (n) => { const a = n % 10, b = n % 100; return a === 1 && b !== 11 ? 'враг' : a >= 2 && a <= 4 && (b < 12 || b > 14) ? 'врага' : 'врагов'; };
-  const pic = (type) => { const n = has('en_' + type) ? 'en_' + type : 'en_knight';
-    return has(n) ? `<img src="assets/${n}.png" alt=""${n === 'en_' + type ? '' : ' style="filter:sepia(1) saturate(2.2)"'}>` : ''; };
+  // своего арта нет — картинка типа look.as в цвете look.css (как на поле), иначе рыцарь в сепии
+  const pic = (type) => { const lk = EN[type] && EN[type].look, own = lk ? 'en_' + lk.as : 'en_' + type, n = has(own) ? own : 'en_knight';
+    const css = n !== own ? 'sepia(1) saturate(2.2)' : lk ? lk.css : '';
+    return has(n) ? `<img src="assets/${n}.png" alt=""${css ? ` style="filter:${css}"` : ''}>` : ''; };
 
   const squadRows = (w) => w.squads.map((q) => `<div class="sq${q.boss ? ' boss' : ''}"${q.ability ? ` data-tip="${esc(q.name + ': ' + q.ability)}"` : ''}>
       <div class="who"><span class="pic">${pic(q.type)}</span><span class="nm">${q.name}${q.ability ? '<i class="ab">✦</i>' : ''}</span><span class="n">×${q.count}</span></div>

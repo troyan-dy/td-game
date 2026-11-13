@@ -22,11 +22,12 @@
     soul: [0.30, 0.95, 0.88], dark: [0.80, 0.38, 1.0], poison: [0.45, 0.90, 0.25], torch: [1.0, 0.62, 0.25],
     bone: [0.90, 0.85, 0.72], ink: [0.07, 0.05, 0.14], road: [0.66, 0.57, 0.78], ground: [0.12, 0.11, 0.20],
     hpOk: [0.40, 0.85, 0.35], hpLow: [0.95, 0.30, 0.25], frost: [0.70, 0.95, 1.0], heal: [1.0, 0.85, 0.45],
+    ward: [0.65, 1.0, 0.55], haste: [1.0, 0.42, 0.25],
   };
   // вид типа башни — из конфига (SIM.art: основа спрайта, перекраска, цвет, детали); у неизвестного — общий вид C.ART
   const tcol = (type) => SIM.art(type).color;
   const TOWER_H = [86, 94, 104];                               // высота башни по виду 1..3 (SIM.look), view px
-  const EH = { militia: 34, knight: 36, priest: 38, cart: 58, paladin: 72 };
+  const EH = { militia: 34, knight: 36, priest: 38, cart: 58, paladin: 72, scout: 31, banner: 38 };
   const HUD_SOULS = [1392, 27];                                // куда летят души (центр счётчика душ в ui.js)
 
   // ---------------------------------------------------------------- плейсхолдер-фон (если bgmap.js не загрузился)
@@ -110,8 +111,12 @@
     const hit = Math.max(0, 1 - (GT - e.hitT) / 0.12), frozen = e.freezeT > 0, slowed = e.slowT > 0;
     const ph = e.walk / (e.type === 'cart' ? 40 : 22) * Math.PI;
     L.shadow(x, y + 2, h * (e.type === 'cart' ? 0.85 : 0.45), h * 0.16, 0.5);
-    const n = 'en_' + e.type, tint = frozen ? [0.6, 0.9, 1.2, 0.6] : hit > 0 ? [3, 3, 3, hit * 0.7] : e.curseT > 0 ? [0.9, 0.5, 1.2, 0.35] : [1, 1, 1, 0];
-    let rig = window.RIGS && window.RIGS[e.type];
+    // своего арта нет (разведчик, знаменосец) — спрайт и риг другого типа в своём цвете (look в конфиге)
+    const look = def.look, as = look ? look.as : e.type;
+    const n = 'en_' + as, tint = frozen ? [0.6, 0.9, 1.2, 0.6] : hit > 0 ? [3, 3, 3, hit * 0.7] : e.curseT > 0 ? [0.9, 0.5, 1.2, 0.35] : look ? look.tint.slice() : [1, 1, 1, 0];
+    if (e.haste > 0) for (let j = 0; j < 3; j++) { const k = (t * 3 + j / 3 + e.id * 0.37) % 1;   // ускорен знаменосцем: полосы ветра за спиной
+      L.solid(x - e.face * (10 + 14 * k), y - h * (0.25 + 0.22 * j), 14, 2, COL.haste, 0, 7, 1, 0.7 * (1 - k)); }
+    let rig = window.RIGS && window.RIGS[as];
     if (!rig && e.type === 'paladin' && window.RIGS && window.RIGS.knight) {          // запасной вид босса: рыцарь крупнее, в золоте
       rig = window.RIGS.knight; if (tint[3] === 0) tint.splice(0, 4, 1.25, 1.05, 0.55, 0.38);
       L.glow(x, y - h * 0.5, h * 0.9, [1, 0.8, 0.4], 0.22 + 0.06 * Math.sin(t * 3)); }
@@ -136,6 +141,11 @@
         if (e.type === 'knight' || e.type === 'paladin') L.solid(x + e.face * w * 0.45 - 6, y - h * 0.8 - bob, 12, h * 0.45, [0.75, 0.18, 0.2]);
         if (e.type === 'priest') L.glow(x + e.face * w * 0.6, y - h * 0.9, 12, COL.torch, 0.7 + 0.2 * Math.sin(t * 9 + e.id)); }
     }
+    if (e.type === 'banner') { const wv = Math.sin(t * 6 + e.id), px = x - e.face * 8, top = y - h - 26;   // древко и полотнище знамени
+      L.solid(px - 1.5, top, 3, h + 18, [0.35, 0.25, 0.18]);
+      L.solid(e.face > 0 ? px - 18 : px, top + 2, 18, 12, [0.85, 0.18, 0.14], wv * 0.12, e.face > 0 ? 18 : 0, 0);   // полотнище вьётся назад
+      L.star(px, top, 4, [1, 0.85, 0.4], 0.9); }
+    if (e.ward > 0) L.glow(x, y - h * 0.5, h * 0.65, COL.ward, 0.22 + 0.08 * Math.sin(t * 8 + e.id));   // щит разведчика: первое попадание пройдёт мимо
     if (slowed && !frozen) L.glow(x, y - h * 0.4, h * 0.6, COL.soul, 0.18);
     if (e.curseT > 0) L.glow(x, y - h * 0.6, h * 0.55, COL.dark, 0.25);
     if (Object.keys(e.poison).length) L.puff(x, y - h * 0.4, h * 0.45, COL.poison, 0.22, e.id + Math.floor(t * 4));
@@ -247,6 +257,9 @@
       for (let j = 0; j < 6; j++) { const an = j * 1.047 + rnd(c.x, j) * 2 + GT * 0.4, rr = c.r * (0.35 + 0.35 * rnd(c.y, j));
         L.puff(c.x + Math.cos(an) * rr, c.y + Math.sin(an) * rr * 0.6 - 6, c.r * 0.55, c.acid ? [0.7, 0.95, 0.2] : COL.poison, 0.32 * fade, j + Math.floor(c.x)); }
       L.glow(c.x, c.y, c.r * 1.1, COL.poison, 0.18 * fade); }
+    // аура знаменосца на земле: кольцо ровно по радиусу ускорения (кольцо L.ring лежит на 0.85 своего квада)
+    for (const e of ST.enemies) { const d = C.ENEMIES[e.type]; if (!d.haste) continue; const R = d.hasteR * C.UNIT / 0.85, p = 0.5 + 0.5 * Math.sin(t * 4 + e.id);
+      L.ring(e.x, e.y, R, R * 0.92, COL.haste, 0.30 + 0.15 * p, 0.03); L.glow(e.x, e.y, d.hasteR * C.UNIT, COL.haste, 0.08 + 0.05 * p); }
 
     // y-сортировка
     const Y = [];
@@ -293,6 +306,7 @@
         L.ring(e.x, e.y, 26 + 40 * q, (26 + 40 * q) * 0.5, COL.soul, 0.8 * (1 - q), 0.15); }
       if (e.k === 'sell' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 8; j++) L.puff(e.x + (j - 3.5) * 9, e.y - 10 - 30 * q, 10 + 10 * q, [0.5, 0.45, 0.6], 0.5 * (1 - q), j); }
       if (e.k === 'heal' && e.any && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y - 14, 20 + 50 * q, (20 + 50 * q) * 0.55, COL.heal, 0.7 * (1 - q), 0.12); }
+      if (e.k === 'miss' && a < 0.4) { const q = a / 0.4; L.ring(e.x, e.y, 18 + 26 * q, (18 + 26 * q) * 0.9, COL.ward, 0.8 * (1 - q), 0.15); }
       if (e.k === 'freeze' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 4; j++) L.star(e.x + (j - 1.5) * 8, e.y - 20 - 10 * q, 8, COL.frost, 1 - q); }
       if (e.k === 'leak' && a < 0.8) { const q = a / 0.8; L.ring(e.x, e.y - 20, 40 + 90 * q, (40 + 90 * q) * 0.6, [1, 0.35, 0.4], 0.9 * (1 - q), 0.12); }
       if (e.k === 'harvest' && a < 0.7) { const q = a / 0.7; L.glow(e.x, e.y - 30 - 30 * q, 14, COL.dark, 0.7 * (1 - q)); }
@@ -324,6 +338,7 @@
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
       if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
+      if (e.k === 'miss') { const q = a / 1.1; L.label('f' + (fi++ % 40), 'ПРОМАХ', e.x, e.y - 34 - 30 * q, { size: 17, col: '#c8ff9e', out: '#132a0b', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'leak') { const q = a / 1.1; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
   };
 

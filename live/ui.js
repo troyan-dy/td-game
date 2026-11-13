@@ -338,7 +338,8 @@
   let neQueue = [];
   const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
     const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
-    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${has('en_' + type) ? '' : 'filter:sepia(1) saturate(2.2) brightness(1.1)'}">${img(has('en_' + type) ? 'en_' + type : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
+    const own = 'en_' + (d.look ? d.look.as : type), css = has(own) ? (d.look ? d.look.css : '') : 'sepia(1) saturate(2.2) brightness(1.1)';   // без своего арта — как на поле
+    o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${css ? 'filter:' + css : ''}">${img(has(own) ? own : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };

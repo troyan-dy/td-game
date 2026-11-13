@@ -385,7 +385,8 @@
     const def = EN[type], st = enemyStats(S, type);
     const e = { id: S.nid++, type, d: d || 0, hp: st.hp, max: st.hp, bounty: st.bounty, armor: st.armor, mres: st.mres, speed: st.speed, heal: st.heal, child: !!child,
       lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, curse: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
-      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name };
+      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name,
+      ward: def.ward || 0, haste: 0 };   // ward — сколько первых попаданий ещё пройдут мимо; haste — ускорение от знаменосца
     placeEnemy(S, e, 0);
     S.enemies.push(e);
     if (!S.seen[type]) { S.seen[type] = 1; ev(S, 'newEnemy', { type }); }
@@ -400,6 +401,7 @@
   // ---------------------------------------------------------------- урон и смерть
   const damage = (S, e, amt, type, tw, opt) => {
     if (e.dead || amt <= 0) return 0;
+    if (e.ward > 0) { e.ward--; ev(S, 'miss', { x: e.x, y: e.y - 14 }); return 0; }   // разведчик: первое попадание любого урона — мимо
     // броня и защита — с врага (свойство волны их меняет); бонус клетки уже в уроне снаряда (towerStats при выстреле)
     if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, e.armor + e.aura - e.shred) * (1 - (opt && opt.pen || 0)));   // pen — доля брони, которую удар не замечает
     else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - e.mres;
@@ -556,6 +558,9 @@
     // ауры паладинов
     const bosses = S.enemies.filter((e) => !e.dead && EN[e.type].aura);
     for (const e of S.enemies) { e.aura = 0; for (const b of bosses) if (b !== e && Math.hypot(b.x - e.x, b.y - e.y) <= EN[b.type].auraR * UNIT) e.aura = EN[b.type].aura; }
+    // знамёна: соседи знаменосца быстрее (не складываются); убит знаменосец — на следующем шаге ускорения нет
+    const banners = S.enemies.filter((e) => !e.dead && EN[e.type].haste);
+    for (const e of S.enemies) { e.haste = 0; for (const b of banners) if (b !== e && Math.hypot(b.x - e.x, b.y - e.y) <= EN[b.type].hasteR * UNIT) e.haste = Math.max(e.haste, EN[b.type].haste); }
     // враги: статусы, лечение, движение
     for (const e of S.enemies) {
       if (e.dead) continue; const def = EN[e.type];
@@ -570,7 +575,7 @@
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
         ev(S, 'heal', { x: e.x, y: e.y, any }); } }
-      const v = e.freezeT > 0 ? 0 : e.speed * (e.slowT > 0 ? 1 - e.slowK : 1);
+      const v = e.freezeT > 0 ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss }); }
