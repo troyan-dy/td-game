@@ -207,8 +207,8 @@
   const toast = (html, cls = '', ms = 2600) => { const t = h('div', 'frame toast ' + cls, html); $('#toasts').append(t);
     setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600); };
   let neQueue = [];
-  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy');
-    const tags = [d.armor ? `броня ${Math.round(d.armor * 100)}%` : '', d.mres ? `защита от магии ${Math.round(d.mres * 100)}%` : '', d.heal ? 'лечит' : '', d.boss ? 'босс' : '', `скорость ${d.speed}`].filter(Boolean).join(' · ');
+  const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
+    const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
     o.innerHTML = `<div class="frame box"><h2>Новый враг</h2><div class="pic" style="${has('en_' + type) ? '' : 'filter:sepia(1) saturate(2.2) brightness(1.1)'}">${img(has('en_' + type) ? 'en_' + type : 'en_knight', '')}</div><div style="font:700 28px var(--title)">${d.name}</div>
       <div class="tags">${tags}</div><p>${d.desc}</p><div class="col"><button class="btn green" id="ne-ok">К бою (Enter)</button></div></div>`;
     showOverlay('newenemy', true); APP.paused = true; $('#ne-ok').onclick = closeNewEnemy; };

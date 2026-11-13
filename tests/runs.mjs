@@ -10,14 +10,15 @@ const idleLoss = (seed) => { let leak = 0; for (let n = 1; ; n++) { leak += SIM.
 const IDLE = 'без обороны проигрыш в первые волны: на той, где пропуски по превью добивают склеп';
 const idleOk = (seed) => (r) => r.phase === 'lost' && r.wave === idleLoss(seed) && r.wave <= SIM.waveCount() / 4;
 const SMART_SEEDS = [1, 2, 3];
-const SMART = 'разумная оборона доживает до первого босса; из трёх разумных забегов хотя бы один победный';
-const smartOk = (r, all) => r.wave >= C.WAVEGEN.bossEvery && SMART_SEEDS.some((s) => all[`smart s${s}`].phase === 'won');
+// «Заметно дальше» — на четверть забега дальше бота без обороны на том же сиде; и игра проходима: хотя бы одна из трёх партий — победа.
+const SMART = 'разумная оборона проходит на четверть забега дальше бота без обороны; из трёх разумных забегов хотя бы один победный';
+const smartOk = (seed) => (r, all) => r.wave >= all[`idle s${seed}`].wave + SIM.waveCount() / 4 && SMART_SEEDS.some((s) => all[`smart s${s}`].phase === 'won');
 
 // name — короткое имя для сводки; ok(r, all) — итог партии r = play(bot, seed) ожидаемый; all — итоги всех партий по имени
 // (считаются по требованию: обращение к all['idle s1'] сыграет эту партию, если её ещё не было); want — что ожидается, словами.
 export const RUNS = [
   ...[1, 2, 3].map((seed) => ({ name: `idle s${seed}`, bot: idle, seed, want: IDLE, ok: idleOk(seed) })),
-  ...SMART_SEEDS.map((seed) => ({ name: `smart s${seed}`, bot: smart, seed, want: SMART, ok: smartOk })),
+  ...SMART_SEEDS.map((seed) => ({ name: `smart s${seed}`, bot: smart, seed, want: SMART, ok: smartOk(seed) })),
   { name: 'bones s1', bot: spamBones, seed: 1, want: 'одна башня спамом в итоге проигрывает', ok: (r) => r.phase === 'lost' },
 ];
 export const playRun = (R) => play(R.bot, R.seed);

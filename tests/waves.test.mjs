@@ -10,6 +10,8 @@ const C = SIM.CONFIG, WG = C.WAVEGEN, EN = C.ENEMIES;
 const RUN = SIM.waveCount();
 const seeds = (n) => Array.from({ length: n }, (_, i) => i + 1);
 const sig = (w) => w.squads.map((q) => q.type + '×' + q.count).join(' ') + (w.trait ? ' ' + w.trait.id : '');
+// сколько врагов даёт один враг типа t вместе с теми, кто выйдет из него (у ополченцев, выходящих из повозки, своих нет)
+const heads = (t) => 1 + (EN[t].spawnOnDeath ? EN[t].spawnOnDeath.n : 0);
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 
 test('забег — RUN_WAVES волн из генератора, ручного списка волн нет', () => {
@@ -45,7 +47,8 @@ test('бюджет угрозы строго растёт от волны к в�
   for (const s of seeds(50)) for (let n = 1; n <= RUN; n++) {
     const w = WAVEGEN.wave(s, n);
     assert.equal(w.budget, WG.budget(n));
-    assert.ok(w.threat <= w.budget * (w.trait && w.trait.mods.budget || 1) * (w.boss ? WG.bossEscort : 1) + 1e-9, `сид ${s} волна ${n}: потрачено ${w.threat} из ${w.budget}`);
+    // угроза в составе × power (бюджет, ушедший в силу врагов сверх предела числа) не больше бюджета волны
+    assert.ok(w.threat * w.power <= w.budget * (w.trait && w.trait.mods.budget || 1) * (w.boss ? WG.bossEscort : 1) + 1e-6, `сид ${s} волна ${n}: потрачено ${w.threat}×${w.power} из ${w.budget}`);
   }
 });
 
@@ -92,7 +95,7 @@ const statsBy = (n, pick) => { const acc = { yes: [], no: [] };
   for (const s of seeds(600)) { const w = WAVEGEN.wave(s, n); acc[pick(w) ? 'yes' : w.trait ? 'skip' : 'no']?.push(w); } return acc; };
 const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
 test('свойство реально меняет врагов: броня, скорость, HP, награда, число и лечение против волн того же номера без свойства', () => {
-  const n = 14, sq = (ws, type, key) => ws.flatMap((w) => w.squads.filter((q) => q.type === type).map((q) => q[key]));
+  const n = 9, sq = (ws, type, key) => ws.flatMap((w) => w.squads.filter((q) => q.type === type).map((q) => q[key]));
   const by = (id) => statsBy(n, (w) => w.trait && w.trait.id === id);
   const armored = by('armored'), fast = by('fast'), horde = by('horde'), rich = by('rich'), healers = by('healers');
   assert.ok(avg(sq(armored.yes, 'knight', 'armor')) > avg(sq(armored.no, 'knight', 'armor')), 'бронированная: броня рыцарей не выросла');
@@ -155,10 +158,10 @@ const gauntlet = (seed, waves) => {
       for (const e of S.enemies) { const r = seen.get(e.id);
         if (!r) seen.set(e.id, { type: e.type, child: !!e.child, hp: e.max, armor: e.armor, mres: e.mres, speed: e.speed, bounty: e.bounty, name: e.name, d0: e.d });
         else if (r.v === undefined && e.d > r.d0 && e.slowT <= 0 && e.freezeT <= 0) r.v = (e.d - r.d0) / S.dt; }
-      remain.push(SIM.remaining(S) === (S.queue.length - S.qi) + S.enemies.length);
+      remain.push(SIM.remaining(S) === S.queue.slice(S.qi).reduce((a, q) => a + heads(q.e), 0) + S.enemies.reduce((a, e) => a + heads(e.type), 0));
       SIM.step(S, null);
     }
-    assert.ok(remain.every(Boolean), 'SIM.remaining не равно невышедшим плюс живым');
+    assert.ok(remain.every(Boolean), 'SIM.remaining не равно невышедшим плюс живым (вместе с теми, кто выйдет из них)');
     out.push({ pv, got: [...seen.values()] });                       // следующая волна — сразу командой call
   }
   return out;
@@ -210,4 +213,162 @@ test('из повозки выходят ополченцы с характер�
   const kids = S.enemies.filter((e) => e.child);
   assert.equal(kids.length, EN.cart.spawnOnDeath.n);
   for (const k of kids) for (const key of ['hp', 'armor', 'mres', 'speed', 'bounty']) assert.equal(k[key === 'hp' ? 'max' : key], ex[key], key);
+});
+
+// ---------------------------------------------------------------- предел волны и негодные номера
+test('предел волны: до 500-й врагов и длительность не выше предела, очередь не длиннее, суммарные HP растут', () => {
+  for (const s of seeds(3)) for (let n = 1; n <= 500; n++) {
+    const w = WAVEGEN.wave(s, n), q = WAVEGEN.queue(w);
+    assert.ok(w.total.count + w.total.extra <= WG.maxEnemies, `сид ${s} волна ${n}: врагов ${w.total.count}+${w.total.extra}`);
+    assert.ok(w.duration <= WG.maxDuration, `сид ${s} волна ${n}: длительность ${w.duration}`);
+    assert.equal(q.length, w.total.count); assert.ok(q.every((x) => x.at <= WG.maxDuration));
+    assert.ok(w.power >= 1);
+  }
+  let prev = 0;
+  for (const n of [10, 20, 30, 50, 100, 200, 300, 500]) {
+    const hp = avg(seeds(20).map((s) => WAVEGEN.wave(s, n).total.hp));
+    assert.ok(hp > prev, `волна ${n}: средние суммарные HP ${hp} не больше ${prev}`); prev = hp;
+  }
+  assert.ok(WAVEGEN.wave(1, 100).power > 1, 'на 100-й волне бюджет сверх предела не ушёл в силу врагов');
+});
+
+test('генерация и очередь волны занимают доли миллисекунды на любом номере', () => {
+  const t0 = performance.now(); let k = 0;
+  for (let n = 1; n <= 500; n++, k++) WAVEGEN.queue(WAVEGEN.wave(3, n));
+  for (const n of [1e4, 1e6, Number.MAX_SAFE_INTEGER]) { WAVEGEN.queue(WAVEGEN.wave(3, n)); k++; }
+  const per = (performance.now() - t0) / k;
+  assert.ok(per < 2, `в среднем ${per.toFixed(2)} мс на волну`);
+});
+
+test('негодный номер волны — RangeError; огромный — конечная волна в пределах', () => {
+  for (const bad of [0, -1, -5, 1.5, NaN, undefined, null, '3', Infinity, -Infinity, 2 ** 53, {}, []])
+    assert.throws(() => WAVEGEN.wave(1, bad), RangeError, 'номер ' + String(bad));
+  for (const n of [1e6, Number.MAX_SAFE_INTEGER]) {
+    const w = WAVEGEN.wave(1, n);
+    assert.ok(w.total.count + w.total.extra <= WG.maxEnemies && w.duration <= WG.maxDuration);
+    for (const q of [...w.squads, ...w.extra]) for (const k of ['hp', 'armor', 'mres', 'speed', 'bounty']) assert.ok(Number.isFinite(q[k]), `${n}: ${q.type}.${k} = ${q[k]}`);
+    assert.ok(Number.isFinite(w.total.hp) && Number.isFinite(w.total.bounty));
+  }
+  const S = SIM.create(1);
+  for (const bad of [NaN, 1.5, '1', undefined, Infinity, 0]) assert.equal(SIM.preview(S, bad), null);
+});
+
+test('характеристики превью — по формуле: база × множитель волны × свойство (× сила сверх предела)', () => {
+  const near = (a, b) => Math.abs(a - b) < 0.006;
+  let checked = 0, plain = 0;
+  for (const s of seeds(40)) for (let n = 1; n <= 40; n++) {
+    const w = WAVEGEN.wave(s, n), T = w.trait ? C.TRAITS[w.trait.id] : {}, k = (key) => (T[key] === undefined ? 1 : T[key]);
+    // волна заметно меньше предела числа врагов — значит, в него не упиралась, и добавочной силы нет
+    // (урезанная до предела волна теряет на округлении не больше нескольких врагов на отряд)
+    if (w.total.count + w.total.extra < WG.maxEnemies - 20) { assert.equal(w.power, 1, `сид ${s} волна ${n}`); plain++; }
+    for (const q of [...w.squads, ...w.extra]) { if (q.boss) continue; const d = EN[q.type];
+      assert.equal(q.hp, Math.round(d.hp * C.HP_MULT(n) * k('hp') * w.power), `сид ${s} волна ${n}: ${q.type}.hp`);
+      assert.equal(q.bounty, Math.round(d.bounty * C.BOUNTY_MULT(n) * k('bounty') * w.power ** WG.powerBounty), `сид ${s} волна ${n}: ${q.type}.bounty`);
+      assert.ok(near(q.armor, Math.min(0.9, d.armor + (T.armor || 0))), `сид ${s} волна ${n}: ${q.type}.armor ${q.armor}`);
+      assert.ok(near(q.mres, Math.min(0.9, d.mres + (T.mres || 0))), `сид ${s} волна ${n}: ${q.type}.mres ${q.mres}`);
+      assert.ok(near(q.speed, d.speed * k('speed')), `сид ${s} волна ${n}: ${q.type}.speed ${q.speed}`);
+      assert.equal(q.heal, d.heal ? Math.round(d.heal * C.HP_MULT(n) * k('heal')) : 0, `сид ${s} волна ${n}: ${q.type}.heal`);
+      checked++; }
+  }
+  assert.ok(checked > 1000 && plain > 300);
+});
+
+// ---------------------------------------------------------------- свойства в бою: цифры превью — это то, что происходит
+const findWave = (pred, from = 3, to = RUN) => { for (let s = 1; s < 2000; s++) for (let n = from; n <= to; n++) { const w = WAVEGEN.wave(s, n); if (pred(w)) return { seed: s, n, w }; } throw new Error('нет такой волны'); };
+const ALL_SEEN = Object.fromEntries(Object.keys(EN).map((k) => [k, 1]));
+const startAt = (seed, n) => { const S = SIM.create(seed); S.hp = 1e9; S.wave = n - 1; S.seen = Object.assign({}, ALL_SEEN); SIM.step(S, { cmds: [{ k: 'call' }] }); return S; };
+const enemyOf = (S, f = () => true) => { for (let i = 0; i < 120 * 300; i++) { const e = S.enemies.find((x) => !x.dead && f(x)); if (e) return e; SIM.step(S, null); } throw new Error('враг не вышел'); };
+const shoot = (S, e, k, dmg) => { e.freezeT = 1e9; SIM.step(S, null);
+  S.shots.push({ k, x: e.x - 20, y: e.y - 14, tid: e.id, dmg, sp: 900, tw: -1, lx: e.x, ly: e.y, bounces: 0, hit: [], born: S.t, seed: 0 }); run(S, 0.3); };
+
+test('награда за убийство в бою равна награде из превью («Богатая», «Толпа»)', () => {
+  for (const id of ['rich', 'horde']) {
+    const { seed, n, w } = findWave((x) => x.trait && x.trait.id === id && x.squads.some((q) => !EN[q.type].spawnOnDeath && q.count > 2));
+    const S = startAt(seed, n), e = enemyOf(S, (x) => !EN[x.type].spawnOnDeath), q = w.squads.find((x) => x.type === e.type);
+    assert.notEqual(q.bounty, Math.round(EN[e.type].bounty * C.BOUNTY_MULT(n)), `${id}: награда не отличается от волны без свойства`);
+    e.hp = 1; const before = S.souls; shoot(S, e, 'bolt', 100);
+    assert.ok(e.dead, `${id}: враг не убит`);
+    assert.equal(S.souls - before, q.bounty, `${id}: за убийство ${S.souls - before} душ, в превью ${q.bounty}`);
+  }
+});
+
+test('магический удар по врагу «Бронированной» волны слабее ровно на защиту из превью', () => {
+  const { seed, n, w } = findWave((x) => x.trait && x.trait.id === 'armored');
+  const S = startAt(seed, n), e = enemyOf(S), q = w.squads.find((x) => x.type === e.type);
+  assert.ok(q.mres > EN[e.type].mres, 'защита не выросла');
+  e.hp = e.max = 1e6; shoot(S, e, 'ghost', 100);
+  assert.ok(Math.abs((1e6 - e.hp) - 100 * (1 - q.mres)) < 1e-6, `урон ${1e6 - e.hp}, защита в превью ${q.mres}`);
+});
+
+test('лечение священника «С лекарями» равно лечению из превью', () => {
+  const { seed, n, w } = findWave((x) => x.trait && x.trait.id === 'healers');
+  const q = w.squads.find((x) => x.type === 'priest');
+  assert.ok(q.heal > Math.round(EN.priest.heal * C.HP_MULT(n)), 'лечение не сильнее, чем без свойства');
+  const S = startAt(seed, n), p = enemyOf(S, (x) => x.type === 'priest'), t = enemyOf(S, (x) => x !== p && !EN[x.type].boss);
+  for (const e of S.enemies) { e.freezeT = 1e9; if (e.type === 'priest') e.healCD = 1e9; }
+  t.d = p.d; SIM.step(S, null);
+  t.hp = t.max * 0.1; assert.ok(t.max - t.hp > q.heal);
+  p.healCD = S.dt / 2; const before = t.hp; SIM.step(S, null);
+  assert.ok(Math.abs((t.hp - before) - q.heal) < 1e-9, `вылечено ${t.hp - before}, в превью ${q.heal}`);
+});
+
+// ---------------------------------------------------------------- состав волны
+test('бюджет меньше цены самого дешёвого врага — волна из одного самого дешёвого доступного (тип не зашит в код)', () => {
+  const oldB = WG.budget, oldT = EN.knight.threat;
+  try {
+    WG.budget = () => 0.2;
+    for (const n of [1, 2, 5, 9, 13]) { const w = WAVEGEN.wave(4, n), nb = w.squads.filter((q) => !q.boss);
+      assert.deepEqual(nb.map((q) => [q.type, q.count]), [['militia', 1]], 'волна ' + n); }
+    EN.knight.threat = 0.25;                                          // рыцарь стал самым дешёвым — он и выходит
+    for (const n of [5, 9]) assert.deepEqual(WAVEGEN.wave(4, n).squads.filter((q) => !q.boss).map((q) => [q.type, q.count]), [['knight', 1]], 'волна ' + n);
+    assert.deepEqual(WAVEGEN.wave(4, 2).squads.map((q) => q.type), ['militia'], 'рыцарь вышел раньше своей волны');
+  } finally { WG.budget = oldB; EN.knight.threat = oldT; }
+});
+
+test('кто не ходит один (alone: false), тот не составляет волну сам; волн из одного отряда немного', () => {
+  assert.equal(EN.priest.alone, false);
+  let single = 0, multi = 0;
+  for (const s of seeds(300)) for (let n = 1; n <= RUN; n++) {
+    const w = WAVEGEN.wave(s, n), nb = w.squads.filter((q) => !q.boss);
+    assert.ok(nb.some((q) => EN[q.type].alone !== false), `сид ${s} волна ${n}: одни ${nb.map((q) => q.type).join(', ')}`);
+    if (Object.keys(EN).filter((k) => !EN[k].boss && EN[k].minWave <= n).length >= 2) { multi++; if (nb.length === 1) single++; }
+  }
+  assert.ok(single / multi <= 0.2, `волн из одного отряда ${(100 * single / multi).toFixed(1)}%`);
+});
+
+test('правка превью не меняет конфиг и следующие волны', () => {
+  const { seed, n } = findWave((x) => x.trait && x.trait.id === 'healers');
+  const fresh = WAVEGEN.wave(seed, n), share = C.TRAITS.healers.share.priest;
+  const w = WAVEGEN.wave(seed, n); w.trait.mods.share.priest = 0.99; w.trait.mods.heal = 9; w.squads[0].hp = 1; w.stats[w.squads[0].type].hp = 1;
+  assert.equal(C.TRAITS.healers.share.priest, share);
+  assert.deepEqual(WAVEGEN.wave(seed, n), fresh);
+});
+
+test('характеристики врагов — по текущему конфигу, а не из кэша прошлой партии того же сида', () => {
+  const hpOf = () => { const S = SIM.create(8); S.hp = 1e9; SIM.step(S, { cmds: [{ k: 'call' }] }); return enemyOf(S).max; };
+  assert.equal(hpOf(), EN.militia.hp);
+  const old = C.HP_MULT;
+  try { C.HP_MULT = (n) => 2 * old(n); assert.equal(hpOf(), 2 * EN.militia.hp); } finally { C.HP_MULT = old; }
+});
+
+test('«осталось» сразу учитывает тех, кто выйдет из повозок, и не растёт, когда повозка ломается', () => {
+  const { seed, n, w } = findWave((x) => x.squads.some((q) => q.type === 'cart'), 7);
+  const S = SIM.create(seed, { dt: 1 / 30 }); S.hp = 1e9; S.wave = n - 1; S.seen = Object.assign({}, ALL_SEEN);
+  SIM.step(S, { cmds: [{ k: 'call' }] });
+  assert.equal(SIM.remaining(S), w.total.count + w.total.extra);
+  let last = SIM.remaining(S), kids = 0; const shot = new Set();
+  for (let i = 0; S.phase === 'wave' && i < 30 * 600; i++) {
+    for (const e of S.enemies) if (e.type === 'cart' && !shot.has(e.id) && e.d > 150) { shot.add(e.id);
+      S.shots.push({ k: 'bolt', x: e.x - 10, y: e.y - 14, tid: e.id, dmg: 1e9, sp: 900, tw: -1, lx: e.x, ly: e.y }); }
+    SIM.step(S, null);
+    kids += S.enemies.filter((e) => e.child && !shot.has('k' + e.id) && shot.add('k' + e.id)).length;
+    const r = SIM.remaining(S); assert.ok(r <= last, `«осталось» выросло: ${last} → ${r}`); last = r;
+  }
+  assert.ok(kids > 0, 'ни одна повозка не сломалась');
+  assert.equal(last, 0);
+});
+
+test('титульное демо не падает, если ни одна волна не укладывается в половину петли', () => {
+  const old = WG.pace;
+  try { WG.pace = () => 40; const S = SIM.at(7 * SIM.L + 0.5); assert.ok(S.demo && S.wave >= 1); } finally { WG.pace = old; }
 });

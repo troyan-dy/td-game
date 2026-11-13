@@ -69,7 +69,7 @@
       t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
-      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {},
+      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
     };
   };
 
@@ -127,12 +127,15 @@
   // превью волны n для разведки: только с текущей+1 по текущую+SCOUT_AHEAD и не дальше конца забега, иначе null.
   // Свежий объект на каждый вызов: менять его можно, на бой это не влияет.
   const scoutRange = (S) => ({ from: S.wave + 1, to: Math.min(waveCount(), S.wave + C.SCOUT_AHEAD) });
-  const preview = (S, n) => { const r = scoutRange(S); return n >= r.from && n <= r.to ? WAVEGEN.wave(S.seed, n) : null; };
-  // сколько врагов волны ещё осталось: не вышедшие на дорогу плюс живые
-  const remaining = (S) => (S.queue.length - S.qi) + S.enemies.filter((e) => !e.dead).length;
-  // описание текущей волны (кэш на одну волну: характеристики врагов при выходе на дорогу)
-  let WAVE = null;
-  const waveOf = (S) => { if (!WAVE || WAVE.seed !== S.seed || WAVE.n !== S.wave) WAVE = { seed: S.seed, n: S.wave, w: WAVEGEN.wave(S.seed, Math.max(1, S.wave)) }; return WAVE.w; };
+  const preview = (S, n) => { const r = scoutRange(S); return Number.isInteger(n) && n >= r.from && n <= r.to ? WAVEGEN.wave(S.seed, n) : null; };
+  // сколько врагов волны ещё осталось: не вышедшие на дорогу и живые — вместе с теми, кто выйдет из них при смерти
+  // (повозка считается за себя и своих ополченцев сразу, поэтому число только убывает)
+  const remaining = (S) => { let n = 0;
+    for (let i = S.qi; i < S.queue.length; i++) n += WAVEGEN.spawnsOf(S.queue[i].e);
+    for (const e of S.enemies) if (!e.dead) n += WAVEGEN.spawnsOf(e.type);
+    return n; };
+  // характеристики врага типа type в текущей волне (их получает враг при выходе на дорогу; карточка «Новый враг»)
+  const enemyStats = (S, type) => (S.waveStats && S.waveStats[type]) || WAVEGEN.stats(type, Math.max(1, S.wave), null);
   // длина дороги (px), которую башня на клетке накрывает радиусом units
   const coverage = (S, cell, units) => { const [x, y] = cellXY(S, cell), r = units * UNIT, L = pathLen(S); let n = 0;
     for (let d = 0; d < L; d += 4) { const p = posAt(S, d); if (Math.hypot(p.x - x, p.y - y) <= r) n += 4; } return n; };
@@ -178,13 +181,14 @@
   // ---------------------------------------------------------------- волны
   const startWave = (S) => {
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.prepT = 0;
-    const w = waveOf(S);
-    S.queue = WAVEGEN.queue(w);
+    // описание волны считается заново от сида и номера; её характеристики врагов живут в состоянии забега до следующей волны
+    const w = WAVEGEN.wave(S.seed, S.wave);
+    S.queue = WAVEGEN.queue(w); S.waveStats = w.stats;
     ev(S, 'wave', { wave: S.wave, boss: w.boss, trait: w.trait ? w.trait.id : null });
   };
   // характеристики врага — из описания волны (те же, что видит разведка); child — вышел из убитого (ополченцы из повозки)
   const spawnEnemy = (S, type, d, child) => {
-    const def = EN[type], st = waveOf(S).stats[type] || WAVEGEN.stats(type, Math.max(1, S.wave), null);
+    const def = EN[type], st = enemyStats(S, type);
     const e = { id: S.nid++, type, d: d || 0, hp: st.hp, max: st.hp, bounty: st.bounty, armor: st.armor, mres: st.mres, speed: st.speed, heal: st.heal, child: !!child,
       lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
       healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name };
@@ -381,22 +385,23 @@
 
   // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
   const DEMO_SEED = 99;
-  // волна демо: из 5–12-й без босса — с наибольшим числом врагов, укладывающаяся в половину петли (по дороге всё время идут враги)
-  let demoWave = 0;
-  const demoN = () => demoWave || (demoWave = [5, 6, 7, 8, 9, 10, 11, 12].map((n) => WAVEGEN.wave(DEMO_SEED, n))
-    .filter((w) => !w.boss && w.duration <= LOOP / 2).sort((a, b) => b.total.count - a.total.count || a.n - b.n)[0].n);
+  // волна демо: из 5–12-й без босса — с наибольшим числом врагов, укладывающаяся в половину петли (по дороге всё время идут
+  // враги); если после перенастройки ни одна не укладывается — самая людная из них, если и таких нет — 5-я
+  const demoN = () => { const ws = [5, 6, 7, 8, 9, 10, 11, 12].map((n) => WAVEGEN.wave(DEMO_SEED, n)).filter((w) => !w.boss);
+    const by = (a, b) => b.total.count - a.total.count || a.n - b.n, fit = ws.filter((w) => w.duration <= LOOP / 2).sort(by);
+    return (fit[0] || ws.sort(by)[0] || { n: 5 }).n; };
   const DEMO_BUILD = [['bones', 2], ['dark', 2], ['plague', 2], ['spirits', 2], ['dark', 2], ['bones', 2], ['plague', 2],
     ['spirits', 2], ['dark', 2], ['bones', 2], ['plague', 1], ['spirits', 2], ['dark', 2]];
   const demoState = () => {
     const S = create(DEMO_SEED), best = rankCells(S, 3.4); S.souls = 99999; S.demo = true;
     for (const [i, [type, lvl]] of DEMO_BUILD.entries()) { const cell = best[i];
       doCmd(S, { k: 'build', cell, type }); for (let l = 1; l < lvl; l++) doCmd(S, { k: 'upgrade', cell }); }
-    S.wave = demoN() - 1; startWave(S); S.souls = 340; S.hp = 16; S.ev = [];
+    S.demoWave = demoN(); S.wave = S.demoWave - 1; startWave(S); S.souls = 340; S.hp = 16; S.ev = [];
     return S;
   };
   const LOOP = 60, WARM_ENEMIES = 10, WARM_MAX = 40;
   // шаг демо: зачищенная волна сразу начинается заново (prepT = шаг: таймер дойдёт до нуля на следующем шаге), души и прочность не меняются
-  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = demoN() - 1; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
+  const demoStep = (S) => { step(S, null); if (S.phase === 'prep') { S.wave = S.demoWave - 1; S.prepT = S.dt; } S.souls = 340; S.hp = 16; };
   let cache = null;
   const at = (t) => {
     const loop = Math.floor(t / LOOP), lt = t - loop * LOOP;
@@ -415,7 +420,7 @@
 
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
-    create, step, at, selfCheck, doCmd, waveCount, isBoss, preview, scoutRange, remaining, MUZZLE, WAVEGEN,
+    create, step, at, selfCheck, doCmd, waveCount, isBoss, preview, scoutRange, remaining, enemyStats, MUZZLE, WAVEGEN,
     canBuild, buildRangePx, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
