@@ -27,7 +27,9 @@ export const steps = {
     await g.select(ctx, -1); await ctx.eval((t) => { SCENE.ui.armed = t; }, t);
     await ctx.page.mouse.move(...await cellPoint(ctx, cell)); await ctx.wait(150);
     const want = await ctx.eval(([c, t]) => SIM.canBuild(APP.play, c, t), [cell, t]);
-    const shown = await (await ctx.need(`.card[data-type="${t}"] .pr`)).innerText();
+    const price = await ctx.need(`.card[data-type="${t}"] .pr`);
+    let shown = await price.innerText();                        // цена обновляется на следующем кадре: ждём условия, а не паузы
+    for (let i = 0; i < 30 && !shown.includes(String(want.cost)); i++) { await ctx.wait(100); shown = await price.innerText(); }
     if (want.cost === want.base || !shown.includes(String(want.cost))) throw new Error(`на карточке «${shown.trim()}», ждали цену проклятой земли ${want.cost} (база ${want.base})`);
     await ctx.shot('cells_armed_price');
     await ctx.eval(() => { SCENE.ui.armed = null; });

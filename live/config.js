@@ -1,8 +1,14 @@
 // live/config.js — весь баланс и данные уровня «Некрополис». Меняй числа здесь, логика их только читает.
 // Координаты в логическом пространстве карты 1600×900. UNIT (48 px) — единица радиусов башен, клетка сетки — GRID.tile (64 px).
 (function () {
+  // цены ступеней ветки: первая цена × TRACK_COST[i], с округлением до 5 душ. Ступеней с ценой восемь: обычная башня
+  // упирается в свой потолок (TRACK_MAX), гибрид качается дальше; цен 6–8 у обычной башни просто не бывает в ходу
+  const TRACK_COST = [1, 1.5, 2.1, 2.9, 3.9, 5.2, 6.8, 8.8];
+  // ветка: cost — цены ступеней 1..n, k — прибавка основной характеристики за ступень в долях базы, also — прибавка
+  // дополнительных характеристик типа за ступень этой ветки (например, замедление Духов растёт со ступенями урона)
+  const track = (first, k, also) => Object.assign({ cost: TRACK_COST.map((m) => Math.round(first * m / 5) * 5), k }, also ? { also } : null);
   const C = {
-    VERSION: 4,                    // 4: в карте препятствия и особые клетки (старые сейвы не грузятся)
+    VERSION: 5,                    // 5: башня — ветки, потолок, слоты и список перков (4: препятствия и особые клетки)
     UNIT: 48,
     DT: 1 / 120,                   // шаг симуляции по умолчанию; забег может задать свой (create(seed, { dt }))
     DT_MAX: 0.1,                   // самый крупный шаг, с которым сохранённый забег считается годным (SIM.loadable)
@@ -71,49 +77,95 @@
       cursed: { name: 'Проклятая земля', dmg: 0.25, cost: 0.30, desc: '+25% урона, постройка на 30% дороже' },
     },
 
-    // Башни. Массивы — по уровням 1..3. cost[0] — постройка, cost[1], cost[2] — улучшения. Радиусы в единицах UNIT.
+    // Прокачка башни: три ветки, у каждой ступени 0..tw.cap (у обычной башни потолок TRACK_MAX, гибрид качается дальше —
+    // потолок хранится в башне). Перк — один из трёх на тип, когда во все ветки вложено PERK_AT ступеней.
+    TRACKS: ['dmg', 'range', 'rate'],
+    TRACK_MAX: 5,
+    PERK_AT: 6,
+    LOOK_AT: [5, 10],              // с какой суммы ступеней башня выглядит на 2-й и 3-й вид (спрайт, высота, точка выстрела)
+    PERK_SLOTS: 1,                 // слотов под перк у обычной башни (у гибрида больше)
+    VIEW_TOP: 56,                  // выше этой линии (низ плашек HUD) башня не рисуется: высокие башни верхнего ряда ужимаются
+
+    // Башни — данные; новый тип добавляется записью здесь (код ветвится по виду атаки, а не по имени типа).
+    //   base     — значения без прокачки: cost — постройка, dmg — урон за попадание (у облака — яд в секунду),
+    //              rate — секунд между выстрелами, range — радиус в единицах UNIT
+    //   tracks   — ветки dmg | range | rate: track(первая цена, k, also). Урон и радиус растут на k за ступень,
+    //              скорострельность тоже: интервал делится на 1 + k·ступени
+    //   attack   — вид атаки, обработчик в live/sim.js (ATTACKS): 'bolt' | 'ghost' | 'blob' | 'beam'; нет поля — башня не стреляет
+    //   extra    — дополнительные характеристики типа (скорость снаряда, замедление, облако…): попадают в SIM.towerStats
+    //   muzzle   — высота точки выстрела над центром клетки, px (у вида 1; каждый следующий вид — на LOOK_MUZZLE выше)
+    //   names    — подписи веток, если не как в TRACK_NAMES; fmt — формат значения ветки (шаблон SIM.fill), если не как в
+    //              TRACK_FMT; show — строки панели для extra: [подпись, шаблон SIM.fill]
+    //   art      — внешний вид (недостающее — из ART): sprite — чей набор спрайтов tw_<sprite>_<вид> брать, tint — перекраска
+    //              [r, g, b, сила] на холсте, css — то же в DOM (CSS filter), color — цвет свечения и круга радиуса (линейный
+    //              0..1), ui — цвет заглушки в DOM, fx — живые детали сцены (orbs | fumes | crown), sound — звук выстрела,
+    //              flip — поворачивать спрайт к цели. Новый тип — перекраска существующего: { sprite: 'dark', tint: [...] }
+    //   perks    — id (уникальны среди всех типов: гибрид хранит перки обоих типов) → { name, cost, desc (шаблон SIM.fill),
+    //              set | add | mul — что перк делает с характеристиками башни (ставит, прибавляет, умножает) }.
+    //              Правило: характеристику, которая растёт от веток (dmg, range, rate и всё, что в also), перк меняет только
+    //              через add или mul — set затёр бы рост от ступеней. set — для своих параметров перка (pen, bolts, …).
     TOWERS: {
       bones: {
-        name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys',
-        cost: [100, 110, 160], dmg: [24, 46, 78], rate: [1.0, 1.0, 1.0], range: [3.6, 3.6, 3.6],
-        boltSpeed: 900,
+        name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys', attack: 'bolt', muzzle: 58,
+        art: { sprite: 'bones', color: [0.90, 0.85, 0.72], ui: '#e6d9b8', sound: 'bones', flip: true },
+        base: { cost: 100, dmg: 24, rate: 1.0, range: 3.6 },
+        tracks: { dmg: track(45, 0.35), range: track(35, 0.08), rate: track(40, 0.12) },
+        extra: { speed: 900 },
         desc: 'Дальний одиночный выстрел. Дёшево, но броня рыцарей гасит почти половину урона.',
         perks: {
-          pierce: { name: 'Пронзающий болт', cost: 180, targets: 4, falloff: 0.15, desc: 'Болт пробивает до 4 врагов по линии, −15% урона за каждого.' },
-          volley: { name: 'Залп', cost: 180, bolts: 3, mult: 0.4, desc: 'Три болта по трём разным целям, каждый 40% урона.' },
+          pierce: { name: 'Пронзающий болт', cost: 180, set: { pierce: 4, pierceFalloff: 0.15 }, desc: 'Болт пробивает до {pierce} врагов по линии, −{pierceFalloff%} урона за каждого.' },
+          volley: { name: 'Залп', cost: 180, set: { bolts: 3, boltMult: 0.4 }, desc: 'Болты по {bolts} разным целям за выстрел, каждый — {boltMult%} урона.' },
+          crush: { name: 'Бронебой', cost: 180, set: { pen: 0.5 }, desc: 'Болт не замечает {pen%} брони цели: рыцари и паладины гасят куда меньше урона.' },
         },
       },
       spirits: {
-        name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic',
-        cost: [110, 120, 170], dmg: [10, 19, 32], rate: [0.8, 0.8, 0.8], range: [3.2, 3.2, 3.2],
-        slow: [0.30, 0.38, 0.45], slowTime: 1.5, ghostSpeed: 380,
+        name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic', attack: 'ghost', muzzle: 70,
+        art: { sprite: 'spirits', color: [0.30, 0.95, 0.88], ui: '#6ff2e2', fx: 'orbs', sound: 'spirits' },
+        base: { cost: 110, dmg: 10, rate: 0.8, range: 3.2 },
+        tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(35, 0.08), rate: track(40, 0.12) },
+        extra: { speed: 380, slow: 0.30, slowTime: 1.5 },
+        show: [['Замедление', '{slow%} · {slowTime} с']],
         desc: 'Призраки замедляют врагов. Урон небольшой, зато соседние башни успевают больше.',
         perks: {
-          frost: { name: 'Ледяной ужас', cost: 180, chance: 0.15, freeze: 0.6, desc: 'Шанс 15% сковать врага ужасом на 0.6 с.' },
-          pack: { name: 'Стая', cost: 180, bounces: 2, bounceMult: 0.8, bounceRange: 1.5, desc: 'Призрак перескакивает ещё на 2 цели.' },
+          frost: { name: 'Ледяной ужас', cost: 180, set: { freezeChance: 0.15, freeze: 0.6 }, desc: 'Шанс {freezeChance%} сковать врага ужасом на {freeze} с.' },
+          pack: { name: 'Стая', cost: 180, set: { bounces: 2, bounceMult: 0.8, bounceRange: 1.5 }, desc: 'Призрак перескакивает ещё на {bounces} цели, каждый раз с {bounceMult%} урона.' },
+          chill: { name: 'Могильный холод', cost: 180, add: { slow: 0.12 }, set: { slowTime: 3 }, desc: 'Замедление сильнее на {slow п} пунктов и держится {slowTime} с вместо {base:slowTime} с.' },
         },
       },
       plague: {
-        name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison',
-        cost: [130, 130, 180], dps: [12, 23, 38], rate: [2.2, 2.2, 2.2], range: [3.0, 3.0, 3.0],
-        cloudR: 0.9, cloudTime: 3, poisonLinger: 1.0, flight: 0.6,
+        name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison', attack: 'blob', muzzle: 44,
+        art: { sprite: 'plague', color: [0.45, 0.90, 0.25], ui: '#8be04e', fx: 'fumes', sound: 'plague' },
+        base: { cost: 130, dmg: 12, rate: 2.2, range: 3.0 },
+        tracks: { dmg: track(50, 0.35), range: track(35, 0.08), rate: track(45, 0.12) },
+        extra: { cloudR: 0.9, cloudTime: 3, linger: 1.0, flight: 0.6 },
+        names: { dmg: 'Яд' }, fmt: { dmg: '{dmg}/с' },
+        show: [['Облако', '{cloudR кл} · {cloudTime} с']],
         desc: 'Ядовитое облако травит всех внутри. Яд не замечает брони.',
         perks: {
-          pestilence: { name: 'Мор', cost: 180, cloudR: 0.7, cloudTime: 2, desc: 'Отравленный враг при смерти оставляет облако (без цепной реакции).' },
-          acid: { name: 'Кислота', cost: 180, shred: 0.30, shredTime: 2, desc: 'Облако снижает броню врагов на 30 пунктов.' },
+          pestilence: { name: 'Мор', cost: 180, set: { pestR: 0.7, pestTime: 2 }, desc: 'Отравленный враг при смерти оставляет облако на {pestTime} с (без цепной реакции).' },
+          acid: { name: 'Кислота', cost: 180, set: { shred: 0.30, shredTime: 2 }, desc: 'Облако снижает броню врагов на {shred п} пунктов на {shredTime} с.' },
+          miasma: { name: 'Миазмы', cost: 180, mul: { cloudR: 1.4 }, add: { cloudTime: 1.5 }, desc: 'Облако на {cloudR+%} шире и висит на {cloudTime} с дольше.' },
         },
       },
       dark: {
-        name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true,
-        cost: [150, 120, 160], dmg: [20, 34, 56], rate: [1.3, 1.2, 1.1], range: [3.2, 3.5, 3.8],
-        heavyMult: 2,
+        name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
+        art: { sprite: 'dark', color: [0.80, 0.38, 1.0], ui: '#c86bff', fx: 'crown', sound: 'dark' },
+        base: { cost: 150, dmg: 20, rate: 1.3, range: 3.2 },
+        tracks: { dmg: track(55, 0.35), range: track(40, 0.08), rate: track(50, 0.12) },
+        extra: { heavy: 2 },
+        show: [['По тяжёлым', '×{heavy}']],
         desc: 'Луч бьёт самую живучую цель, пробивает защиту священников, вдвое сильнее по повозкам и боссам.',
         perks: {
-          harvest: { name: 'Жатва', cost: 180, souls: 2, desc: '+2 души за каждого врага, погибшего в радиусе.' },
-          curse: { name: 'Проклятие', cost: 180, mult: 0.2, time: 3, desc: 'Цель получает +20% урона от всех башен 3 с.' },
+          harvest: { name: 'Жатва', cost: 180, set: { harvest: 2 }, desc: '+{harvest} души за каждого врага, погибшего в радиусе.' },
+          curse: { name: 'Проклятие', cost: 180, set: { curse: 0.2, curseTime: 3 }, desc: 'Цель получает +{curse%} урона от всех башен {curseTime} с.' },
+          split: { name: 'Двойной луч', cost: 180, set: { split: 0.5 }, desc: 'Луч задевает и вторую по живучести цель в радиусе — {split%} урона.' },
         },
       },
     },
+    TRACK_NAMES: { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' },
+    TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
+    ART: { sprite: 'bones', tint: null, css: '', color: [0.8, 0.8, 0.8], ui: '#bbbbbb', fx: null, sound: null, flip: false },   // вид башни по умолчанию
+    LOOK_MUZZLE: 4,
     TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark'],
 
     // Враги. speed — ед/с вдоль дороги, armor/mres — доли. Для генератора волн (live/wavegen.js): threat — цена угрозы

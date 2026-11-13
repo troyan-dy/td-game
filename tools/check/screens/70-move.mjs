@@ -22,15 +22,27 @@ export async function steps(ctx, g) {
     move_mode: async () => {
       await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 5000; });
       const spots = await g.spots(ctx); from = spots[0]; other = spots[1];
-      await g.build(ctx, from, 'dark'); await g.build(ctx, other, 'bones'); await g.upgrade(ctx, from, 2);
+      await g.build(ctx, from, 'dark'); await g.build(ctx, other, 'bones'); await g.toPerk(ctx, from);
       id = await ctx.eval((c) => APP.play.towers[c].id, from);
-      const inv = await ctx.eval((c) => [APP.play.towers[c].invested, SIM.CONFIG.TOWERS.dark.cost[0]], from);   // прокачка правда применилась
-      if (!(inv[0] > inv[1])) throw new Error(`улучшение не применилось: вложено ${inv[0]}, постройка ${inv[1]} — правь помощник g.upgrade`);
+      const inv = await ctx.eval((c) => [APP.play.towers[c].invested, SIM.CONFIG.TOWERS.dark.base.cost], from);   // прокачка правда применилась
+      if (!(inv[0] > inv[1])) throw new Error(`прокачка не применилась: вложено ${inv[0]}, постройка ${inv[1]} — правь помощник g.toPerk`);
       await clickCell(ctx, from); await enter();
       if (!await ctx.eval(() => document.querySelector('#panel .mv') && !document.querySelector('#panel .sell'))) throw new Error('в режиме переноса панель не сменилась на подсказку и отмену');
       to = await openCell(ctx, await ctx.eval((c) => SIM.moveCells(APP.play, c).filter((i) => i >= 2 * APP.play.map.cols && SIM.coverage(APP.play, i, 3) > 200), from));
       if (to === undefined) throw new Error('нет допустимой клетки, не закрытой интерфейсом');
       await hover(ctx, to); await ctx.shot('move_mode');
+    },
+    // в режиме переноса панель уходит с ближних целей: каждая допустимая клетка вокруг башни видна и кликается (холст, не панель)
+    move_near: async () => {
+      const near = await ctx.eval((c) => { const S = APP.play, cols = S.map.cols, ok = new Set(SIM.moveCells(S, c)), out = [];
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = c + dy * cols + dx; if ((dx || dy) && Math.abs((i % cols) - (c % cols)) <= 1 && ok.has(i)) out.push(i); }
+        return out; }, from);
+      if (!near.length) throw new Error('у башни нет соседней допустимой клетки — смени место');
+      const open = await ctx.eval((cells) => { const r = document.getElementById('c').getBoundingClientRect();
+        return cells.map((c) => { const [x, y] = SIM.cellXY(APP.play, c); return document.elementFromPoint(r.left + x / SIM.VIEW.W * r.width, r.top + y / SIM.VIEW.H * r.height).id === 'c'; }); }, near);
+      const shut = near.filter((c, i) => !open[i]);
+      if (shut.length) throw new Error('в режиме переноса панель закрывает соседние цели: ' + shut.join(', '));
+      await ctx.shot('move_near');
     },
     move_reject: async () => {
       const road = await openCell(ctx, await ctx.eval(() => APP.play.map.road.slice(5)));
