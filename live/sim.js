@@ -703,19 +703,21 @@
   // меняет. Каждое попадание — через strike (эффекты, урон, пронзание). Тип без attack не действует.
   // Новый вид атаки — новая запись здесь и, если снаряд новый, ветка в stepShots и отрисовка в сцене.
   const ATTACKS = {
-    bolt: { run: (S, tw, st, cand, mx, my, fx) => {                         // болт: первая по дороге цель; Залп, Пронзающий болт
-      if (st.bolts) {
-        const ts = cand.sort((a, b) => b.d - a.d).slice(0, st.bolts);
-        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg * st.boltMult, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
-        tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx); return true;
-      }
-      const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
-      if (st.pierce) {
-        const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl);
-        const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
-        S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, fx, sp: st.speed, tw: tw.id,
-          pierce: st.pierce, falloff: st.pierceFalloff, hit: [] });
-      } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y });
+    // болт: первая по дороге цель. Залп — болты по нескольким первым целям, каждый с долей урона; Пронзающий болт — болт
+    // летит прямо в упреждённую точку и пробивает врагов по линии. Оба перка вместе (гибрид Кости + Кости): каждый болт залпа пронзающий
+    bolt: { run: (S, tw, st, cand, mx, my, fx) => {
+      const ts = st.bolts ? cand.sort((a, b) => b.d - a.d).slice(0, st.bolts) : [firstOf(cand)], dmg = st.bolts ? st.dmg * st.boltMult : st.dmg;
+      ts.forEach((e, i) => {
+        const n = st.bolts ? { n: i } : {};
+        if (st.pierce) {
+          const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl), a = Math.atan2(p.y - my, p.x - mx);
+          if (!i) tw.aim = a;
+          S.shots.push(Object.assign({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg, fx, sp: st.speed, tw: tw.id,
+            pierce: st.pierce, falloff: st.pierceFalloff, hit: [] }, n));
+        } else {
+          if (!i) tw.aim = Math.atan2(e.y - my, e.x - mx);
+          S.shots.push(Object.assign({ k: 'bolt', x: mx, y: my, tid: e.id, dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y }, n));
+        } });
       return true;
     } },
     ghost: { run: (S, tw, st, cand, mx, my, fx) => {                        // призрак: урон и замедление (fx); Стая — отскоки

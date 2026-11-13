@@ -156,6 +156,19 @@ test('одинаковые типы сливаются: атака плюс со
   assert.equal(SIM.canPerk(H.S, H.a, 'curse').reason, 'perk', 'перк чужого типа');
 });
 
+test('Кости + Кости с Залпом и Пронзающим болтом: каждый болт залпа летит к своей цели и пробивает врагов по линии', () => {
+  const { S, a, tw } = hybrid(7, 'bones', 'bones', 'pierce', 'volley'), st = SIM.towerStats(S, tw), r = st.rangePx;
+  assert.deepEqual(SIM.perksOf(tw), ['pierce', 'volley']); assert.ok(SIM.perkOn(tw, 'pierce') && SIM.perkOn(tw, 'volley'));
+  assert.ok(st.bolts > 1 && st.pierce > 1);
+  const es = dummies(S, a, 'militia', [r * 0.3, r * 0.5, r * 0.7, r * 0.9]);
+  fires(S, tw, 1, 0);
+  const shots = S.shots.filter((s) => s.k === 'bolt' && s.tw === tw.id);
+  assert.equal(shots.length, st.bolts, 'болтов залпа');
+  for (const s of shots) { assert.equal(s.pierce, st.pierce, 'болт залпа не пронзающий'); near(s.dmg, st.dmg * st.boltMult, 'урон болта залпа'); }
+  for (let i = 0; i < 2 / S.dt && S.shots.some((s) => s.tw === tw.id); i++) SIM.step(S, null);
+  assert.ok(es.filter((e) => hurt(e) > 0).length >= st.bolts, 'болты залпа не долетели до своих целей');
+});
+
 // ---------------------------------------------------------------- дымовой прогон всех пар
 test('каждая допустимая упорядоченная пара типов сливается и отыгрывает волну без ошибок и нечисловых значений', () => {
   const bad = (o, path) => { if (typeof o === 'number') return Number.isFinite(o) ? null : path;
