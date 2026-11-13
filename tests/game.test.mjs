@@ -17,7 +17,7 @@ const hudCells = (S) => { const out = []; for (let i = 0; i < S.map.cols * S.map
 test('забег создаётся от сида: карта генератора, сид и версия состояния', () => {
   const S = SIM.create(42);
   assert.equal(S.seed, 42);
-  assert.equal(S.v, 2);
+  assert.equal(S.v, C.VERSION);
   assert.deepEqual(S.map, MAPGEN.generate(42));
   assert.notDeepEqual(SIM.create(43).map.road, S.map.road);
 });
