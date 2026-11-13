@@ -24,7 +24,7 @@ export const steps = {
     await back(ctx);
   },
   meta_cards: async (ctx, g) => {
-    await g.newGame(ctx);
+    await g.newGame(ctx, 5);
     // новый профиль: закрыты типы после стартовых; если в конфиге их ещё нет — забег с закрытым последним типом (вид тот же)
     let lockedType = await ctx.eval(() => SIM.CONFIG.TOWER_ORDER.find((k) => APP.play.unlocked && !APP.play.unlocked.includes(k)) || null);
     if (!lockedType) lockedType = await ctx.eval(() => { const O = SIM.CONFIG.TOWER_ORDER; APP.newGame(5, { unlocked: O.slice(0, -1) }); return O[O.length - 1]; });
@@ -43,7 +43,7 @@ export const steps = {
     await ctx.shot('meta_cards');
   },
   meta_end: async (ctx, g) => {
-    await ctx.click('#p-menu'); await g.newGame(ctx);                // в меню и новый забег — по профилю (новому)
+    await ctx.click('#p-menu'); await g.newGame(ctx, 5);                // в меню и новый забег — по профилю (новому)
     await ctx.eval(() => { const S = APP.play; S.wave = 10; S.phase = 'wave'; S.stats.kills = 140; S.hp = 0; });
     await ctx.need('#end.show', 5000); await ctx.wait(300);
     const t = await ctx.eval(() => { const u = document.querySelector('#end .unlocks'); return u ? u.textContent : ''; });
@@ -61,7 +61,7 @@ export const steps = {
     const st = await metaState(ctx);
     if (st.off || !st.all || !st.text.includes('Всё открыто')) throw new Error('«Открыть всё» открыло не всё: ' + JSON.stringify(st));
     await ctx.shot('meta_all');
-    await back(ctx); await g.newGame(ctx);
+    await back(ctx); await g.newGame(ctx, 5);
     const run = await ctx.eval(() => ({ unlocked: APP.play.unlocked, locked: document.querySelectorAll('.card.locked').length }));
     if (run.unlocked !== null || run.locked) throw new Error('после «Открыть всё» забег с закрытым: ' + JSON.stringify(run));
   },

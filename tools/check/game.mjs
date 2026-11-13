@@ -3,7 +3,8 @@
 //
 // Устройство:
 //   tools/check/game.mjs       — страница, окна, боты, открытие страницы, проверка вёрстки и ПОМОЩНИКИ состояния игры
-//                                (новая партия, места под постройку, постройка, ступени веток, перк, выбор башни).
+//                                (новая партия по сиду, места под постройку, постройка, ступени веток,
+//                                перк, выбор башни, ожидание применения команд).
 //   tools/check/screens/*.mjs  — по файлу на экран. Каркас берёт их по отсортированному имени; каждый файл получает
 //                                свежую страницу (open) и экспортирует steps — упорядоченные шаги этого экрана.
 //                                Файлы друг от друга не зависят: новый экран — новый файл, соседние не трогаются.
@@ -37,13 +38,23 @@ export async function open(ctx) {
 }
 
 // ---------------------------------------------------------------- помощники состояния игры
-// Новая партия через кнопку меню.
-export async function newGame(ctx) {
-  await ctx.click('#m-new');
-  await ctx.page.waitForFunction(() => !!(window.APP && APP.play));
+// Экраны играют только на фиксированных сидах: случайная карта делала проверку то зелёной, то красной.
+// Новая партия через меню по сиду (поле сида и «По сиду» — тот же путь, что у игрока). Все враги уже встречены: карточка
+// «Новый враг» ставит игру на паузу и встала бы посреди сценария (саму карточку показывает 40-hints).
+export async function newGame(ctx, seed) {
+  if (!Number.isInteger(seed)) throw new Error('g.newGame(ctx, seed): экраны играют на фиксированном сиде — передай сид');
+  await ctx.need('#m-seedgo');
+  await ctx.eval((seed) => { const inp = document.getElementById('m-seed'); inp.value = String(seed); inp.dispatchEvent(new Event('input'));
+    document.getElementById('m-seedgo').click(); }, seed);
+  await ctx.page.waitForFunction((seed) => !!(window.APP && APP.play && APP.play.seed === seed), seed);
+  await ctx.eval(() => { const S = APP.play; for (const k of Object.keys(SIM.CONFIG.ENEMIES)) S.seen[k] = 1; });
 }
 // Бесконечные души и прочие «худшие значения» для HUD.
 export const rich = (ctx) => ctx.eval(() => { const S = APP.play; S.souls = 99999; S.hp = 20; S.wave = SIM.waveCount() - 1; S.phase = 'prep'; APP.paused = false; });
+// Два кадра игры: интерфейс перерисован по новому состоянию (вместо паузы наугад).
+export const frames = (ctx) => ctx.eval(() => new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))));
+// Команды игры применяются на следующем кадре: ждём, пока очередь команд опустеет, и ещё кадры — интерфейс перерисован.
+export const applied = (ctx) => ctx.page.waitForFunction(() => !APP.cmds.length).then(() => frames(ctx));
 // Типы башен в порядке карточек.
 export const towerTypes = (ctx) => ctx.eval(() => SIM.CONFIG.TOWER_ORDER.slice());
 // Места под постройку: индексы свободных клеток (не дорога, не препятствие, не под интерфейсом; особые клетки входят — там
@@ -54,19 +65,19 @@ export async function spots(ctx) {
   if (!ids || !ids.length) throw new Error('нет свободных клеток под постройку (SIM.rankCells) — сначала новая партия');
   return ids;
 }
-export const build = (ctx, cell, type) => ctx.eval(([cell, type]) => { APP.play.towers[cell] = null; APP.cmd({ k: 'build', cell, type }); }, [cell, type]).then(() => ctx.wait(60));
+export const build = (ctx, cell, type) => ctx.eval(([cell, type]) => { APP.play.towers[cell] = null; APP.cmd({ k: 'build', cell, type }); }, [cell, type]).then(() => applied(ctx));
 // Ступени ветки track (dmg | range | rate); times — сколько раз подряд. maxOut — все ветки до потолка башни.
-export const upgrade = (ctx, cell, track, times = 1) => ctx.eval(([cell, track, n]) => { for (let i = 0; i < n; i++) APP.cmd({ k: 'upgrade', cell, track }); }, [cell, track, times]).then(() => ctx.wait(30));
+export const upgrade = (ctx, cell, track, times = 1) => ctx.eval(([cell, track, n]) => { for (let i = 0; i < n; i++) APP.cmd({ k: 'upgrade', cell, track }); }, [cell, track, times]).then(() => applied(ctx));
 export const maxOut = (ctx, cell) => ctx.eval((cell) => { const tw = APP.play.towers[cell];
-  for (const track of SIM.CONFIG.TRACKS) for (let i = 0; i < tw.cap; i++) APP.cmd({ k: 'upgrade', cell, track }); }, cell).then(() => ctx.wait(30));
+  for (const track of SIM.CONFIG.TRACKS) for (let i = 0; i < tw.cap; i++) APP.cmd({ k: 'upgrade', cell, track }); }, cell).then(() => applied(ctx));
 // Ступени по кругу веток, пока перк не станет доступен (ровно порог перка).
 export const toPerk = (ctx, cell) => ctx.eval((cell) => { const C = SIM.CONFIG;
-  for (let i = 0; i < C.PERK_AT; i++) APP.cmd({ k: 'upgrade', cell, track: C.TRACKS[i % C.TRACKS.length] }); }, cell).then(() => ctx.wait(30));
+  for (let i = 0; i < C.PERK_AT; i++) APP.cmd({ k: 'upgrade', cell, track: C.TRACKS[i % C.TRACKS.length] }); }, cell).then(() => applied(ctx));
 // Перк с самым длинным текстом — худший случай для панели.
 export const longestPerk = (ctx, type) => ctx.eval((t) => { const P = SIM.CONFIG.TOWERS[t].perks;
   return Object.keys(P).sort((a, b) => (P[b].name + P[b].desc).length - (P[a].name + P[a].desc).length)[0]; }, type);
-export const perk = (ctx, cell, p) => ctx.eval(([cell, p]) => { APP.cmd({ k: 'perk', cell, p }); }, [cell, p]).then(() => ctx.wait(30));
-export const select = (ctx, cell) => ctx.eval((c) => { SCENE.ui.sel = c; }, cell);
+export const perk = (ctx, cell, p) => ctx.eval(([cell, p]) => { APP.cmd({ k: 'perk', cell, p }); }, [cell, p]).then(() => applied(ctx));
+export const select = (ctx, cell) => ctx.eval((c) => { SCENE.ui.sel = c; }, cell).then(() => frames(ctx));
 export const pushEvent = (ctx, ...evs) => ctx.eval((evs) => { for (const e of evs) APP.play.ev.push(Object.assign({ t: APP.play.t }, e)); }, evs);
 
 // ---------------------------------------------------------------- вёрстка (бывший tools/uicheck.mjs)

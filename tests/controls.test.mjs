@@ -9,9 +9,9 @@ const json = (S) => JSON.parse(JSON.stringify(S));
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 const cmd = (S, ...cmds) => SIM.step(S, { cmds });
 // волна отбита сразу: вызвать, убрать её врагов, шаг — зачистка
-const clearWave = (S) => { cmd(S, { k: 'call' }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); };
+const clearWave = (S) => { cmd(S, { k: 'call' }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); };
 // идущая волна зачищена на следующем шаге (без вызова)
-const finish = (S) => { S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); };
+const finish = (S) => { S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); };
 
 test('числа управления забегом — в конфиге', () => {
   assert.ok(RC.autoDelay > 0 && RC.autoDelay <= 10, 'задержка автоплея ' + RC.autoDelay);

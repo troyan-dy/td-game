@@ -1,6 +1,6 @@
 // Продолжение забега после перезагрузки страницы: посреди волны в паузе — та же вкладка (забег сразу на месте) и новая
 // вкладка (пустой sessionStorage: меню с «Продолжить», после нажатия — ровно то же состояние). Негодные сейвы (битый JSON,
-// старая версия, башня неизвестного типа, законченный забег, крошечный шаг, пауза после последней волны, бесконечный режим до победы, ключ прежней сборки) «Продолжить» не дают и стираются.
+// старая версия, башня неизвестного типа, законченный забег, крошечный шаг, пауза после последней волны, бесконечный режим до победы, чужие характеристики врагов волны, ключ прежней сборки) «Продолжить» не дают и стираются.
 const KEY = 'necropolis.save';
 const reload = async (ctx, newTab) => {
   // новая вкладка: localStorage общий, sessionStorage свой. Дев-перезагрузка пишет забег в sessionStorage при уходе со страницы,
@@ -17,7 +17,7 @@ export function steps() {
   let paused = null;
   return {
     continue_reload: async (ctx, g) => {
-      await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 2000; });
+      await g.newGame(ctx, 3); await ctx.eval(() => { APP.play.souls = 2000; });
       const types = await g.towerTypes(ctx), spots = await g.spots(ctx);
       for (const [i, t] of types.entries()) await g.build(ctx, spots[i], t);
       await ctx.eval(() => { APP.cmd({ k: 'call' }); APP.speed = 2; });
@@ -60,6 +60,7 @@ export function steps() {
         'пауза после последней волны': (sv) => { Object.assign(sv.S, { phase: 'prep', wave: lastWave, auto: true, autoT: 1, enemies: [], queue: [], qi: 0 }); },
         'сейв прошлой сборки (без автоплея, с таймером паузы)': (sv) => { sv.S.v -= 1; delete sv.S.auto; delete sv.S.autoT; delete sv.S.hasteT; sv.S.prepT = 15; },
         'бесконечный режим до победы': (sv) => { sv.S.endless = true; },
+        'характеристики врагов волны не от генератора': (sv) => { Object.values(sv.S.waveStats)[0].hp *= 2; },
       };
       for (const [name, f] of Object.entries(spoil)) {
         const sv = JSON.parse(good), v = f(sv);

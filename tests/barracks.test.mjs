@@ -14,14 +14,14 @@ const mine = (S, tw) => S.skels.filter((s) => s.tw === tw.id);
 const evs = (S, k) => S.ev.filter((e) => e.k === k && e.t === S.t);
 // лимит скелетов на время теста (один скелет — проще следить за боем)
 const withLimit = (n, fn) => { const was = B.extra.limit; B.extra.limit = n; try { return fn(); } finally { B.extra.limit = was; } };
-// идёт волна без своих врагов: дальше враги выставляются руками
-const quietWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; };
+// идёт волна без своих врагов (её очередь считается вышедшей): дальше враги выставляются руками
+const quietWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; };
 // расстояние по маршруту до точки, ближайшей к (x, y)
 const routeD = (S, x, y) => { let best = 0, bd = Infinity;
   for (let d = 0; d < SIM.pathLen(S); d++) { const p = SIM.posAt(S, d), q = Math.hypot(p.x - x, p.y - y); if (q < bd) { bd = q; best = d; } } return best; };
 // враг type на расстоянии d по маршруту (на оси дороги)
 const enemyAt = (S, type, d, hp) => {
-  S.queue.push({ at: 0, e: type }); S.qi = S.queue.length - 1; S.waveT = 0; SIM.step(S, null);
+  const q = S.queue; S.queue = [{ at: 0, e: type }]; S.qi = 0; SIM.step(S, null); S.queue = q; S.qi = q.length;   // очередь волны — от генератора (её сверяет сейв)
   const e = S.enemies[S.enemies.length - 1], p = SIM.posAt(S, d); e.d = d; e.lane = 0; e.x = p.x; e.y = p.y;
   if (hp) e.hp = e.max = hp; return e; };
 // Казарма с одним скелетом и враг, идущий к нему по дороге
@@ -67,6 +67,9 @@ test('скелет держит одного врага: тот стоит и б
   assert.equal(e.d, d0, 'удержанный враг идёт дальше');
   assert.ok(Math.abs(hp0 - sk.hp - 1.5 * EN.militia.melee) < EN.militia.melee * S.dt * 2, `скелет потерял ${hp0 - sk.hp} HP за 1.5 с при ударе врага ${EN.militia.melee}/с`);
   const lost = eh0 - e.hp; assert.ok(lost >= st.dmg && Math.abs(lost / st.dmg - Math.round(lost / st.dmg)) < 1e-6, `враг потерял ${lost}, не кратно удару ${st.dmg}`);
+  // каждый удар скелета — событие попадания (вспышка и звук в сцене) у врага
+  const hp1 = e.hp; let hits = 0; for (let i = 0; i < 2 * st.hit / S.dt; i++) { SIM.step(S, null); hits += evs(S, 'hit').filter((h) => h.kind === 'skel' && h.x === e.x).length; }
+  assert.ok(e.hp < hp1 && hits === Math.round((hp1 - e.hp) / st.dmg), `ударов ${Math.round((hp1 - e.hp) / st.dmg)}, событий попадания ${hits}`);
   // второго врага этот скелет не держит
   const e2 = enemyAt(S, 'militia', Math.max(0, d0 - 30), 1e6), d2 = e2.d; run(S, 1.5);
   assert.ok(e2.d > d2 + 30, 'второй враг стоит');

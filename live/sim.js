@@ -420,8 +420,9 @@
   //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
   //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
   //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, autoT −1);
-  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
-  //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
+  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, характеристики и очередь волны — от генератора волн,
+  //     типы башен, перков и врагов из конфига, башня на своей клетке по правилу постройки, фаза согласована с номером
+  //     волны и таймером паузы, id без повторов;
   //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
   const SIGNED = new Set(['x', 'y', 'lane', 'aim', 'face', 'dx', 'dy']);
   const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
@@ -491,6 +492,12 @@
     if (S.relics.length > chances) return false;
     if (S.phase !== 'relic') return S.offer === null;
     return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked)); };
+  // характеристики врагов и очередь выхода текущей (или только что отбитой) волны — ровно то, что генератор даёт от сида и
+  // номера волны: иначе на дорогу выйдут враги с цифрами, которых нет в разведке. Реликвии и бой их не меняют. До первой волны их нет
+  const waveOk = (S) => {
+    if (S.wave === 0) return S.waveStats === null && S.queue.length === 0;
+    const w = WAVEGEN.wave(S.seed, S.wave);
+    return JSON.stringify(S.waveStats) === JSON.stringify(w.stats) && JSON.stringify(S.queue) === JSON.stringify(WAVEGEN.queue(w)); };
   const loadable = (S) => {
     const sh = shapes();
     try {
@@ -500,7 +507,7 @@
       if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
-      if (!relicsOk(S)) return false;
+      if (!relicsOk(S) || !waveOk(S)) return false;
       if (!GRIM.every((l) => int(S.grim[l.id], 0, l.cost.length))) return false;   // ступени Гримуара — целые до предела линии
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
@@ -544,7 +551,11 @@
 
   // ---------------------------------------------------------------- команды игрока
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
+  // клетки команды (cell, у переноса to, у слияния other) — только целые числа: строка '171' или [171] как индекс массива
+  // нашли бы башню, а мусор и недостающий аргумент не должны ни менять забег, ни бросать исключение
+  const CELL_ARGS = { build: ['cell'], upgrade: ['cell'], perk: ['cell'], sell: ['cell'], move: ['cell', 'to'], merge: ['cell', 'other'] };
   const doCmd = (S, c) => {
+    if (!c || typeof c !== 'object' || (own(CELL_ARGS, c.k) && !CELL_ARGS[c.k].every((key) => Number.isInteger(c[key])))) return;
     if (c.k === 'endless') {                                               // продолжить после победы: пауза перед следующей волной, по кнопке
       if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.autoT = -1; S.hasteT = 0; ev(S, 'endless', { wave: S.wave }); }
       return; }
@@ -575,7 +586,7 @@
       ev(S, 'sell', { cell: c.cell, souls: v, type: tw.type, x: at[0], y: at[1] });
     } else if (c.k === 'move') {
       // башня переезжает целиком, тем же объектом: меняется только клетка, всё остальное (прокачка, перк, счётчики) едет с ней
-      if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
+      if (!canMove(S, c.cell, c.to).ok) return; const [x, y] = cellXY(S, c.to);
       S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave; dismiss(S, tw);   // скелеты у старой клетки рассыпаются
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'merge') {                                     // { k: 'merge', cell, other } — other становится примесью башни на cell
@@ -722,19 +733,21 @@
   // меняет. Каждое попадание — через strike (эффекты, урон, пронзание). Тип без attack не действует.
   // Новый вид атаки — новая запись здесь и, если снаряд новый, ветка в stepShots и отрисовка в сцене.
   const ATTACKS = {
-    bolt: { run: (S, tw, st, cand, mx, my, fx) => {                         // болт: первая по дороге цель; Залп, Пронзающий болт
-      if (st.bolts) {
-        const ts = cand.sort((a, b) => b.d - a.d).slice(0, st.bolts);
-        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg * st.boltMult, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
-        tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx); return true;
-      }
-      const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
-      if (st.pierce) {
-        const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl);
-        const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
-        S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, fx, sp: st.speed, tw: tw.id,
-          pierce: st.pierce, falloff: st.pierceFalloff, hit: [] });
-      } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y });
+    // болт: первая по дороге цель. Залп — болты по нескольким первым целям, каждый с долей урона; Пронзающий болт — болт
+    // летит прямо в упреждённую точку и пробивает врагов по линии. Оба перка вместе (гибрид Кости + Кости): каждый болт залпа пронзающий
+    bolt: { run: (S, tw, st, cand, mx, my, fx) => {
+      const ts = st.bolts ? cand.sort((a, b) => b.d - a.d).slice(0, st.bolts) : [firstOf(cand)], dmg = st.bolts ? st.dmg * st.boltMult : st.dmg;
+      ts.forEach((e, i) => {
+        const n = st.bolts ? { n: i } : {};
+        if (st.pierce) {
+          const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl), a = Math.atan2(p.y - my, p.x - mx);
+          if (!i) tw.aim = a;
+          S.shots.push(Object.assign({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg, fx, sp: st.speed, tw: tw.id,
+            pierce: st.pierce, falloff: st.pierceFalloff, hit: [] }, n));
+        } else {
+          if (!i) tw.aim = Math.atan2(e.y - my, e.x - mx);
+          S.shots.push(Object.assign({ k: 'bolt', x: mx, y: my, tid: e.id, dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y }, n));
+        } });
       return true;
     } },
     ghost: { run: (S, tw, st, cand, mx, my, fx) => {                        // призрак: урон и замедление (fx); Стая — отскоки
@@ -843,7 +856,7 @@
   //   cd (до удара), reach (px), foe (id удерживаемого врага, 0 — свободен), face, born, hitT, grip, burst, burstR (px) }.
   // Числа — из итоговых характеристик башни в момент призыва (как у снаряда). Свободный скелет хватает ближайшего врага в reach,
   // которого не держит другой скелет; враг с unstoppable (босс) не хватается. Удержанный враг стоит и бьёт скелета
-  // с силой melee своего типа в секунду; скелет бьёт его раз в hit с. Погибший скелет сдвигает призыв своей башни на её интервал.
+  // с силой melee своего типа в секунду; скелет бьёт его раз в hit с. Погибший скелет сдвигает призыв своей башни на её интервал (поднятый примесью Казармы — нет).
   // Без своей башни скелет рассыпается (продажа, перенос, башня убрана из состояния).
   // клетки дороги в радиусе башни, от ближней к дальней (куда Казарма ставит скелетов; подсветка в сцене)
   const skelCells = (S, tw, st) => { const [x, y] = cellXY(S, tw.cell), r = (st || towerStats(S, tw)).rangePx, out = [];
@@ -888,7 +901,9 @@
       const e = s.foe ? findEnemy(S, s.foe) : null; if (!e) continue;
       s.face = e.x >= s.x ? 1 : -1;
       if (s.grip) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, s.grip); e.curseT = Math.max(e.curseT, 0.25); }   // Мёртвая хватка
-      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t;
+        ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+        strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида)
         if (e.dead) { s.foe = 0; continue; } }
       s.hp -= (EN[e.type].melee === undefined ? C.MELEE : EN[e.type].melee) * DT;
     }
@@ -897,7 +912,7 @@
       if (s.burst) { for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - s.x, e.y - s.y) <= s.burstR) damage(S, e, s.burst, 'phys', tw);   // Костяной взрыв
         ev(S, 'burst', { x: s.x, y: s.y, r: s.burstR }); }
       if (s.foe) held.delete(s.foe);
-      if (tw) tw.cd = Math.max(tw.cd, towerStats(S, tw).rate); }
+      if (tw && !s.raised) tw.cd = Math.max(tw.cd, towerStats(S, tw).rate); }   // поднятый примесью Казармы перезарядку гибрида не трогает
     S.skels = keep;
     return held;
   };
@@ -912,7 +927,7 @@
   const step = (S, inp) => {
     const DT = S.dt;
     dropIndex();
-    if (inp && inp.cmds) for (const c of inp.cmds) doCmd(S, c);
+    if (inp && Array.isArray(inp.cmds)) for (const c of inp.cmds) doCmd(S, c);
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost' || S.phase === 'relic') { pruneEv(S); return; }   // на выборе реликвии время забега стоит
     if (S.phase === 'wave') S.stats.time += DT;                       // время забега — только идущие волны, без ожидания между ними

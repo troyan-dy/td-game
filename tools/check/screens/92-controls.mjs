@@ -17,7 +17,7 @@ const battle = async (ctx, g) => {
 
 export const steps = {
   controls_pause: async (ctx, g) => {
-    await g.newGame(ctx); const cell = await battle(ctx, g);
+    await g.newGame(ctx, SEED); const cell = await battle(ctx, g);
     await g.select(ctx, cell); await ctx.wait(100);
     await ctx.page.keyboard.press('Space'); await ctx.wait(100);
     let s = await st(ctx);
@@ -52,7 +52,7 @@ export const steps = {
   controls_auto: async (ctx) => {
     const delay = await ctx.eval(() => SIM.CONFIG.RUN_CONTROL.autoDelay);
     // волна отбита: без автоплея следующая не начинается, кнопка без отсчёта
-    await ctx.eval(() => { const S = APP.play; S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; });
+    await ctx.eval(() => { const S = APP.play; S.qi = S.queue.length; S.enemies = []; S.shots = []; });
     await ctx.page.waitForFunction(() => APP.play.phase === 'prep', null, { timeout: 5000 });
     // ждём по времени игры (без видеокарты кадров мало и игра идёт медленнее настоящего времени), на ×4
     await ctx.eval(() => { APP.speed = 4; window.__t0 = APP.play.t; });

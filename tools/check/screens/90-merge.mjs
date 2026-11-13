@@ -17,7 +17,7 @@ const text = async (ctx) => (await (await ctx.need('#panel.show')).innerText()).
 const until = async (ctx, fn, arg, sec, what) => { for (let i = 0; i < sec * 10; i++) { if (await ctx.eval(fn, arg)) return; await ctx.wait(100); } throw new Error('не дождались: ' + what); };
 
 export async function steps(ctx, g) {
-  await g.newGame(ctx); await ctx.eval((sd) => { APP.newGame(sd); APP.play.souls = 99999; }, SEED); await ctx.wait(150);
+  await g.newGame(ctx, SEED); await ctx.eval(() => { APP.play.souls = 99999; });
   const pair = await findPair(ctx); if (!pair) throw new Error('нет двух соседних клеток по диагонали');
   const [a, b] = pair, out = {};
   out.merge_button = async () => {

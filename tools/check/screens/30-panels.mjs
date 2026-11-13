@@ -2,7 +2,7 @@
 // ветками на потолке и самым длинным перком; перк открыт, но душ не хватает ни на ступень, ни на перк (причины словами
 // в подсказках); потолок 8 ступеней; панель пустого места.
 export async function steps(ctx, g) {
-  await g.newGame(ctx); await g.rich(ctx);   // волна сама не начинается (автоплей выключен)
+  await g.newGame(ctx, 1); await g.rich(ctx);   // отсчёт заморожен: шагов много, волна не должна начаться посреди экрана
   const types = await g.towerTypes(ctx), spots = await g.spots(ctx), out = {};
   types.forEach((t, i) => {
     out[`panel_${t}_0`] = async () => { await g.build(ctx, spots[i], t); await g.select(ctx, spots[i]); await ctx.shot(`panel_${t}_0`); };

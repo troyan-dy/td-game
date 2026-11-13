@@ -6,8 +6,11 @@
 //     пример: node tools/slot.mjs node frames/tester/ui.mjs      — свой сценарий Playwright
 //   node tools/check.mjs занимает место сама; оборачивать её не нужно (и не вредно).
 //
-// Место — каталог slot-N в общем временном каталоге: создание каталога атомарно. Внутри записан pid владельца;
-// если владелец умер или место держится дольше NECRO_SLOT_MAX_MIN минут (по умолчанию 20), оно считается брошенным.
+// Место — каталог slot-N в общем временном каталоге: создание каталога атомарно. Внутри — owner.json с pid владельца;
+// пока владелец жив, он раз в BEAT_MS обновляет время изменения каталога (отметку жизни). Место брошено, если владелец
+// умер или отметка не обновлялась дольше NECRO_SLOT_STALE_MIN минут (по умолчанию 3: процесс завис или pid занят чужим).
+// Долгий живой прогон место не теряет, сколько бы он ни шёл. Владелец прежней версии (без отметок, в owner.json нет beat)
+// считается брошенным, только если умер или держит место дольше LEGACY_MS.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -20,24 +23,32 @@ const POOLS = {
   gpu: { prefix: 'slot-', n: Math.max(1, parseInt(process.env.NECRO_SLOTS || '1', 10) || 1) },
   cpu: { prefix: 'cpu-', n: Math.max(1, parseInt(process.env.NECRO_CPU_SLOTS || '3', 10) || 3) },
 };
-const MAX_MS = (parseFloat(process.env.NECRO_SLOT_MAX_MIN || '20') || 20) * 60000;
+const STALE_MS = (parseFloat(process.env.NECRO_SLOT_STALE_MIN || '3') || 3) * 60000;
+const BEAT_MS = Math.min(30000, STALE_MS / 4), LEGACY_MS = 20 * 60000;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const alive = (pid) => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
 
-function tryTake(pool, i, label) {
+// брошено ли занятое место d: владелец умер или давно не отмечался; без записи владельца — ждём 5 с (он мог ещё не успеть её сделать)
+export function stale(d, now = Date.now()) {
+  let own = null, age = 0;
+  try { age = now - fs.statSync(d).mtimeMs; } catch (x) { return false; }   // каталог уже убран — займём на следующем круге
+  try { own = JSON.parse(fs.readFileSync(path.join(d, 'owner.json'), 'utf8')); } catch (x) {}
+  if (!own) return age > 5000;
+  return !alive(own.pid) || age > (own.beat ? STALE_MS : LEGACY_MS);
+}
+export function tryTake(pool, i, label) {
   const d = path.join(DIR, POOLS[pool].prefix + i);
   try { fs.mkdirSync(d); } catch (e) {
     if (e.code !== 'EEXIST') throw e;
-    let own = null;
-    try { own = JSON.parse(fs.readFileSync(path.join(d, 'owner.json'), 'utf8')); } catch (x) {}
-    let age = 0; try { age = Date.now() - fs.statSync(d).mtimeMs; } catch (x) { return null; }
-    const stale = own ? (!alive(own.pid) || age > MAX_MS) : age > 5000;   // без записи владельца — ждём 5 с: он мог ещё не успеть её сделать
-    if (!stale) return null;
+    if (!stale(d)) return null;
     try { fs.rmSync(d, { recursive: true, force: true }); fs.mkdirSync(d); } catch (x) { return null; }
   }
-  try { fs.writeFileSync(path.join(d, 'owner.json'), JSON.stringify({ pid: process.pid, label, since: new Date().toISOString() })); } catch (e) {}
+  try { fs.writeFileSync(path.join(d, 'owner.json'), JSON.stringify({ pid: process.pid, label, since: new Date().toISOString(), beat: BEAT_MS })); } catch (e) {}
+  beat(d);
   return d;
 }
+// отметка жизни владельца места: время изменения каталога места — сейчас
+export const beat = (d) => { const t = new Date(); try { fs.utimesSync(d, t, t); } catch (e) {} };
 
 // Занять место. Возвращает функцию освобождения; место освобождается и само при выходе процесса.
 // Если место уже держит родительский процесс (NECRO_SLOT_HELD), ничего не делает.
@@ -51,7 +62,8 @@ export async function acquire(label = '', pool = 'gpu') {
       const d = tryTake(pool, i, label);
       if (d) {
         let freed = false;
-        const release = () => { if (freed) return; freed = true; try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {} };
+        const timer = setInterval(() => beat(d), BEAT_MS); timer.unref();   // пока процесс жив, место за ним
+        const release = () => { if (freed) return; freed = true; clearInterval(timer); try { fs.rmSync(d, { recursive: true, force: true }); } catch (e) {} };
         process.once('exit', release);
         process.env.NECRO_SLOT_HELD = pool;
         if (told) process.stderr.write(`slot: место получено через ${Math.round((Date.now() - t0) / 1000)} с\n`);

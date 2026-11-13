@@ -32,11 +32,11 @@ const near = (x, y, msg) => assert.ok(Math.abs(x - y) < 1e-6, `${msg}: ${x} пр
 const hurt = (e) => e.max - e.hp;
 // враги-манекены (живучие, на месте) на дороге в точке на расстоянии dist px от клетки cell; волна идёт, очередь пуста
 const dummies = (S, cell, enemy, dists) => {
-  SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = [];
+  SIM.step(S, { cmds: [{ k: 'call' }] }); const q = S.queue; S.enemies = []; S.shots = [];
   const [x, y] = SIM.cellXY(S, cell), L = SIM.pathLen(S);
   return dists.map((dist) => { let best = 0, bd = Infinity;
     for (let d = 0; d < L; d += 1) { const p = SIM.posAt(S, d), q = Math.abs(Math.hypot(p.x - x, p.y - y) - dist); if (q < bd) { bd = q; best = d; } }
-    S.queue.push({ at: 0, e: enemy }); S.qi = S.queue.length - 1; S.waveT = 0; SIM.step(S, null);
+    S.queue = [{ at: 0, e: enemy }]; S.qi = 0; SIM.step(S, null); S.queue = q; S.qi = q.length;   // очередь волны — от генератора (её сверяет сейв)
     const e = S.enemies[S.enemies.length - 1]; e.d = best; e.lane = 0; e.speed = 0; e.hp = e.max = 1e6; e.heal = 0; return e; });
 };
 // шагать, пока башня tw не выстрелит n раз (по событиям fire), и ещё after секунд — долететь снаряду
@@ -154,6 +154,19 @@ test('одинаковые типы сливаются: атака плюс со
   assert.equal(SIM.canPerk(H.S, H.a, 'volley').reason, 'taken', 'второй перк Костей у гибрида Костей и Духов');
   assert.equal(SIM.canPerk(H.S, H.a, 'frost').ok, true);
   assert.equal(SIM.canPerk(H.S, H.a, 'curse').reason, 'perk', 'перк чужого типа');
+});
+
+test('Кости + Кости с Залпом и Пронзающим болтом: каждый болт залпа летит к своей цели и пробивает врагов по линии', () => {
+  const { S, a, tw } = hybrid(7, 'bones', 'bones', 'pierce', 'volley'), st = SIM.towerStats(S, tw), r = st.rangePx;
+  assert.deepEqual(SIM.perksOf(tw), ['pierce', 'volley']); assert.ok(SIM.perkOn(tw, 'pierce') && SIM.perkOn(tw, 'volley'));
+  assert.ok(st.bolts > 1 && st.pierce > 1);
+  const es = dummies(S, a, 'militia', [r * 0.3, r * 0.5, r * 0.7, r * 0.9]);
+  fires(S, tw, 1, 0);
+  const shots = S.shots.filter((s) => s.k === 'bolt' && s.tw === tw.id);
+  assert.equal(shots.length, st.bolts, 'болтов залпа');
+  for (const s of shots) { assert.equal(s.pierce, st.pierce, 'болт залпа не пронзающий'); near(s.dmg, st.dmg * st.boltMult, 'урон болта залпа'); }
+  for (let i = 0; i < 2 / S.dt && S.shots.some((s) => s.tw === tw.id); i++) SIM.step(S, null);
+  assert.ok(es.filter((e) => hurt(e) > 0).length >= st.bolts, 'болты залпа не долетели до своих целей');
 });
 
 // ---------------------------------------------------------------- дымовой прогон всех пар
@@ -311,6 +324,10 @@ test('примесь Казармы — скелет на месте убито�
   assert.ok(S.map.road.includes(s.cell));
   fires(S, tw, 1, 0); assert.equal(raised().length, 1, 'второй скелет раньше кулдауна');
   assert.equal(SIM.loadable(json(S)), true, 'сейв с поднятым скелетом');
+  // смерть поднятого скелета не трогает перезарядку гибрида (её сдвигают только скелеты Казармы-первой)
+  tw.cd = 0.25; s.hp = 0; SIM.step(S, null);
+  assert.ok(!S.skels.includes(s), 'скелет не погиб'); assert.ok(st.rate > 0.3, 'интервал гибрида короче проверки');
+  near(tw.cd, 0.25 - S.dt, 'перезарядка гибрида после смерти поднятого скелета');
 });
 
 test('Казарма первой: скелеты гибрида бьют с примесью второй и остаются при слиянии; Казарма второй — её скелеты рассыпаются', () => {

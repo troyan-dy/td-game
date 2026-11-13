@@ -137,6 +137,48 @@ test('имя перка или ветки из команды — только �
   assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))), 'после мусорных команд сейв негоден');
 });
 
+// Любая команда с мусорными или недостающими аргументами в любой фазе — без исключения и без следа: состояние после шага
+// с ней ровно то же, что после шага без команд. Забег: две прокачанные соседние башни (слияние возможно), души, свободная клетка.
+test('команды с мусорными и недостающими аргументами отклоняются без последствий во всех фазах', () => {
+  const S = SIM.create(21), n = S.map.cols; S.souls = 1e6;
+  const near = (c) => [-n - 1, -n, -n + 1, -1, 1, n - 1, n, n + 1].map((d) => c + d).filter((i) => Math.abs((i % n) - (c % n)) <= 1 && SIM.canBuild(S, i, 'bones').ok);
+  const a = SIM.rankCells(S, 3).find((c) => near(c).length >= 2), b = near(a)[0], f = near(a)[1];
+  const cmds = [{ k: 'build', cell: a, type: 'bones' }, { k: 'build', cell: b, type: 'bones' }];
+  for (const cell of [a, b]) for (const k of C.TRACKS) for (let i = 0; i < C.TRACK_MAX; i++) cmds.push({ k: 'upgrade', cell, track: k });
+  SIM.step(S, { cmds }); assert.ok(SIM.canMerge(S, a, b).ok && SIM.canPerk(S, a, 'crush').ok && SIM.canMove(S, a, f).ok, 'забег не собрался');
+  const json = (x) => JSON.parse(JSON.stringify(x)), R = SIM.waveCount();
+  const clear = (X) => { X.qi = X.queue.length; X.enemies = []; X.shots = []; SIM.step(X, null); };
+  const phases = { prep: json(S) };
+  { const X = json(S); SIM.step(X, { cmds: [{ k: 'call' }] }); run(X, 2); phases.wave = X; }
+  { const X = json(S); while (X.phase !== 'relic') { SIM.step(X, { cmds: [{ k: 'call' }] }); clear(X); } phases.relic = X; }
+  { const X = json(S); X.wave = R - 1; SIM.step(X, { cmds: [{ k: 'call' }] }); clear(X); assert.equal(X.phase, 'won'); phases.won = X; }
+  // мусор вместо клетки, ветки, перка, типа, линии, номера реликвии
+  const BAD = [undefined, null, NaN, Infinity, -1, 1e9, 1.5, String(a), [a], {}, '__proto__', 'constructor', true];
+  const NAMES = [undefined, null, 5, '', 'nope', '__proto__', 'constructor', 'toString', ['dmg'], {}];
+  const junk = [null, undefined, 5, 'call', [], {}, { k: 'nope' }, { k: '__proto__' }, { k: null }, { k: 'build' }, { k: 'upgrade' }, { k: 'perk' },
+    { k: 'sell' }, { k: 'move' }, { k: 'merge' }, { k: 'grim' }, { k: 'relic' },
+    ...BAD.flatMap((x) => [{ k: 'build', cell: x, type: 'bones' }, { k: 'upgrade', cell: x, track: 'dmg' }, { k: 'perk', cell: x, p: 'crush' }, { k: 'sell', cell: x },
+      { k: 'move', cell: x, to: f }, { k: 'move', cell: a, to: x }, { k: 'merge', cell: x, other: b }, { k: 'merge', cell: a, other: x }, { k: 'relic', i: x }]),
+    ...NAMES.flatMap((x) => [{ k: 'build', cell: f, type: x }, { k: 'upgrade', cell: a, track: x }, { k: 'perk', cell: a, p: x }, { k: 'grim', line: x }, { k: 'relic', i: x }]),
+    { k: 'move', cell: a }, { k: 'merge', cell: a }, { k: 'merge', cell: a, other: a }, { k: 'relic', i: 3 }, { k: 'relic', i: '0' }];
+  const fails = [];
+  for (const [ph, S0] of Object.entries(phases)) for (const c of junk) {
+    const A = json(S0), B = json(S0); let err = null;
+    try { SIM.step(A, { cmds: [c] }); } catch (e) { err = e.message; }
+    SIM.step(B, null);
+    if (err || JSON.stringify(A) !== JSON.stringify(B)) fails.push(`${ph}: ${JSON.stringify(c)} — ${err || 'состояние изменилось'}`);
+  }
+  // мусор вместо списка команд
+  for (const inp of [{ cmds: 5 }, { cmds: 'call' }, { cmds: null }, { cmds: {} }, {}, 7]) {
+    const A = json(phases.prep), B = json(phases.prep); let err = null;
+    try { SIM.step(A, inp); } catch (e) { err = e.message; }
+    SIM.step(B, null);
+    if (err || JSON.stringify(A) !== JSON.stringify(B)) fails.push(`ввод ${JSON.stringify(inp)} — ${err || 'состояние изменилось'}`);
+  }
+  assert.deepEqual(fails, []);
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
 test('перки — список со слотами: у обычной башни один слот, башня с двумя слотами держит два перка', () => {
   const S = SIM.create(6), cell = freeCell(S), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
   const tw = tower(S, cell, 'dark', ups), [a, b, c] = Object.keys(T.dark.perks);
@@ -795,6 +837,8 @@ test('перки Колокола: Набат — оглушение дольш�
 
 test('оглушение — часть состояния: сейв посреди оглушения годен и продолжается без потерь', () => {
   const B = bellAt(4, 'drone'), [e] = strikeNow(B, [['militia', 0]]); assert.ok(e.stunT > 0);
+  // очередь волны — как от генератора (её сверяет проверка сейва); враг на дороге живучий, волна не кончится
+  B.S.queue = SIM.WAVEGEN.queue(SIM.WAVEGEN.wave(B.S.seed, B.S.wave)); B.S.qi = B.S.queue.length;
   assert.ok(SIM.loadable(JSON.parse(JSON.stringify(B.S))), 'сейв с оглушённым врагом негоден');
   const R = JSON.parse(JSON.stringify(B.S)); for (let i = 0; i < 3 / B.S.dt; i++) { SIM.step(B.S, null); SIM.step(R, null); }
   assert.deepEqual(R, B.S);
