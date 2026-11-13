@@ -12,7 +12,7 @@ export async function steps(ctx, g) {
   let cell = -1;
   return {
     bell_panel: async () => {
-      await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 5000; });
+      await g.newGame(ctx, 1); await ctx.eval(() => { APP.play.souls = 5000; });
       const n = await ctx.eval(() => [document.querySelectorAll('#cards .card').length, SIM.CONFIG.TOWER_ORDER.length]);
       if (n[0] !== n[1]) throw new Error(`карточек ${n[0]}, типов башен ${n[1]}`);
       await ctx.need('#cards .card[data-type="bell"]');

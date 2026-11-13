@@ -1,8 +1,8 @@
 // node --test tests/*.test.mjs — сид забега и сейв: разбор введённого сида, пригодность сохранённого состояния (SIM.loadable).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM, smart, idle } from './bots.mjs';
-const C = SIM.CONFIG;
+import { SIM, smart, idle, grim } from './bots.mjs';
+const C = SIM.CONFIG, WAVEGEN = SIM.WAVEGEN;
 
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 const json = (S) => JSON.parse(JSON.stringify(S));
@@ -72,7 +72,7 @@ test('сейв: живой забег и его JSON-копия дальше и�
 
 // Защита от расширений состояния: всё, что реально бывает в партии, проверка принимает.
 // Тикет, добавивший в состояние поле, которое проверка не понимает, увидит это здесь.
-for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2]]) test(`сейв: снимки партии бота ${name} годны на всём её ходу и в конце`, () => {
+for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2], ['grim', grim, 3]]) test(`сейв: снимки партии бота ${name} годны на всём её ходу и в конце`, () => {
   const S = SIM.create(seed, { dt: 1 / 30 }), mem = {}, every = Math.round(20 / S.dt); let i = 0, n = 0;
   SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
@@ -207,11 +207,20 @@ const BAD = {
   'предложение реликвий вне фазы выбора': (S) => { S.offer = SIM.drawRelics(S.seed, 5, [], null); },
   'перенос посреди боя в будущей волне': (S) => { S.waveMoved = S.wave + 1; },
   'дробная волна переноса посреди боя': (S) => { S.waveMoved = 1.5; },
+  'характеристики врагов волны не от генератора': (S) => { Object.values(S.waveStats)[0].hp *= 2; },
+  'броня врагов волны не от генератора': (S) => { Object.values(S.waveStats)[0].armor = 0.9; },
+  'характеристики чужой волны': (S) => { S.waveStats = WAVEGEN.wave(S.seed, S.wave + 1).stats; },
+  'характеристики лишнего типа врага': (S) => { const k = Object.keys(C.ENEMIES).find((t) => !S.waveStats[t]); S.waveStats[k] = WAVEGEN.stats(k, S.wave, null); },
+  'нет характеристик волны посреди волны': (S) => { S.waveStats = null; },
+  'очередь волны не от генератора: время выхода': (S) => { S.queue[S.queue.length - 1].at += 1; },
+  'очередь волны не от генератора: другой враг': (S) => { const q = S.queue[S.queue.length - 1]; q.e = Object.keys(C.ENEMIES).find((t) => t !== q.e && !C.ENEMIES[t].boss); },
+  'очередь волны не от генератора: лишний враг': (S) => { S.queue.push(Object.assign({}, S.queue[S.queue.length - 1])); },
+  'очередь волны не от генератора: враг пропал': (S) => { S.queue.pop(); S.qi = Math.min(S.qi, S.queue.length); },
   'число вне JSON (1e999)': (S) => JSON.parse(JSON.stringify(S).replace(/"souls":\d+/, '"souls":1e999')),
 };
 // забег на выборе реликвии после 5-й волны (волны отбиты сразу: враги убраны)
 const relicPick = () => { const S = SIM.create(3);
-  while (S.phase !== 'relic') { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); }
+  while (S.phase !== 'relic') { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); }
   return json(S); };
 const PICK = relicPick();
 test('сейв: забег на выборе реликвии годен', () => { assert.equal(SIM.loadable(json(PICK)), true); assert.equal(PICK.phase, 'relic'); });
@@ -226,7 +235,19 @@ const BAD_PICK = {
   'выбор после последней волны': (S) => { S.wave = SIM.waveCount(); S.offer = SIM.drawRelics(S.seed, S.wave, [], null); },
   'выбор с отсчётом автоплея длиннее задержки': (S) => { S.autoT = C.RUN_CONTROL.autoDelay * 3; },
   'выбор без отсчёта автоплея (как у первой волны)': (S) => { S.autoT = -1; },
+  'характеристики прошедшей волны не от генератора': (S) => { Object.values(S.waveStats)[0].speed *= 2; },
+  'характеристики прошедшей волны пропали': (S) => { S.waveStats = null; },
+  'очередь прошедшей волны не от генератора': (S) => { S.queue[0].at += 0.5; },
 };
+// в паузе после волны (выбор сделан) и до первой волны характеристики и очередь — тоже от генератора, до первой — пустые
+test('сейв в паузе после волны годен; испорченные характеристики или очередь прошедшей волны отвергаются', () => {
+  const S = json(PICK); SIM.step(S, { cmds: [{ k: 'relic', i: 0 }] }); assert.equal(S.phase, 'prep'); assert.equal(SIM.loadable(json(S)), true);
+  const A = json(S); Object.values(A.waveStats)[0].hp += 1; assert.equal(SIM.loadable(A), false, 'HP');
+  const B = json(S); B.queue.reverse(); assert.equal(SIM.loadable(B), false, 'очередь');
+  const N = json(SIM.create(3)); assert.equal(SIM.loadable(N), true);
+  const W = json(N); W.waveStats = WAVEGEN.wave(3, 1).stats; assert.equal(SIM.loadable(W), false, 'характеристики до первой волны');
+  const Q = json(N); Q.queue = WAVEGEN.queue(WAVEGEN.wave(3, 1)); Q.qi = Q.queue.length; assert.equal(SIM.loadable(Q), false, 'очередь до первой волны');
+});
 for (const [name, spoil] of Object.entries(BAD_PICK)) test(`сейв выбора реликвии отвергается: ${name}`, () => {
   const S = json(PICK); spoil(S); assert.equal(SIM.loadable(S), false);
 });

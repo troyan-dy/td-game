@@ -48,7 +48,7 @@ const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 export const steps = {
   scout_start: async (ctx, g) => {
-    await g.newGame(ctx);
+    await g.newGame(ctx, 1);
     await waitWave(ctx, 1, 'в начале забега разведка не раскрылась на 1-й волне');
     const s = await shown(ctx); expect(s && s.n === 1 && s.ok, 'панель 1-й волны не сходится с превью: ' + JSON.stringify(s));
     const pl = await placed(ctx); expect(!pl.bad.length, 'разведка заходит на: ' + pl.bad.join(', '));
