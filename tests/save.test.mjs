@@ -8,10 +8,14 @@ const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < 
 const json = (S) => JSON.parse(JSON.stringify(S));
 // забег посреди волны: башни всех типов (одна с перком), враги на дороге, снаряды и облака в полёте
 const midWave = () => {
-  const S = SIM.create(3), cells = SIM.rankCells(S, 3.4); S.souls = 5000;
+  const S = SIM.create(3), cells = SIM.rankCells(S, C.TYPICAL_RANGE); S.souls = 5000;
   const cmds = C.TOWER_ORDER.map((type, i) => ({ k: 'build', cell: cells[i], type }));
-  cmds.push({ k: 'upgrade', cell: cells[0] }, { k: 'upgrade', cell: cells[0] }, { k: 'perk', cell: cells[0], p: Object.keys(C.TOWERS[C.TOWER_ORDER[0]].perks)[0] });
-  SIM.step(S, { cmds }); S.wave = 8; SIM.step(S, { cmds: [{ k: 'call' }] });
+  const perk = Object.keys(C.TOWERS[C.TOWER_ORDER[0]].perks)[0];
+  for (let i = 0; i < C.PERK_AT; i++) cmds.push({ k: 'upgrade', cell: cells[0], track: C.TRACKS[i % C.TRACKS.length] });
+  cmds.push({ k: 'perk', cell: cells[0], p: perk });
+  SIM.step(S, { cmds });
+  assert.ok(SIM.hasPerk(S.towers[cells[0]], perk) && SIM.steps(S.towers[cells[0]]) === C.PERK_AT, 'прокачка башни не применилась');
+  S.wave = 8; SIM.step(S, { cmds: [{ k: 'call' }] });
   const ready = () => S.enemies.length >= 3 && S.shots.some((s) => s.k === 'ghost') && S.clouds.length;
   for (let i = 0; i < 120 * 120 && !ready(); i++) SIM.step(S, null);
   assert.ok(S.phase === 'wave' && ready(), 'не собралось состояние посреди волны');
@@ -19,7 +23,7 @@ const midWave = () => {
 };
 const MID = json(midWave());
 const fresh = () => json(MID);
-const tower = (S) => S.towers.find(Boolean);
+const tower = (S) => S.towers.find((t) => t && t.perks.length) || S.towers.find(Boolean);   // первая — прокачанная, с перком
 
 // ---------------------------------------------------------------- сид
 test('сид: целое число из поля ввода, пробелы по краям и ведущие нули не мешают', () => {
@@ -105,10 +109,20 @@ const BAD = {
   'башня неизвестного типа': (S) => { const t = tower(S); S.towers[t.cell] = { type: 'nope' }; },
   'башня неизвестного типа с полными полями': (S) => { tower(S).type = 'nope'; },
   'башня без полей': (S) => { const t = tower(S); S.towers[t.cell] = { type: t.type }; },
-  'уровень башни 0': (S) => { tower(S).lvl = 0; },
-  'уровень башни выше последнего': (S) => { tower(S).lvl = C.TOWERS[tower(S).type].cost.length + 1; },
-  'дробный уровень башни': (S) => { tower(S).lvl = 1.5; },
-  'неизвестный перк': (S) => { tower(S).perk = 'nope'; },
+  'отрицательная ступень ветки': (S) => { tower(S).tracks.dmg = -1; },
+  'дробная ступень ветки': (S) => { tower(S).tracks.range = 1.5; },
+  'ступень ветки выше потолка башни': (S) => { const t = tower(S); t.tracks.rate = t.cap + 1; },
+  'нет ветки': (S) => { delete tower(S).tracks.dmg; },
+  'потолок ниже обычного': (S) => { const t = tower(S); t.cap = C.TRACK_MAX - 1; for (const k of C.TRACKS) t.tracks[k] = Math.min(t.tracks[k], t.cap); },
+  'потолок выше числа цен': (S) => { tower(S).cap = 99; },
+  'дробный потолок': (S) => { tower(S).cap = C.TRACK_MAX + 0.5; },
+  'слотов перков меньше обычного': (S) => { tower(S).slots = C.PERK_SLOTS - 1; },
+  'перк сверх слотов': (S) => { const t = tower(S), other = Object.keys(C.TOWERS[t.type].perks).find((p) => !t.perks.includes(p)); t.perks.push(other); },
+  'повтор перка': (S) => { const t = tower(S); t.slots = 2; t.perks.push(t.perks[0]); },
+  'неизвестный перк': (S) => { tower(S).perks = ['nope']; },
+  'перк-свойство объекта': (S) => { tower(S).perks = ['constructor']; },
+  'чужой перк': (S) => { const t = tower(S), alien = C.TOWER_ORDER.find((k) => k !== t.type); t.perks = [Object.keys(C.TOWERS[alien].perks)[0]]; },
+  'перки — не список': (S) => { tower(S).perks = 'pierce'; },
   'башня не на своей клетке': (S) => { const t = tower(S); t.cell = t.cell + 1; },
   'башня на дороге': (S) => { const t = tower(S), r = S.map.road[5]; S.towers[t.cell] = null; t.cell = r; S.towers[r] = t; },
   'башня — не объект': (S) => { S.towers[tower(S).cell] = 5; },

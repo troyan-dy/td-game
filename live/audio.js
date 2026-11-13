@@ -32,12 +32,13 @@
   A.event = (e) => {
     if (!ctx || ctx.state !== 'running') return;
     switch (e.k) {
-      case 'fire':
-        if (e.type === 'bones' && ok('f_b', 0.07)) { noise(0.07, 0.10, 1800, 2); tone('triangle', 240, 90, 0.09, 0.07); }
-        if (e.type === 'spirits' && ok('f_s', 0.09)) tone('sine', 900, 1500, 0.18, 0.035);
-        if (e.type === 'plague' && ok('f_p', 0.12)) { tone('sine', 140, 300, 0.14, 0.08); noise(0.1, 0.03, 600, 3); }
-        if (e.type === 'dark' && ok('f_d', 0.09)) { tone('sawtooth', 120, 60, 0.22, 0.05); tone('sine', 520, 260, 0.2, 0.04); }
-        break;
+      case 'fire': {                                                   // звук выстрела — по полю sound вида типа (SIM.art), нет — тишина
+        const snd = window.SIM ? SIM.art(e.type).sound : e.type;
+        if (snd === 'bones' && ok('f_b', 0.07)) { noise(0.07, 0.10, 1800, 2); tone('triangle', 240, 90, 0.09, 0.07); }
+        if (snd === 'spirits' && ok('f_s', 0.09)) tone('sine', 900, 1500, 0.18, 0.035);
+        if (snd === 'plague' && ok('f_p', 0.12)) { tone('sine', 140, 300, 0.14, 0.08); noise(0.1, 0.03, 600, 3); }
+        if (snd === 'dark' && ok('f_d', 0.09)) { tone('sawtooth', 120, 60, 0.22, 0.05); tone('sine', 520, 260, 0.2, 0.04); }
+        break; }
       case 'hit': if (ok('hit', 0.05)) noise(0.04, 0.05, e.kind === 'ghost' ? 3000 : 1200, 3); break;
       case 'cloud': if (ok('cloud', 0.12)) { noise(0.35, 0.06, 500, 1, 'lowpass'); tone('sine', 90, 60, 0.3, 0.05); } break;
       case 'die': if (ok('die', 0.05)) { noise(0.12, 0.08, 400, 1, 'lowpass'); tone('sine', 880 + (e.souls % 5) * 60, 1320, 0.12, 0.03, 0.05); } break;

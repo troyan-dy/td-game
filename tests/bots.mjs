@@ -9,30 +9,40 @@ const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse' }
 // лучшие клетки под оборону: по покрытию дороги (запоминаются на партию)
 const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, C.TYPICAL_RANGE).slice(0, n));
 
-// Разумный игрок: строит на клетках с лучшим покрытием дороги, смешивает типы, качает и берёт перки.
-export const smart = (S, mem) => {
+// Следующая покупка в башне t: перк, когда он открыт (ступеней хватает), иначе ступень ветки — урон и скорость охотнее,
+// чем дальность. { cmd, cost } или null, если качать некуда. Цены и запреты — из ответов логики (canPerk, canUpgrade).
+const WEIGHT = { dmg: 1, rate: 1.2, range: 1.8 };
+const nextUp = (S, t, perk) => {
+  if (SIM.freeSlots(t)) { const cp = SIM.canPerk(S, t.cell, perk); if (cp.ok || cp.reason === 'souls') return { cmd: { k: 'perk', cell: t.cell, p: perk }, cost: cp.cost }; }
+  let best = null;
+  for (const track of C.TRACKS) { const cu = SIM.canUpgrade(S, t.cell, track); if (cu.cost === null) continue;
+    const w = (t.tracks[track] + 1) * WEIGHT[track]; if (!best || w < best.w) best = { w, cmd: { k: 'upgrade', cell: t.cell, track }, cost: cu.cost }; }
+  return best;
+};
+
+// Игрок по плану: строит на клетках с лучшим покрытием дороги типы из mix по кругу, качает ветки и берёт перки.
+// Новую башню ставит, пока их меньше 7 или пока она дороже ступени не больше чем в BUILD_VS_STEP раз.
+const BUILD_VS_STEP = 3;
+// perks — какой перк берёт каждый тип (по умолчанию PERK)
+export const planned = (mix, perks = PERK) => (S, mem) => {
   const cells = plan(S, mem, 18), built = S.towers.filter(Boolean).length;
-  const k = cells.findIndex((c) => !S.towers[c]), next = k >= 0 ? [cells[k], MIX[k % MIX.length]] : null;
-  const nextCost = next ? C.TOWERS[next[1]].cost[0] : Infinity;
-  let up = null, upCost = Infinity;
+  const k = cells.findIndex((c) => !S.towers[c]), next = k >= 0 ? [cells[k], mix[k % mix.length]] : null;
+  const nextCost = next ? SIM.canBuild(S, next[0], next[1]).cost : Infinity;
+  let up = null, upW = Infinity;
   for (const t of S.towers) if (t) {
-    const c = t.lvl < 3 ? SIM.upgradeCost(t) : (!t.perk ? C.TOWERS[t.type].perks[PERK[t.type]].cost : Infinity);
-    const w = c * (t.lvl + (t.perk ? 9 : 0));                        // предпочитаем поднять самых слабых
-    if (w < upCost) { upCost = w; up = { t, c }; }
+    const u = nextUp(S, t, perks[t.type]); if (!u) continue;
+    const w = u.cost * (1 + SIM.steps(t) / 4);                       // предпочитаем поднять самых слабых
+    if (w < upW) { upW = w; up = u; }
   }
-  const wantBuild = next && (built < 7 || nextCost <= (up ? up.c : Infinity) * 1.2 || !up);
+  const wantBuild = next && (built < 7 || nextCost <= (up ? up.cost : Infinity) * BUILD_VS_STEP || !up);
   if (wantBuild) return S.souls >= nextCost ? [{ k: 'build', cell: next[0], type: next[1] }] : null;
-  if (up && S.souls >= up.c) return [up.t.lvl < 3 ? { k: 'upgrade', cell: up.t.cell } : { k: 'perk', cell: up.t.cell, p: PERK[up.t.type] }];
+  if (up && S.souls >= up.cost) return [up.cmd];
   return null;
 };
-// Одна башня спамом: только Кости.
-export const spamBones = (S, mem) => {
-  const free = plan(S, mem, 18).find((c) => !S.towers[c]);
-  if (free !== undefined && S.souls >= C.TOWERS.bones.cost[0]) return [{ k: 'build', cell: free, type: 'bones' }];
-  for (const t of S.towers) if (t && t.lvl < 3 && S.souls >= SIM.upgradeCost(t)) return [{ k: 'upgrade', cell: t.cell }];
-  for (const t of S.towers) if (t && !t.perk && t.lvl === 3 && S.souls >= 180) return [{ k: 'perk', cell: t.cell, p: 'volley' }];
-  return null;
-};
+// Разумный игрок: смешивает все четыре типа.
+export const smart = planned(MIX);
+// Одна башня спамом: та же стратегия, но только Кости.
+export const spamBones = planned(['bones']);
 export const idle = () => null;
 
 // Партия: первая волна по кнопке, дальше по таймеру (бот не вызывает раньше). dt — шаг времени забега.
@@ -48,5 +58,5 @@ export const play = (bot, seed = 1, maxT = 5400, dt) => {
     if (S.wave !== w) waveLog.push({ wave: w, t: +S.t.toFixed(0), hp: S.hp, souls: S.souls });
   }
   return { phase: S.phase, wave: S.wave, hp: S.hp, t: Math.round(S.t), kills: S.stats.kills, souls: S.souls,
-    towers: S.towers.filter(Boolean).map((t) => t.type[0] + t.lvl + (t.perk ? '*' : '')).join(' '), waveLog };
+    towers: S.towers.filter(Boolean).map((t) => t.type[0] + SIM.steps(t) + '*'.repeat(SIM.perksOf(t).length)).join(' '), waveLog };
 };
