@@ -14,7 +14,8 @@
   //  - две вкладки стартуют забег одновременно: каждая видит запись другой, и отключаются обе — до следующего старта;
   //  - отключённая вкладка молчит и после закрытия «владельца», пока сама не начнёт или не продолжит забег.
   const TAB = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-  // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable).
+  // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable). Победа, после
+  // которой ещё не выбрано «продолжить или закончить», — незаконченный забег: продолжается на том же экране выбора.
   // Негодный (битый JSON, старая версия, порча) молча выбрасываем. Ключи сейвов прежних сборок (necropolis.save.v1…) убираем.
   // Вердикт помним по строке сейва: проверка с пробой не повторяется, пока сейв тот же (показ меню, затем «Продолжить»).
   let checked = { raw: null, ok: false };
@@ -24,7 +25,7 @@
     try { sv = JSON.parse(raw); } catch (e) {}
     let ok = false;
     if (raw === checked.raw) ok = checked.ok;
-    else try { ok = !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S)); }
+    else try { ok = !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'lost' && SIM.loadable(sv.S)); }
     catch (e) { console.error(e); return null; }     // сбой самой проверки (не создался образец) — ошибка разработки: меню без «Продолжить», сейв не трогаем
     checked = { raw, ok };
     if (ok) return sv;
@@ -524,7 +525,7 @@
     showOverlay('end', true);
     if (choice) {
       $('#e-endless').onclick = () => { APP.cmd({ k: 'endless' }); showOverlay('end', false); AUDIO.ui('start'); };
-      $('#e-finish').onclick = () => showEnd(S, true);
+      $('#e-finish').onclick = () => { finished = true; dropOwn(); showEnd(S, true); };
       return; }
     $('#e-again').onclick = () => startRun();
     $('#e-replay').onclick = () => { const r = SIM.parseSeed(String(S.seed)); if (r.ok) startRun(r.seed); else AUDIO.ui('deny'); };
@@ -532,15 +533,20 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  // забег начат или загружен: загруженная победа без выбора сразу показывает выбор, а итог забега второй раз в профиль не идёт
+  // (он засчитан, когда забег кончился)
+  const resetRun = () => { detached = false; finished = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false);
+    resumeEnd(); };
+  const resumeEnd = () => { wasEnded = !!ended(); if (wasEnded) { select(-1); showEnd(APP.play); } };
 
   // ---------------------------------------------------------------- сейв
-  // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
-  // и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег стирает сейв один раз (dropOwn).
+  // Незаконченный забег пишется целиком, в любой фазе (и посреди волны, и на выборе после победы): раз в SAVE_EVERY мс, сразу
+  // после команд и начала и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег (поражение,
+  // «Закончить забег» после победы — finished) стирает сейв один раз (dropOwn).
   // Вкладка, чей сейв перезаписала другая вкладка (detached), больше не пишет, пока не начнёт или не продолжит забег сама.
-  let savedAt = 0, detached = false, writeFailed = false;
+  let savedAt = 0, detached = false, writeFailed = false, finished = false;
   const persist = () => { const S = APP.play; savedAt = performance.now();
-    if (!S || S.demo || detached || S.phase === 'won' || S.phase === 'lost') return;
+    if (!S || S.demo || detached || S.phase === 'lost' || (S.phase === 'won' && (finished || !SIM.canEndless(S)))) return;
     try { localStorage.setItem(SAVE_KEY, JSON.stringify({ S, at: Date.now(), tab: TAB })); }
     catch (e) {                                       // не записалось: старый сейв вернул бы игрока далеко назад — убираем его
       store.del(SAVE_KEY);
@@ -586,7 +592,7 @@
     if (seenEv.size > 3000) markSeen();
     if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
-    if (isEnded && !wasEnded) { select(-1); dropOwn(); runGot = credit(S); setTimeout(() => showEnd(APP.play), 900); }
+    if (isEnded && !wasEnded) { select(-1); if (S.phase === 'lost') dropOwn(); else savedAt = 0; runGot = credit(S); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     if (ui.merge >= 0 && !SIM.mergeTargets(S, ui.merge).length) { cancelMerge(); if (S.phase === 'wave') toast('Волна началась — слияние отменено', '', 2000); }
@@ -597,6 +603,6 @@
     APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol); dropOldSaves(); markSeen();
     addEventListener('pagehide', persist); addEventListener('beforeunload', persist); addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
-    if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
+    if (!A.play) showMenu(); else if (ended()) resumeEnd(); else if (A.paused) showOverlay('pause', true);   // дев-перезагрузка на экране итога — без второго зачёта
   };
 })();

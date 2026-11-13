@@ -1,9 +1,11 @@
 // Конец забега: победа на последней волне с выбором (на худших значениях: час игры, огромные счётчики, длинный сид),
-// «Закончить» — итоги, «Новый забег»; «Продолжить» — бесконечный режим (HUD, волна после последней), поражение в нём —
-// итоги с достигнутой волной, «Переиграть сид» — новый забег с тем же сидом.
+// перезагрузка страницы на выборе — тот же выбор без второго зачёта победы (в той же вкладке и через «Продолжить» в новой),
+// «Закончить» — итоги и сейв стёрт, «Новый забег»; «Продолжить» — бесконечный режим (HUD, волна после последней),
+// поражение в нём — итоги с достигнутой волной, «Переиграть сид» — новый забег с тем же сидом.
 const endState = (ctx) => ctx.eval(() => { const e = document.getElementById('end'), S = APP.play;
   return { end: e.classList.contains('show'), text: e.textContent, ids: [...e.querySelectorAll('button')].map((b) => b.id),
     phase: S && S.phase, wave: S && S.wave, seed: S && S.seed, endless: S && S.endless }; });
+const SAVE = 'necropolis.save';
 // новая партия на сиде seed, честно победившая на последней волне: волна вызвана, её враги считаются вышедшими и убитыми
 // (сейв такого забега годен); с башней — подсказки обучения не показываются
 const winNow = async (ctx, g, seed, worst) => {
@@ -16,6 +18,17 @@ const winNow = async (ctx, g, seed, worst) => {
   await ctx.page.waitForFunction(() => APP.play.phase === 'won', null, { timeout: 5000 }).catch(() => { throw new Error('последняя волна не дала победу'); });
   await ctx.need('#end.show', 5000); await ctx.wait(600);                              // экран итога проявляется
 };
+const wins = (ctx, g) => ctx.eval((k) => JSON.parse(localStorage.getItem(k)).wins, g.PROFILE_KEY);
+const savedPhase = (ctx) => ctx.eval((k) => { try { return JSON.parse(localStorage.getItem(k)).S.phase; } catch (e) { return null; } }, SAVE);
+const reload = async (ctx, newTab) => {
+  if (newTab) await ctx.eval(() => addEventListener('pagehide', () => sessionStorage.clear()));   // как закрыть вкладку и открыть игру заново
+  await ctx.page.reload();
+  await ctx.page.waitForFunction(() => window.__ready && window.UI && window.APP, null, { timeout: 20000 });
+};
+const choice = async (ctx, what) => {
+  await ctx.need('#end.show #e-endless', 5000).catch(() => { throw new Error(what + ': нет выбора «продолжить / закончить»'); });
+  const st = await endState(ctx); if (st.phase !== 'won' || !st.ids.includes('e-finish')) throw new Error(what + ': ' + JSON.stringify(st));
+};
 export const steps = {
   end_won: async (ctx, g) => {
     await winNow(ctx, g, 999999, true);
@@ -24,8 +37,20 @@ export const steps = {
     if (!st.ids.includes('e-endless') || !st.ids.includes('e-finish')) throw new Error('у победы нет выбора «продолжить / закончить»: ' + JSON.stringify(st.ids));
     await ctx.shot('end_won');
   },
+  end_won_reload: async (ctx, g) => {
+    await ctx.page.waitForFunction((k) => { try { return JSON.parse(localStorage.getItem(k)).S.phase === 'won'; } catch (e) { return false; } }, SAVE, { timeout: 5000 })
+      .catch(() => { throw new Error('забег на выборе после победы не сохранился'); });
+    const w = await wins(ctx, g); if (w !== 1) throw new Error('победа не засчитана в профиль один раз: побед ' + w);
+    await reload(ctx, false); await choice(ctx, 'перезагрузка вкладки');
+    await reload(ctx, true);
+    await ctx.need('#m-cont').catch(() => { throw new Error('после перезагрузки нет «Продолжить» у забега на выборе после победы'); });
+    await ctx.click('#m-cont'); await choice(ctx, '«Продолжить» в новой вкладке');
+    if ((await wins(ctx, g)) !== 1) throw new Error('победа засчитана повторно после перезагрузки: побед ' + (await wins(ctx, g)));
+    await ctx.wait(600); await ctx.shot('end_won_reload');
+  },
   end_final: async (ctx) => {
     await ctx.click('#e-finish'); await ctx.wait(200);
+    if ((await savedPhase(ctx)) !== null) throw new Error('«Закончить забег» не стёр сейв');
     const st = await endState(ctx);
     for (const want of ['Сид', '999999', 'Волна', 'Время', '59:59', 'Врагов повержено', '99999']) if (!st.text.includes(want)) throw new Error('в итогах нет «' + want + '»: ' + st.text);
     if (!st.end || !['e-again', 'e-replay', 'e-menu'].every((id) => st.ids.includes(id))) throw new Error('итоги без кнопок нового забега и переигровки: ' + JSON.stringify(st));
