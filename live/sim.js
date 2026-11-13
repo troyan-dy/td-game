@@ -871,7 +871,9 @@
       const e = s.foe ? findEnemy(S, s.foe) : null; if (!e) continue;
       s.face = e.x >= s.x ? 1 : -1;
       if (s.grip) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, s.grip); e.curseT = Math.max(e.curseT, 0.25); }   // Мёртвая хватка
-      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+      if (s.cd <= 0) { s.cd = Math.max(0, s.cd + s.hit); s.hitT = S.t;
+        ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+        strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида)
         if (e.dead) { s.foe = 0; continue; } }
       s.hp -= (EN[e.type].melee === undefined ? C.MELEE : EN[e.type].melee) * DT;
     }

@@ -67,6 +67,9 @@ test('скелет держит одного врага: тот стоит и б
   assert.equal(e.d, d0, 'удержанный враг идёт дальше');
   assert.ok(Math.abs(hp0 - sk.hp - 1.5 * EN.militia.melee) < EN.militia.melee * S.dt * 2, `скелет потерял ${hp0 - sk.hp} HP за 1.5 с при ударе врага ${EN.militia.melee}/с`);
   const lost = eh0 - e.hp; assert.ok(lost >= st.dmg && Math.abs(lost / st.dmg - Math.round(lost / st.dmg)) < 1e-6, `враг потерял ${lost}, не кратно удару ${st.dmg}`);
+  // каждый удар скелета — событие попадания (вспышка и звук в сцене) у врага
+  const hp1 = e.hp; let hits = 0; for (let i = 0; i < 2 * st.hit / S.dt; i++) { SIM.step(S, null); hits += evs(S, 'hit').filter((h) => h.kind === 'skel' && h.x === e.x).length; }
+  assert.ok(e.hp < hp1 && hits === Math.round((hp1 - e.hp) / st.dmg), `ударов ${Math.round((hp1 - e.hp) / st.dmg)}, событий попадания ${hits}`);
   // второго врага этот скелет не держит
   const e2 = enemyAt(S, 'militia', Math.max(0, d0 - 30), 1e6), d2 = e2.d; run(S, 1.5);
   assert.ok(e2.d > d2 + 30, 'второй враг стоит');
