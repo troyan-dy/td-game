@@ -117,6 +117,16 @@ test('продажа и перенос алтаря сразу снимают б
   build(S, c, 'altar'); assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))));
 });
 
+test('превью переноса алтаря: кого он усилит на новой клетке — со своими перками, как после переноса', () => {
+  const S = SIM.create(7), [c, [n]] = spot(S, 1), tw = build(S, n, 'spirits'), alt = build(S, c, 'altar');
+  alt.perks.push('circle');                                            // «Кровавый круг»: охват 2 — превью обязано его учесть
+  for (const to of SIM.moveCells(S, c)) {
+    const pv = SIM.auraTargets(S, to, c).slice().sort();
+    const T = JSON.parse(JSON.stringify(S)); SIM.step(T, { cmds: [{ k: 'move', cell: c, to }] });
+    assert.deepEqual(pv, SIM.auraTargets(T, to).slice().sort(), `клетка ${to}`); }
+  assert.deepEqual(SIM.auraTargets(S, c, n), [], 'с клетки не-алтаря превью пустое');
+});
+
 test('аура действует и на Колокол: его удар сильнее и чаще', () => {
   const S = SIM.create(8), [c, [n]] = spot(S, 1), bell = build(S, n, 'bell'), o = SIM.towerStats(S, bell);
   const alt = build(S, c, 'altar'); boosted(SIM.towerStats(S, bell), o, SIM.ownStats(S, alt), 'Колокол рядом с алтарём');

@@ -169,7 +169,11 @@
       out.dmg = Math.max(out.dmg, st.auraDmg); out.rate = Math.max(out.rate, st.auraRate); out.range = Math.max(out.range, st.auraRange); }
     return out; };
   // алтарь на клетке cell: будущий типа type (превью постройки) или стоящий там (type не задан); null — там не алтарь
-  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && auraType(tw) ? tw : null; };
+  // type: нет — стоящая башня; строка — будущая башня этого типа; число — стоящая башня с клетки type, перенесённая на cell
+  // (превью переноса алтаря: со своими ветками и перками)
+  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null;
+    const tw = type === undefined ? towerAt(S, cell) : typeof type === 'number' ? (towerAt(S, type) ? Object.assign({}, towerAt(S, type), { cell }) : null) : own(TW, type) ? fresh(cell, type) : null;
+    return tw && auraType(tw) ? tw : null; };
   // клетки башен, которые усилит алтарь на клетке cell (превью постройки, подсветка на карте); [] — не алтарь или некого
   const auraTargets = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
     const r = ownStats(S, tw).auraR;

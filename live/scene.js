@@ -70,7 +70,8 @@
       else if (got) { const w = 34 * got / tw.cap; L.solid(x - 17, yy, w, 3, TRACK_COL[k], 0, 0, 0, 0.9); } });
     MARKS = [];
   };
-  const drawTower = (ST, tw, GT, t, sel) => {
+  // veil — прозрачность спрайта: башня перед наведённой или выбранной становится полупрозрачной, задняя видна целиком
+  const drawTower = (ST, tw, GT, t, sel, veil = 1) => {
     const [x, y] = SIM.cellXY(ST, tw.cell), lk = SIM.look(tw), room = y + 10 - C.VIEW_TOP;   // выше VIEW_TOP — плашки HUD
     const top = C.VIEW_TOP + 6, inBand = (yy) => yy >= top;                                    // эффекты не залезают в полосу HUD
     const age = GT - tw.built, pop = age < 0.45 ? 1 + 0.18 * Math.sin(age / 0.45 * Math.PI) * (1 - age / 0.45) : 1;   // squash при постройке
@@ -94,12 +95,12 @@
       const glint = lk === 3 ? (fit < 1 ? 0.22 : 0.1) : 0, base = A.tint || [1, 1, 1, 0];
       const tint = glint ? [base[3] ? base[0] : col[0] * 1.3, base[3] ? base[1] : col[1] * 1.3, base[3] ? base[2] : col[2] * 1.3, Math.max(base[3], glint)] : base;
       const bm = M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick)));
-      L.sprite(n, 0, 0, { m: bm, w, h, pivot: [w / 2, h], u: { tint } });
+      L.sprite(n, 0, 0, { m: bm, w, h, pivot: [w / 2, h], u: { tint, alpha: veil } });
       // процедурный вид (live/towerart.js): части поверх кадра (колокол качается от удара и чуть — сам), огни свечей
       const code = window.TOWERART && TOWERART.get(n);
       if (code) { const f = w / code.W, swing = Math.exp(-3 * (GT - tw.fireT)) * 0.32 * Math.sin((GT - tw.fireT) * 13) + 0.03 * Math.sin(t * 1.6 + tw.cell);
         for (const q of code.parts) L.sprite(q.tex, 0, 0, { m: M.of(bm, M.t((q.at[0] - code.W / 2) * f, (q.at[1] - code.H) * f), M.r(swing)),
-          w: q.cv.width / TOWERART.P * f, h: q.cv.height / TOWERART.P * f, pivot: [q.pivot[0] * f, q.pivot[1] * f], u: { tint } });
+          w: q.cv.width / TOWERART.P * f, h: q.cv.height / TOWERART.P * f, pivot: [q.pivot[0] * f, q.pivot[1] * f], u: { tint, alpha: veil } });
         for (const [lx, ly] of code.lights) { const gx = x + (lx - code.W / 2) * f, gy = y + 10 - (code.H - ly) * f;
           if (inBand(gy)) L.glow(gx, gy, 12, [1, 0.62, 0.25], 0.5 + 0.2 * Math.sin(t * 9 + lx + tw.cell) * Math.sin(t * 5.3 + ly)); } }
     } else placeholderTower(tw, A, x, y, h * pop, kick, t, lk);
@@ -318,7 +319,8 @@
         // превью радиуса на новой клетке: мягкая кайма и линия ровно по радиусу (кольцо L.ring лежит на 0.85 своего квада),
         // пунктир круга — не ярче пунктира «откуда — куда»
         const r = SIM.moveRangePx(ST, ui.move, ui.hover), R = r / 0.85;
-        L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); }
+        if (SIM.auraOf(mt)) drawAura(ST, ui.hover, ui.move, true, t);   // алтарь (и гибрид с его примесью): кого он усилит на новой клетке
+        if (!SIM.hasAura(mt.type)) { L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); } }
     }
     // слияние: соседи, с которыми можно слить, — заливка и уголки их цвета; выбранный (или наведённый) — ярче, с пунктиром
     // «примесь → гибрид» к первой башне
@@ -356,8 +358,9 @@
       L.ring(e.x, e.y, R, R * 0.92, COL.haste, 0.30 + 0.15 * p, 0.03); L.glow(e.x, e.y, d.hasteR * C.UNIT, COL.haste, 0.08 + 0.05 * p); }
 
     // y-сортировка
-    const Y = [];
-    ST.towers.forEach((tw) => { if (tw) Y.push([SIM.cellXY(ST, tw.cell)[1], 0, tw.id, () => drawTower(ST, tw, GT, t, ui.sel === tw.cell || ui.hover === tw.cell)]); });
+    const Y = [], focus = [ui.hover, ui.sel].filter((c) => c >= 0 && ST.towers[c]), cols = ST.map.cols;
+    const veiled = (c) => focus.some((f) => c !== f && Math.abs(c % cols - f % cols) <= 1 && Math.floor(c / cols) - Math.floor(f / cols) >= 1 && Math.floor(c / cols) - Math.floor(f / cols) <= 2);
+    ST.towers.forEach((tw) => { if (tw) Y.push([SIM.cellXY(ST, tw.cell)[1], 0, tw.id, () => drawTower(ST, tw, GT, t, ui.sel === tw.cell || ui.hover === tw.cell, veiled(tw.cell) ? 0.3 : 1)]); });
     for (const e of ST.enemies) Y.push([e.y, 1, e.id, () => drawEnemy(ST, e, GT, t)]);
     for (const s of ST.skels || []) Y.push([s.y, 1, s.id, () => drawSkel(ST, s, GT, t)]);
     Y.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).forEach((d) => d[3]());
@@ -443,23 +446,28 @@
     // значки особых клеток — поверх всего (и башен): метка видна, даже когда на клетке стоит башня
     for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + 13); }
 
-    // полоски здоровья (как на референсе: тонкая полоса над головой)
-    for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 24;
-      const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 10);
-      L.solid(x - 1, y - 1, w + 2, 6, [0.05, 0.03, 0.08]); L.solid(x, y, w, 4, [0.35, 0.08, 0.1]);
-      L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow);
+    // полоски здоровья — тонкие и только у раненых (у целых врагов их нет: в поздних волнах не стена полосок); боссы и повозки — всегда
+    for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), big = e.type === 'paladin' || e.type === 'cart', w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 20;
+      const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 8), bh = big ? 4 : 3;
+      if (k < 0.995 || big) { L.solid(x - 1, y - 1, w + 2, bh + 2, [0.05, 0.03, 0.08], 0, 0, 0, 0.85); L.solid(x, y, w, bh, [0.35, 0.08, 0.1], 0, 0, 0, 0.85);
+        L.solid(x, y, Math.round(w * k), bh, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow, 0, 0, 0, 0.9); }
       // оглушение (Колокол): три звезды кружат над полоской, пока враг стоит (после грейда — чёткие, не тонут в полоске)
       if (e.stunT > 0) for (let j = 0; j < 3; j++) { const an = t * 6 + j * 2.094 + e.id;
         L.star(e.x + Math.cos(an) * (w / 2 + 2), y - 9 + Math.sin(an) * 4, 10, COL.stun, 1); } }
     // полоски HP скелетов — бирюзовые, тоньше вражеских и только у раненых (у врагов полоска красно-зелёная)
     for (const s of ST.skels || []) { const k = Math.max(0, s.hp / s.max); if (k >= 0.999) continue; const x = Math.round(s.x - 10), y = Math.round(s.y - SKEL_H - 9);
       L.solid(x - 1, y - 1, 22, 4, [0.05, 0.03, 0.08]); L.solid(x, y, 20, 2, [0.12, 0.2, 0.3]); L.solid(x, y, Math.round(20 * k), 2, COL.soul); }
-    // всплывающие души
-    let fi = 0;
-    for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
-      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well' || e.k === 'toll') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
-      if (e.k === 'miss') { const q = a / 1.1; L.label('f' + (fi++ % 40), 'ПРОМАХ', e.x, e.y - 34 - 30 * q, { size: 17, col: '#c8ff9e', out: '#132a0b', a: 1 - q * q, al: 0.5 }); }
-      if (e.k === 'leak') { const q = a / 1.1; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
+    // всплывающие души — мелкие и не гуще одной надписи на участок поля 96 px (рядом погибшие — одна надпись с суммой);
+    // «промах» — короткий значок, тоже не гуще; прорыв к склепу — крупно, всегда
+    let fi = 0; const cellsUsed = new Map(), slot = (x, y) => Math.round(x / 96) + ':' + Math.round(y / 96);
+    for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 0.9) continue;
+      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well' || e.k === 'toll') && e.souls) { const key = slot(e.x, e.y), u = cellsUsed.get(key);
+        if (u) { u.sum += e.souls; continue; } cellsUsed.set(key, { sum: e.souls, e, a }); }
+      if (e.k === 'miss') { const key = 'm' + slot(e.x, e.y); if (cellsUsed.has(key)) continue; cellsUsed.set(key, 1);
+        const q = a / 0.9; L.label('f' + (fi++ % 40), 'промах', e.x, e.y - 30 - 20 * q, { size: 13, col: '#c8ff9e', out: '#132a0b', a: 0.9 * (1 - q * q), al: 0.5 }); }
+      if (e.k === 'leak') { const q = a / 0.9; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
+    for (const [key, u] of cellsUsed) { if (!u.e) continue; const q = u.a / 0.9;
+      L.label('f' + (fi++ % 40), '+' + u.sum, u.e.x, u.e.y - 36 - 22 * q, { size: 14, col: '#7ff5e6', out: '#0b2a2c', a: 0.95 * (1 - q * q), al: 0.5 }); }
   };
 
   // QA-хуки для qa.mjs: кадр как на референсе (волна 9), экраны HUD живут в DOM (ui.js) и проверяются tools/uicheck.mjs
