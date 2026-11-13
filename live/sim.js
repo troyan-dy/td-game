@@ -113,15 +113,91 @@
   const moveRangePx = (S, from, to) => rangePx(Object.assign({}, S.towers[from], { cell: to }));
   // радиус будущей башни типа type на клетке cell, px (круг превью постройки)
   const buildRangePx = (S, cell, type) => TW[type].range[0] * UNIT;
-  // годно ли состояние для продолжения (сейв, sessionStorage): текущая версия, годная карта, все поля на месте
+  // ---------------------------------------------------------------- сид и сейв
+  // сид из поля ввода: целое 0..C.SEED.max цифрами; пробелы по краям и ведущие нули не мешают.
+  // → { ok, seed, reason: null | 'empty' | 'negative' | 'big' | 'format' }; причину словами показывает интерфейс
+  const parseSeed = (text) => {
+    const s = text === null || text === undefined ? '' : String(text).trim(), no = (reason) => ({ ok: false, seed: null, reason });
+    if (!s) return no('empty');
+    if (/^-[0-9]+$/.test(s)) return no('negative');
+    if (!/^[0-9]+$/.test(s)) return no('format');
+    const d = s.replace(/^0+(?=[0-9])/, '');
+    if (d.length > String(C.SEED.max).length || +d > C.SEED.max) return no('big');
+    return { ok: true, seed: +d, reason: null };
+  };
+
+  // Годно ли состояние для продолжения (сейв, sessionStorage). Три слоя:
+  //  1) форма: состояние, каждая башня и каждый враг повторяют образец — то, что создают сами create, постройка и появление
+  //     врага. Каждое поле образца есть и того же рода; новые поля образца проверяются сами, лишние не мешают.
+  //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
+  //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
+  //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, prepT −1);
+  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
+  //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
+  //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
+  const SIGNED = new Set(['x', 'y', 'lane', 'aim', 'face', 'dx', 'dy']);
+  const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
+  const num = (v, t, tol, key) => typeof v === 'number' && Math.abs(v) <= C.SAVE_NUM_MAX && (v >= -tol || t < 0 || SIGNED.has(key));
+  const like = (v, t, tol, key) => { const k = kind(t);
+    if (k === 'null') return true;                                    // в образце null — поле может быть чем угодно (перк, открытое)
+    if (k === 'number') return num(v, t, tol, key);
+    if (kind(v) !== k) return false;
+    if (k === 'object') for (const key of Object.keys(t)) if (!like(v[key], t[key], tol, key)) return false;
+    return true; };
+  const bounded = (o) => { if (typeof o === 'number') return Math.abs(o) <= C.SAVE_NUM_MAX;   // NaN и ±Infinity сюда не проходят
+    if (o && typeof o === 'object') for (const k in o) if (!bounded(o[k])) return false; return true; };
+  const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  let SHAPE = null, MAPC = { seed: null, json: '' };
+  const shapes = () => {
+    if (SHAPE) return SHAPE;
+    const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
+    S.souls = 1e9; S.wave = 1;
+    Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
+    for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
+    // образец, который не создался, молча отключил бы проверку формы своего типа: это ошибка разработки, падаем громко
+    for (const [what, all] of [['башни', towers], ['врага', enemies]]) for (const type in all)
+      if (kind(all[type]) !== 'object' || all[type].type !== type) throw new Error(`SIM.loadable: не создался образец ${what} ${type}`);
+    // мелочь боя, у которой нет одного создателя: только поля, без которых шаг или кадр споткнутся
+    return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, chain: false },
+      shot: { k: '', x: 0, y: 0 }, cloud: { x: 0, y: 0, r: 0, t: 0, T: 0, dps: 0 }, beam: { x0: 0, y0: 0, x1: 0, y1: 0, t: 0 }, ev: { k: '', t: 0 } })));
+  };
+  // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
+  const mapOfSeed = (seed) => { if (MAPC.seed !== seed) MAPC = { seed, json: JSON.stringify(MAPGEN.generate(seed)) }; return MAPC.json; };
+  // фаза согласована с номером волны и таймером паузы. Верхняя граница волны — последняя волна забега;
+  // бесконечный режим (#14) должен снять её для забега, продолжающегося после победы.
+  const phaseOk = (S) => {
+    const last = waveCount();
+    if (S.phase === 'prep') return int(S.wave, 0, last - 1) && (S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME));   // после последней волны пауз нет
+    if (S.phase === 'wave') return int(S.wave, 1, last);
+    if (S.phase === 'won') return S.wave === last;
+    if (S.phase === 'lost') return int(S.wave, 0, last);
+    return false;
+  };
   const loadable = (S) => {
+    const sh = shapes();
     try {
-      if (!S || typeof S !== 'object' || S.v !== C.VERSION || !S.map || MAPGEN.validate(S.map).length) return false;
-      const num = (v) => typeof v === 'number' && Number.isFinite(v), arr = Array.isArray;
-      return num(S.seed) && num(S.dt) && S.dt > 0 && S.dt <= C.DT_MAX && num(S.t) && num(S.rs) && num(S.souls) && num(S.hp) && num(S.wave) && num(S.nid)
-        && ['prep', 'wave', 'won', 'lost'].includes(S.phase) && arr(S.towers) && S.towers.length === cellCount(S)
-        && arr(S.enemies) && arr(S.shots) && arr(S.clouds) && arr(S.beams) && arr(S.ev) && arr(S.queue)
-        && !!S.stats && typeof S.stats === 'object' && !!S.seen && typeof S.seen === 'object';
+      if (kind(S) !== 'object' || S.v !== C.VERSION || kind(S.map) !== 'object') return false;
+      if (!(S.dt >= C.DT_MIN && S.dt <= C.DT_MAX)) return false;               // мельче — проба шла бы бесконечно
+      if (!like(S, sh.state, S.dt) || !bounded(S)) return false;
+      if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
+      if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
+      if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
+      const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
+      for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
+        const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null, blk = def && tw.cell === i ? cellBlock(S, i) : 'bounds';
+        if (!def || !like(tw, sh.towers[tw.type], S.dt) || (blk && blk !== 'occupied')) return false;   // клетка — по правилу постройки, занята собой
+        if (!int(tw.lvl, 1, def.cost.length) || (tw.perk !== null && !own(def.perks, tw.perk)) || !freshId(tw.id)) return false; }
+      for (const e of S.enemies) {
+        if (kind(e) !== 'object' || !own(EN, e.type) || !like(e, sh.enemies[e.type], S.dt) || !freshId(e.id)) return false;
+        for (const k in e.poison) if (!like(e.poison[k], sh.poison, S.dt)) return false; }
+      for (const q of S.queue) if (!like(q, sh.queue, 0) || !own(EN, q.e)) return false;
+      const loose = (list, t) => list.every((x) => like(x, t, Infinity));     // координаты снарядов и лучей бывают за краем поля
+      if (!loose(S.shots, sh.shot) || !loose(S.clouds, sh.cloud) || !loose(S.beams, sh.beam)) return false;
+      if (!S.ev.every((e) => like(e, sh.ev, Infinity) && ['x', 'y'].every((k) => e[k] === undefined || num(e[k], 0, Infinity, k)))) return false;
+      const R = JSON.parse(JSON.stringify(S)), n = Math.min(Math.ceil(C.SAVE_TRIAL / R.dt), Math.ceil(C.SAVE_TRIAL / C.DT_MIN));
+      for (let i = 0; i < n; i++) step(R, null);
+      return bounded(R);
     } catch (e) { return false; }
   };
   // превью волны n для разведки: только с текущей+1 по текущую+SCOUT_AHEAD и не дальше конца забега, иначе null.
@@ -328,7 +404,8 @@
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
     S.stats.time += DT;
-    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0) startWave(S); }
+    // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
+    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < waveCount()) startWave(S); }
     if (S.phase === 'wave') {
       S.waveT += DT;
       while (S.qi < S.queue.length && S.queue[S.qi].at <= S.waveT) spawnEnemy(S, S.queue[S.qi++].e, 0);
@@ -421,7 +498,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, isBoss, preview, scoutRange, remaining, enemyStats, MUZZLE, WAVEGEN,
-    canBuild, buildRangePx, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
+    canBuild, buildRangePx, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangePx, rangeTiles, towerStat, upgradeCost, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
   };
