@@ -295,7 +295,7 @@
   const buildMenu = (S, p) => {
     const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
     const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
-      if (cb.reason === 'locked') return `<div class="lk"><span>${T[k].name}</span><i>${T[k].role}</i><span>🔒</span></div>`;
+      if (cb.reason === 'locked') return `<div class="lk"><span>${T[k].name}</span><i>${T[k].role}</i><span>🔒 закрыта</span></div>`;
       return `<div title="${T[k].title}"><span>${T[k].name}</span><i>${T[k].role}</i><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
     // превью Алтаря: каких соседей он усилит на этой клетке (ответ логики; на карте те же клетки подсвечены)
     const aura = C.TOWER_ORDER.filter((k) => SIM.hasAura(k)).map((k) => { const n = SIM.auraTargets(S, ui.sel, k).length;

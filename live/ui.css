@@ -208,7 +208,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 .toast.boss { border-color: #e0566f; color: #ffd9df; }
 .toast small { display: block; font: 13px/1.15 var(--body); letter-spacing: 0; color: var(--dim); margin-top: 1px; }
 .toast.out { opacity: 0; transition: opacity .3s; }
-@keyframes tin { from { transform: translateY(-8px); opacity: 0; } }
+@keyframes tin { from { opacity: 0; } }   /* без сдвига: тост в верхней полосе не выходит за край экрана */
 #ui.toasting #title { visibility: hidden; }
 #coach { position: absolute; max-width: 320px; padding: 10px 14px; font: 16px/1.35 var(--body); border-color: var(--soul); display: none; pointer-events: none; animation: bob 1.6s ease-in-out infinite; }
 #coach.show { display: block; }
