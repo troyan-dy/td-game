@@ -56,15 +56,23 @@ const waveInfo = (SIM, seed, n, zone) => {
   return { n, boss: w.boss, ehp, hp, speed, pass, need: ehp / pass, bounty, bonus: w.bonus, count: cnt };
 };
 
-// весь забег по сиду: [{ n, need, souls, def, margin }]
+// весь забег по сиду без K: { seed, map, waves: [{ n, boss, ehp, pass, need, have }] } — оборону и запас считает judge
 export const run = (SIM, seed, waves) => {
   const C = SIM.CONFIG, mp = mapInfo(SIM, seed), out = []; let souls = C.START_SOULS;
   for (let n = 1; n <= waves; n++) { const w = waveInfo(SIM, seed, n, mp.zone);
-    const have = souls + w.bounty / 2, def = MODEL.K * have ** MODEL.ALPHA * mp.sat / MODEL.SAT_REF;
-    out.push({ n, boss: w.boss, ehp: Math.round(w.ehp), pass: w.pass, need: w.need, souls: Math.round(have), def, margin: def / w.need - 1 });
+    out.push({ n, boss: w.boss, ehp: Math.round(w.ehp), pass: w.pass, need: w.need, have: souls + w.bounty / 2 });
     souls += w.bounty + w.bonus; }
-  return { seed, map: mp, waves: out, minMargin: Math.min(...out.map((x) => x.margin)), breaks: (out.find((x) => x.margin < 0) || { n: null }).n };
+  return { seed, map: mp, waves: out };
 };
+// оборона на волне без K (урон в секунду на единицу K)
+const unitDef = (r, w, alpha) => w.have ** alpha * r.map.sat / MODEL.SAT_REF;
+// запас по волнам с K и ALPHA: { …r, waves: [+ def, margin], minMargin, breaks — первая волна с запасом ниже нуля }
+export const judge = (r, K = MODEL.K, alpha = MODEL.ALPHA) => {
+  const waves = r.waves.map((w) => { const def = K * unitDef(r, w, alpha); return Object.assign({}, w, { def, margin: def / w.need - 1 }); });
+  return Object.assign({}, r, { waves, minMargin: Math.min(...waves.map((x) => x.margin)), breaks: (waves.find((x) => x.margin < 0) || { n: null }).n });
+};
+// наименьший K, при котором забег проходим по модели
+const kcrit = (r, alpha) => Math.max(...r.waves.map((w) => w.need / unitDef(r, w, alpha)));
 
 if (!isMainThread) {
   const SIM = require('../live/sim.js'); setCfg(SIM.CONFIG, workerData.set); Object.assign(MODEL, workerData.model);
@@ -78,7 +86,7 @@ if (!isMainThread) {
     for (let i = 0; i < nW; i++) parts.push(seeds.filter((_, j) => j % nW === i));
     const res = await Promise.all(parts.map((p) => new Promise((ok, no) => { const w = new Worker(fileURLToPath(import.meta.url), { workerData: { seeds: p, waves, set, model: MODEL } });
       w.once('message', ok); w.once('error', no); })));
-    return res.flat().sort((a, b) => a.seed - b.seed); };
+    return res.flat().sort((a, b) => a.seed - b.seed).map((r) => judge(r)); };
   // сверка с ботами: знак запаса (проходим ли забег) против исхода партии бота
   const agree = (model, sim, bot) => { let ok = 0, n = 0, rows = [];
     for (const r of sim.res.filter((x) => x.bot === bot)) { const m = model.find((x) => x.seed === r.seed); if (!m) continue; n++;
@@ -86,7 +94,7 @@ if (!isMainThread) {
     return { ok, n, rows }; };
   const t0 = Date.now();
   if (arg('seed', null) !== null) {
-    const r = run(SIM, +arg('seed'), waves);
+    const r = judge(run(SIM, +arg('seed'), waves));
     console.log(`сид ${r.seed}: дорога ${Math.round(r.map.L)} px, накрыто лучшими ${MODEL.TOP} клетками ${Math.round(r.map.zone)} px, насыщение ${f2(r.map.sat)}`);
     console.log('волна | эфф. HP | проход, с | нужно урона/с | души | оборона урона/с | запас');
     for (const w of r.waves) console.log(`${String(w.n).padStart(5)}${w.boss ? 'Б' : ' '}| ${String(w.ehp).padStart(7)} | ${w.pass.toFixed(0).padStart(9)} | ${w.need.toFixed(0).padStart(13)} | ${String(w.souls).padStart(5)} | ${w.def.toFixed(0).padStart(15)} | ${(w.margin >= 0 ? '+' : '') + Math.round(100 * w.margin)}%`);
@@ -94,10 +102,16 @@ if (!isMainThread) {
   } else if (arg('fit', null) || arg('sim', null)) {
     const sim = JSON.parse(fs.readFileSync(arg('fit', null) || arg('sim', null), 'utf8')), bot = arg('bot', 'smart');
     const seeds = [...new Set(sim.res.filter((x) => x.bot === bot).map((x) => x.seed))];
-    if (arg('fit', null)) { const base = MODEL.K; let best = null;
-      for (let f = 0.3; f <= 3; f *= 1.04) { MODEL.K = base * f; const a = agree(await many(seeds), sim, bot); if (!best || a.ok > best.ok) best = { k: MODEL.K, ok: a.ok }; }
-      MODEL.K = best.k; console.log(`подобран K = ${best.k.toFixed(4)}`); }
-    const a = agree(await many(seeds), sim, bot);
+    let model = await many(seeds);
+    if (arg('fit', null)) { let best = null;
+      const runs = sim.res.filter((x) => x.bot === bot).map((x) => ({ win: x.win !== null, r: model.find((m) => m.seed === x.seed) }));
+      for (let alpha = 0.7; alpha <= 1.51; alpha += 0.05) { const ks = runs.map((x) => kcrit(x.r, alpha)).sort((p, q) => p - q);
+        for (let i = 0; i <= ks.length; i++) { const K = i === 0 ? ks[0] * 0.99 : i === ks.length ? ks[i - 1] * 1.01 : (ks[i - 1] + ks[i]) / 2;
+          const ok = runs.filter((x) => (kcrit(x.r, alpha) <= K) === x.win).length;
+          if (!best || ok > best.ok) best = { ok, K, alpha }; } }
+      MODEL.K = best.K; MODEL.ALPHA = +best.alpha.toFixed(2); model = model.map((r) => judge(r));
+      console.log(`подобрано: K = ${MODEL.K.toPrecision(3)}, ALPHA = ${MODEL.ALPHA} (впиши в MODEL, если сверка устраивает)`); }
+    const a = agree(model, sim, bot);
     console.log(`бот ${bot}, сидов ${a.n}: модель согласна с исходом партии на ${a.ok} (${pct(a.ok, a.n)}), расходится на ${a.n - a.ok} (${pct(a.n - a.ok, a.n)})`);
     console.log(`  побед у бота ${a.rows.filter((x) => x.win).length}, проходимых по модели ${a.rows.filter((x) => x.pred).length}`);
     for (const x of a.rows.filter((r) => r.win !== r.pred)) console.log(`  сид ${x.seed}: бот ${x.win ? 'победил' : 'проиграл на ' + x.wave + '-й'}, модель — ${x.pred ? 'проходим' : 'запас кончается на ' + x.breaks + '-й'} (мин. запас ${Math.round(100 * x.min)}%)`);

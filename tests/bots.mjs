@@ -53,10 +53,16 @@ export const EFF = { bones: 1, spirits: 0.7, plague: 1.5, dark: 1, bell: 1, barr
 const SLOW_W = 20, STUN_W = 45, HOLD_W = 14;
 const resist = (type, st, P) => { const d = TW[type];
   if (d.dmgType === 'phys') return 1 - Math.max(0, P.armor - (st.shred || 0)) * (1 - (st.pen || 0));
-  if (d.dmgType === 'magic') return d.ignoreMres ? 1 : 1 - P.mres;
+  if (d.dmgType === 'magic') return d.ignoreMres ? 1 : 1 - P.mres * (1 - (st.mpen || 0));
   return 1; };
+// эффекты примеси гибрида (общий слой попадания): множитель к урону и прибавка за контроль
+const mixK = (st) => (1 + (st.venom || 0) * Math.min(st.venomTime || 0, 2) + (st.pierceN || 0) * (st.pierceK || 0) * 0.6);
+const mixC = (st) => (st.stunChance ? STUN_W * st.stunChance * st.stunMini / st.rate : 0) + (st.raiseMax ? HOLD_W * st.raiseMax * 0.5 : 0);
 // «урон в секунду» башни типа type с характеристиками st против противника P (без покрытия)
 const dps = (type, st, P) => {
+  return base(type, st, P) * mixK(st) + mixC(st);
+};
+const base = (type, st, P) => {
   const r = resist(type, st, P), sup = 1 + 1.5 * ((st.curse || 0) + (st.grip || 0)) + (st.drag || 0);
   switch (TW[type].attack) {
     case 'bolt': return st.dmg / st.rate * r * (st.bolts ? st.bolts * st.boltMult * 0.85 : st.pierce ? 1.7 : 1) * sup;
@@ -137,8 +143,20 @@ const moves = (S, mem, o) => {
   if (o.merge) out.push(...mergeMoves(S, mem));
   return out;
 };
-// Слияние башен в гибриды (#9): когда оно появится в логике, ходы слияния с оценкой { cmd, cost, gain } — здесь
-const mergeMoves = () => [];
+// Слияние башен в гибриды: две соседние башни на потолке всех веток → гибрид первой с примесью второй (вторая уходит
+// с поля), потолок веток выше. Оценка смотрит вперёд: гибрид, докачанный до нового потолка, против двух башен сейчас;
+// в цену хода (per) входят и будущие ступени — платится сейчас только само слияние (cost).
+const mergeMoves = (S, mem) => {
+  const out = []; if (S.phase !== 'prep' || !SIM.canMerge) return out;
+  for (const a of S.towers) { if (!a || !SIM.canMerge(S, a.cell).ok) continue;
+    for (const o of SIM.mergeTargets(S, a.cell)) { const b = S.towers[o], M = C.MERGE;
+      const hw = Object.assign({}, a, { mix: b.type, cap: M.cap, slots: M.slots, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, M.cap])),
+        perks: a.perks.concat(b.perks.filter((p) => !a.perks.includes(p))) });
+      let later = 0; for (const k of C.TRACKS) for (let n = a.tracks[k]; n < M.cap; n++) later += TW[a.type].tracks[k].cost[n] || 0;
+      const gain = towerPower(S, mem, hw) - towerPower(S, mem, a) - towerPower(S, mem, b);
+      if (gain > 0) out.push({ cmd: { k: 'merge', cell: a.cell, other: o }, cost: M.cost, per: gain / (M.cost + later), gain }); } }
+  return out;
+};
 
 // ---------------------------------------------------------------- реликвии: оценка в душах
 const relicScore = (S, id) => {
@@ -176,9 +194,10 @@ export const greedy = (o = {}) => (S, mem) => {
   mem.next = S.t + THINK;
   const all = moves(S, mem, o).filter((m) => m.gain > 0 && m.cost > 0);
   if (!all.length) { mem.need = Infinity; return null; }
-  let best = all[0]; for (const m of all) if (m.gain / m.cost > best.gain / best.cost) best = m;
+  const per = (m) => (m.per !== undefined ? m.per : m.gain / m.cost);
+  let best = all[0]; for (const m of all) if (per(m) > per(best)) best = m;
   let go = best.cost <= S.souls ? best : null;
-  if (!go) for (const m of all) if (m.cost <= S.souls && m.gain / m.cost >= TAKE * best.gain / best.cost && (!go || m.gain / m.cost > go.gain / go.cost)) go = m;
+  if (!go) for (const m of all) if (m.cost <= S.souls && per(m) >= TAKE * per(best) && (!go || per(m) > per(go))) go = m;
   if (!go) { mem.need = best.cost; return null; }
   mem.need = 0; mem.next = 0;                         // сделал ход — следующий можно сразу
   return [go.cmd];
