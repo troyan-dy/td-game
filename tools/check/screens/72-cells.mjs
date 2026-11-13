@@ -8,7 +8,7 @@ const cellPoint = async (ctx, cell) => { const box = await (await ctx.need('#c')
 const clickCell = async (ctx, cell) => { await ctx.page.mouse.click(...await cellPoint(ctx, cell)); await ctx.wait(100); };
 
 const menu = (kind) => async (ctx, g) => {
-  if (kind === 'mound') { await g.newGame(ctx); await g.rich(ctx); }
+  if (kind === 'mound') { await g.newGame(ctx); await g.rich(ctx); await ctx.eval(() => { APP.play.prepT = 999; }); }   // волна с боссом не должна начаться посреди экрана (её окно закроет поле)
   const cell = await special(ctx, kind); await g.select(ctx, cell); await ctx.wait(100);
   const want = await ctx.eval(([k, cell]) => ({ name: SIM.CONFIG.SPECIAL[k].name, desc: SIM.CONFIG.SPECIAL[k].desc,
     costs: SIM.CONFIG.TOWER_ORDER.map((t) => SIM.canBuild(APP.play, cell, t).cost) }), [kind, cell]);
