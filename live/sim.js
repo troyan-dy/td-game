@@ -410,7 +410,7 @@
   const spawnEnemy = (S, type, d, child) => {
     const def = EN[type], st = enemyStats(S, type);
     const e = { id: S.nid++, type, d: d || 0, hp: st.hp, max: st.hp, bounty: st.bounty, armor: st.armor, mres: st.mres, speed: st.speed, heal: st.heal, child: !!child,
-      lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, curse: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
+      lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, stunT: 0, stunG: 0, curse: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
       healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name,
       ward: def.ward || 0, haste: 0 };   // ward — сколько первых попаданий ещё пройдут мимо; haste — ускорение от знаменосца
     placeEnemy(S, e, 0);
@@ -499,6 +499,21 @@
       hits.forEach((e, i) => { const heavy = EN[e.type].heavy ? st.heavy || 1 : 1, mult = i ? st.split : 1;
         damage(S, e, st.dmg * heavy * mult, 'magic', tw, { ignoreMres: TW[tw.type].ignoreMres });
         S.beams.push({ x0: mx, y0: my, x1: e.x, y1: e.y - 14, t: S.t, tw: tw.id }); });
+      return true;
+    } },
+    // удар колокола: урон всем в радиусе разом, оглушение на st.stun всем, кроме боссов и невосприимчивых (stunG — оглушение
+    // плюс st.guard); Погребальный звон (curse) — проклятие всем задетым, Гул (drag) — замедление, начинающееся после оглушения
+    pulse: { run: (S, tw, st, cand) => {
+      const [x, y] = cellXY(S, tw.cell);
+      for (const e of cand) {
+        if (e.ward > 0) { damage(S, e, st.dmg, TW[tw.type].dmgType, tw); continue; }   // разведчик: удар мимо — и без оглушения
+        const stun = !EN[e.type].boss && !(e.stunG > 0);
+        if (stun) { e.stunT = st.stun; e.stunG = st.stun + st.guard; }
+        if (st.curse) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, st.curse); e.curseT = Math.max(e.curseT, st.curseTime); }
+        if (st.drag) slowHit(e, st.drag, (e.stunT > 0 ? e.stunT : 0) + st.dragTime);
+        damage(S, e, st.dmg, TW[tw.type].dmgType, tw);
+      }
+      ev(S, 'pulse', { x, y, r: st.rangePx, cell: tw.cell, type: tw.type });
       return true;
     } },
   };
@@ -592,6 +607,8 @@
       if (e.dead) continue; const def = EN[e.type];
       if (e.slowT > 0) { e.slowT -= DT; if (e.slowT <= 0) e.slowK = 0; }
       if (e.freezeT > 0) e.freezeT -= DT;
+      if (e.stunT > 0) e.stunT -= DT;
+      if (e.stunG > 0) e.stunG -= DT;
       if (e.curseT > 0) e.curseT -= DT;
       if (e.shredT > 0) { e.shredT -= DT; if (e.shredT <= 0) e.shred = 0; }
       for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', towerOf(S, p.tw)); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
@@ -601,7 +618,7 @@
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
         ev(S, 'heal', { x: e.x, y: e.y, any }); } }
-      const v = e.freezeT > 0 ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
+      const v = e.freezeT > 0 || e.stunT > 0 ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss }); }

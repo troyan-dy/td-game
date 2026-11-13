@@ -5,7 +5,7 @@ export const SIM = require('../live/sim.js');
 const C = SIM.CONFIG;
 
 const MIX = ['bones', 'spirits', 'plague', 'dark'];
-const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse', altar: 'offering' };
+const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse', bell: 'drone', altar: 'offering' };
 // лучшие клетки под оборону: по покрытию дороги (запоминаются на партию)
 const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, C.TYPICAL_RANGE).slice(0, n));
 

@@ -39,7 +39,7 @@
     return A.css ? html.replace('<img ', `<img style="filter:${A.css}" `) : html; };
   const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд', aura: 'аура соседям' };
   const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом', aura: 'аура соседям' };
-  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡', offering: '♥', frenzy: '↯', circle: '◎' };
+  const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡', toll: '🔔', knell: '✝', drone: '〰', offering: '♥', frenzy: '↯', circle: '◎' };
   const UI = (window.UI = {});
   let APP, cv, prefs = Object.assign({ vol: 0.7, tips: {} }, store.get(PREF_KEY) || {});
   const seenEv = new Set();
@@ -57,6 +57,8 @@
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
     const cards = h('div', 'frame', ''); cards.id = 'cards';
+    cards.style.setProperty('--n', C.TOWER_ORDER.length);            // ширина карточки считается в CSS от числа типов: полоса не шире своей зоны
+    if (C.TOWER_ORDER.length > 5) cards.classList.add('many');
     C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
@@ -89,7 +91,7 @@
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
-      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Алтарь крови усиливает башни на соседних клетках.<br>
+      <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников, Колокол оглушает всех вокруг себя, Алтарь крови усиливает башни на соседних клетках.<br>
       <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
   const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
@@ -160,7 +162,7 @@
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
-      const dg = /^Digit([1-9])$/.exec(k) || /^Numpad([1-9])$/.exec(k); if (dg && C.TOWER_ORDER[+dg[1] - 1]) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
+      const dg = /^(?:Digit|Numpad)([1-9])$/.exec(k); if (dg && C.TOWER_ORDER[+dg[1] - 1]) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
       const tk = { KeyQ: 'dmg', KeyW: 'range', KeyE: 'rate' }[k]; if (tk) { upgrade(tk); return; }
       if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); } else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
       else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });

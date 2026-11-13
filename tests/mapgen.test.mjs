@@ -163,7 +163,8 @@ test('вплотную ко входу и склепу ничего, кроме 
 });
 
 test('с каждой особой клетки до пути врагов достаёт башня с самым коротким базовым радиусом; особые не ближе 3 клеток друг к другу', () => {
-  const minR = Math.min(...Object.values(C.TOWERS).filter((t) => t.attack).map((t) => t.base.range)) * C.UNIT;   // у башни без атаки (Алтарь) радиуса нет
+  // Колокол (удар вокруг себя, pulse) малым радиусом нарочно: его ставят вплотную к дороге, особые клетки ему не обязаны; Алтарь (без атаки) не стреляет
+  const minR = Math.min(...Object.values(C.TOWERS).filter((t) => t.attack && t.attack !== 'pulse').map((t) => t.base.range)) * C.UNIT;
   for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed);
     for (const s of m.specials) assert.ok(distToRoute(m, s.cell) <= minR, `сид ${seed}: с особой клетки ${xy(s.cell)} до дороги ${distToRoute(m, s.cell).toFixed(0)} px > ${minR}`);

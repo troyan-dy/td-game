@@ -116,3 +116,8 @@ test('продажа и перенос алтаря сразу снимают б
   // сейв с алтарём и усиленным соседом годен
   build(S, c, 'altar'); assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))));
 });
+
+test('аура действует и на Колокол: его удар сильнее и чаще', () => {
+  const S = SIM.create(8), [c, [n]] = spot(S, 1), bell = build(S, n, 'bell'), o = SIM.towerStats(S, bell);
+  const alt = build(S, c, 'altar'); boosted(SIM.towerStats(S, bell), o, SIM.ownStats(S, alt), 'Колокол рядом с алтарём');
+});

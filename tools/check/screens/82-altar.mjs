@@ -51,7 +51,9 @@ export async function steps(ctx, g) {
   };
   // бой с алтарём среди башен: ничего не выбрано — аура и усиленные башни видны слабо
   out.altar_battle = async () => {
-    await g.build(ctx, c, 'altar'); await g.select(ctx, -1); await ctx.eval(() => APP.cmd({ k: 'call' })); await ctx.wait(2500);
+    await g.build(ctx, c, 'altar'); await g.select(ctx, -1);
+    // окно «Новый враг» закрыло бы поле: все враги уже «видены»
+    await ctx.eval(() => { for (const k of Object.keys(SIM.CONFIG.ENEMIES)) APP.play.seen[k] = 1; APP.cmd({ k: 'call' }); }); await ctx.wait(2500);
     if (!await ctx.eval((n) => !!SIM.towerStats(APP.play, APP.play.towers[n]).altar, nb[0])) throw new Error('в бою сосед не усилен');
     await ctx.shot('altar_battle');
   };
