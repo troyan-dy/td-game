@@ -310,7 +310,7 @@ test('лечение священника «С лекарями» равно л�
   const q = w.squads.find((x) => x.type === 'priest');
   assert.ok(q.heal > Math.round(EN.priest.heal * C.HP_MULT(n)), 'лечение не сильнее, чем без свойства');
   const S = startAt(seed, n), p = enemyOf(S, (x) => x.type === 'priest'), t = enemyOf(S, (x) => x !== p && !EN[x.type].boss);
-  for (const e of S.enemies) { e.freezeT = 1e9; if (e.type === 'priest') e.healCD = 1e9; }
+  for (const e of S.enemies) { if (e === p) e.speed = 0; else e.freezeT = 1e9; if (e.type === 'priest') e.healCD = 1e9; }   // скованный не лечит — священник просто стоит
   t.d = p.d; SIM.step(S, null);
   t.hp = t.max * 0.1; assert.ok(t.max - t.hp > q.heal);
   p.healCD = S.dt / 2; const before = t.hp; SIM.step(S, null);

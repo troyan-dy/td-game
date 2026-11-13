@@ -18,9 +18,17 @@
     <div class="rcards">${offer.map((r, i) => `<button class="btn rcard ${r.kind}" data-i="${i}"><span class="key">${i + 1}</span>
       <span class="ic">${esc(r.icon)}</span><span class="rn">${esc(r.name)}</span><span class="rk">${KIND[r.kind]}</span><span class="rd">${esc(r.desc)}</span></button>`).join('')}</div>
     <div class="rnote">Клавиши 1–${offer.length} · забег стоит, пока реликвия не выбрана</div></div>`;
-  const barHTML = (list) => list.map((r) => `<div class="frame rl ${r.kind}" data-id="${r.id}">${esc(r.icon)}</div>`).join('');
-  const showTip = (el) => { const r = SIM.relicsOf(APP.play).find((x) => x.id === el.dataset.id); if (!r) return;
-    tip.innerHTML = `<h4>${esc(r.name)}</h4><div class="rk">${KIND[r.kind]}</div><div>${esc(r.desc)}</div>`; tip.classList.add('show');
+  // строка значков: медальоны (рамка цвета вида реликвии) в один ряд в неигровом углу под кнопкой волны; больше BAR_MAX — последние
+  // прячутся в фишку «+N» с их списком в подсказке, и ряд не выходит на поле
+  const BAR_MAX = 6;
+  const barHTML = (list) => { const cut = list.length > BAR_MAX ? BAR_MAX - 1 : list.length;
+    return list.map((r, i) => `<div class="rl ${r.kind}${i >= cut ? ' hid' : ''}" data-id="${r.id}"><span>${esc(r.icon)}</span></div>`).join('')
+      + (cut < list.length ? `<div class="rl more" data-more="1"><span>+${list.length - cut}</span></div>` : ''); };
+  const showTip = (el) => { const all = SIM.relicsOf(APP.play);
+    if (el.dataset.more) { tip.innerHTML = all.slice(BAR_MAX - 1).map((r) => `<h4>${esc(r.icon)} ${esc(r.name)}</h4><div>${esc(r.desc)}</div>`).join(''); }
+    else { const r = all.find((x) => x.id === el.dataset.id); if (!r) return;
+      tip.innerHTML = `<h4>${esc(r.icon)} ${esc(r.name)}</h4><div class="rk">${KIND[r.kind]}</div><div>${esc(r.desc)}</div>`; }
+    tip.classList.add('show');
     tip.style.left = Math.min(1590 - tip.offsetWidth, el.offsetLeft + bar.offsetLeft) + 'px'; tip.style.top = (bar.offsetTop + bar.offsetHeight + 8) + 'px'; };
 
   RELICS.init = (A) => {

@@ -20,7 +20,7 @@ const boosted = (st, o, a, msg) => { near(st.dmg, o.dmg * (1 + a.auraDmg), msg +
 test('Алтарь крови — тип из данных: в порядке карточек, не стреляет, три перка, ветки — прибавки ауры', () => {
   assert.ok(C.TOWER_ORDER.includes('altar')); assert.equal(A.title, 'Алтарь крови'); assert.equal(A.attack, undefined);
   assert.equal(Object.keys(A.perks).length, 3);
-  assert.equal(A.art.sprite, 'spirits'); assert.ok(A.art.tint && A.art.tint[3] > 0, 'алтарь — перекрашенный фонарь');
+  assert.equal(A.art.sprite, 'altar'); assert.ok(!A.art.tint, 'алтарь — свой процедурный вид, не перекраска');
   const S = SIM.create(2), [c] = spot(S, 3), tw = build(S, c, 'altar'), o = SIM.towerStats(S, tw);
   assert.equal(o.auraR, 1); assert.ok(o.auraDmg > 0 && o.auraRate > 0);
   for (const [track, key] of [['dmg', 'auraDmg'], ['range', 'auraRange'], ['rate', 'auraRate']]) {
@@ -115,6 +115,16 @@ test('продажа и перенос алтаря сразу снимают б
   SIM.step(S, { cmds: [{ k: 'sell', cell: c }] }); assert.deepEqual(SIM.towerStats(S, tw), o, 'после продажи алтаря бонус остался');
   // сейв с алтарём и усиленным соседом годен
   build(S, c, 'altar'); assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))));
+});
+
+test('превью переноса алтаря: кого он усилит на новой клетке — со своими перками, как после переноса', () => {
+  const S = SIM.create(7), [c, [n]] = spot(S, 1), tw = build(S, n, 'spirits'), alt = build(S, c, 'altar');
+  alt.perks.push('circle');                                            // «Кровавый круг»: охват 2 — превью обязано его учесть
+  for (const to of SIM.moveCells(S, c)) {
+    const pv = SIM.auraTargets(S, to, c).slice().sort();
+    const T = JSON.parse(JSON.stringify(S)); SIM.step(T, { cmds: [{ k: 'move', cell: c, to }] });
+    assert.deepEqual(pv, SIM.auraTargets(T, to).slice().sort(), `клетка ${to}`); }
+  assert.deepEqual(SIM.auraTargets(S, c, n), [], 'с клетки не-алтаря превью пустое');
 });
 
 test('аура действует и на Колокол: его удар сильнее и чаще', () => {

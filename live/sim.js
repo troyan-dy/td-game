@@ -169,7 +169,11 @@
       out.dmg = Math.max(out.dmg, st.auraDmg); out.rate = Math.max(out.rate, st.auraRate); out.range = Math.max(out.range, st.auraRange); }
     return out; };
   // алтарь на клетке cell: будущий типа type (превью постройки) или стоящий там (type не задан); null — там не алтарь
-  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && auraType(tw) ? tw : null; };
+  // type: нет — стоящая башня; строка — будущая башня этого типа; число — стоящая башня с клетки type, перенесённая на cell
+  // (превью переноса алтаря: со своими ветками и перками)
+  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null;
+    const tw = type === undefined ? towerAt(S, cell) : typeof type === 'number' ? (towerAt(S, type) ? Object.assign({}, towerAt(S, type), { cell }) : null) : own(TW, type) ? fresh(cell, type) : null;
+    return tw && auraType(tw) ? tw : null; };
   // клетки башен, которые усилит алтарь на клетке cell (превью постройки, подсветка на карте); [] — не алтарь или некого
   const auraTargets = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
     const r = ownStats(S, tw).auraR;
@@ -204,8 +208,10 @@
       hybrid: true, icon: TW[tw.mix].mix.icon, mixColor: m.color, mixUi: m.ui }); };
   // значение ветки track башни для панели — по шаблону fmt типа (или C.TRACK_FMT) из характеристик st
   const trackText = (type, track, st) => fill(((own(TW, type) && TW[type].fmt) || {})[track] || C.TRACK_FMT[track], st, (TW[type] && TW[type].extra) || {});
-  const perkText = (id) => { const P = PERKS[id], pd = P.def, base = TW[P.type].extra || {};
-    return fill(pd.desc, Object.assign({}, base, pd.mul || {}, pd.add || {}, pd.set || {}), base); };
+  const perkVals = (id) => { const P = PERKS[id], pd = P.def, base = TW[P.type].extra || {}; return [Object.assign({}, base, pd.mul || {}, pd.add || {}, pd.set || {}), base]; };
+  const perkText = (id) => fill(PERKS[id].def.desc, ...perkVals(id));
+  // что перк делает, в 2–4 слова (кнопка перка: три перка сравниваются без наведения)
+  const perkAct = (id) => fill(PERKS[id].def.act || '', ...perkVals(id));
   // описание примеси типа (второй башни гибрида) с числами из её данных
   const mixText = (type) => { const m = TW[type].mix; return fill(m.desc, m.add, TW[type].extra || {}); };
   // действует ли примесь гибрида на его атаке (skip — виды урона, на которых ей нечего делать)
@@ -245,6 +251,7 @@
       wonStats: null,                                                       // счётчики на момент победы (время победы — для рекордов)
       relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
       grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
+      leakBy: {},                                  // кто прорвался к склепу за забег: тип врага → сколько (экран поражения; сейвы без поля годны)
     };
   };
 
@@ -433,6 +440,7 @@
   const shapes = () => {
     if (SHAPE) return SHAPE;
     const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
+    state.leakBy = null;                                              // счётчик прорывов — только для показа: сейв без него (прежней сборки) годен
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
@@ -748,8 +756,8 @@
         bounces: st.bounces || 0, bounceMult: st.bounceMult || 1, bounceR: (st.bounceRange || 0) * UNIT, hit: [], born: S.t, seed: rand(S) });
       return true;
     } },
-    blob: { run: (S, tw, st, cand, mx, my, fx) => {                         // ком яда навесом: облако на месте падения; Мор, Миазмы
-      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + e.speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
+    blob: { run: (S, tw, st, cand, mx, my, fx) => {                         // ком яда навесом: облако на месте падения (упреждение — leadOf); Мор, Миазмы
+      const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + leadOf(S, e, fl) * 0.85);
       S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id, dps: st.dmg, r: st.cloudR * UNIT, ct: st.cloudTime, linger: st.linger,
         fx, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
       return true;
@@ -910,6 +918,12 @@
   };
 
   // ---------------------------------------------------------------- шаг
+  // сколько враг пройдёт за t секунд с нынешней скоростью: скованный и оглушённый стоят, пока не очнутся; удержанный
+  // скелетом стоит весь срок (когда отпустят — неизвестно); замедление и ускорение знаменосца — как в шаге
+  const leadOf = (S, e, t) => {
+    if ((S.skels || []).some((k) => k.foe === e.id)) return 0;
+    const v = e.speed * (1 + (e.haste || 0)) * (e.slowT > 0 ? 1 - e.slowK : 1);
+    return v * Math.max(0, t - Math.max(e.freezeT > 0 ? e.freezeT : 0, e.stunT > 0 ? e.stunT : 0)); };
   const step = (S, inp) => {
     const DT = S.dt;
     dropIndex();
@@ -945,7 +959,8 @@
       if (e.shredT > 0) { e.shredT -= DT; if (e.shredT <= 0) e.shred = 0; }
       for (const key in e.poison) { const p = e.poison[key]; damage(S, e, p.dps * DT, 'poison', towerOf(S, p.tw)); p.t -= DT; if (p.t <= 0) delete e.poison[key]; if (e.dead) break; }
       if (e.dead) continue;
-      if (def.heal) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = e.heal; let any = false;
+      // оглушённый и скованный священник не лечит (и отсчёт до лечения стоит)
+      if (def.heal && !(e.stunT > 0) && !(e.freezeT > 0)) { e.healCD -= DT; if (e.healCD <= 0) { e.healCD = def.healEvery; const amt = e.heal; let any = false;
         const hurt = S.enemies.filter((o) => !o.dead && !EN[o.type].boss && o.hp < o.max && S.t - (o.healedT || -9) >= def.healLock && Math.hypot(o.x - e.x, o.y - e.y) <= def.healR * UNIT)
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
@@ -953,7 +968,9 @@
       const v = e.freezeT > 0 || e.stunT > 0 || held.has(e.id) ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
-        e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss });
+        e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss, type: e.type });
+        if (!S.leakBy || typeof S.leakBy !== 'object' || Array.isArray(S.leakBy)) S.leakBy = {};
+        S.leakBy[e.type] = (Number.isInteger(S.leakBy[e.type]) ? S.leakBy[e.type] : 0) + 1;
         if (hasRelic(S, 'toll')) { S.souls += e.bounty; S.stats.earned += e.bounty; ev(S, 'toll', { x: cx, y: cy - 40, souls: e.bounty }); } }   // Плата за проход
     }
     // облака яда
@@ -1001,6 +1018,9 @@
   const relicInfo = (id) => ({ id, name: RL[id].name, icon: RL[id].icon, kind: RL[id].kind, desc: relicText(id) });
   const relicOffer = (S) => (S.phase === 'relic' && S.offer ? S.offer.map(relicInfo) : null);
   const relicsOf = (S) => S.relics.map(relicInfo);
+  // кто отнял прочность склепа за забег (экран поражения): [{ type, name, n — прорвалось, hp — сколько прочности }], больше урона — выше
+  const leakReport = (S) => Object.entries((S && S.leakBy) || {}).filter(([t, n]) => own(EN, t) && n > 0)
+    .map(([type, n]) => ({ type, name: EN[type].name, n, hp: n * EN[type].leak })).sort((a, b) => b.hp - a.hp || b.n - a.n);
   const pruneEv = (S) => { if (S.ev.length > 300 || (S.ev.length && S.t - S.ev[0].t > 4)) S.ev = S.ev.filter((e) => S.t - e.t < 4).slice(-300); };
 
   // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
@@ -1042,11 +1062,11 @@
 
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
-    create, step, at, selfCheck, doCmd, waveCount, lastWave, canEndless, relicDue, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
+    create, step, at, selfCheck, doCmd, waveCount, lastWave, canEndless, relicDue, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perkAct, perksOf, hasPerk, freeSlots, muzzleH,
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
-    hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt, hasteSouls, autoIn,
+    hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, perkAt, hasteSouls, autoIn,
     hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
     canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
     skelCells,

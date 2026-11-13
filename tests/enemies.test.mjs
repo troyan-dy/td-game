@@ -106,3 +106,32 @@ test('знаменосец ускоряет врагов в радиусе, но
   assert.ok(Math.abs(speedOf(S, m) - m.speed) < 1e-6, 'ускорение не пропало со смертью знаменосца');
   assert.equal(m.haste, 0);
 });
+
+// ---------------------------------------------------------------- оглушённый и скованный не действует; упреждение Котла
+test('оглушённый или скованный священник не лечит союзников, очнувшись — лечит снова', () => {
+  const { seed, n } = findWave(has('priest'), 5);
+  const S = startAt(seed, n), p = enemyOf(S, (x) => x.type === 'priest'), t = enemyOf(S, (x) => x !== p && !EN[x.type].boss);
+  only(S, p, t); p.speed = 0; t.speed = 0; t.d = p.d; SIM.step(S, null);
+  for (const stop of ['stunT', 'freezeT']) {
+    t.hp = t.max * 0.2; p.healCD = 0; p[stop] = 5; const hp = t.hp; t.healedT = -9;
+    run(S, 2); assert.equal(t.hp, hp, `${stop}: лечит, стоя без сознания`);
+    p[stop] = 0; run(S, EN.priest.healEvery + 0.1); assert.ok(t.hp > hp, `${stop}: очнулся и не лечит`);
+  }
+});
+
+test('Котёл Чумы не упреждает цель, которая стоит: скованную, оглушённую, удержанную скелетом', () => {
+  const S = SIM.create(3); S.souls = 1e4; const cell = SIM.rankCells(S, 3)[0];
+  SIM.step(S, { cmds: [{ k: 'build', cell, type: 'plague' }, { k: 'call' }] });
+  const [tx, ty] = SIM.cellXY(S, cell), R = SIM.towerStats(S, S.towers[cell]).rangePx;
+  const e = enemyOf(S, (x) => Math.hypot(x.x - tx, x.y - ty) < R * 0.8); only(S, e);
+  for (const stop of ['freezeT', 'stunT', 'skel']) {
+    S.shots = []; S.towers[cell].cd = 0;
+    if (stop === 'skel') S.skels = [{ id: S.nid++, tw: S.towers[cell].id, cell: S.map.road[0], x: e.x, y: e.y, hp: 1e9, max: 1e9, dmg: 0, hit: 99, cd: 99, reach: 1e3, foe: e.id, face: 1, born: 0, hitT: -9, grip: 0, burst: 0, burstR: 0, fx: null }]; else e[stop] = 5;
+    SIM.step(S, null);
+    const b = S.shots.find((s) => s.k === 'blob'); assert.ok(b, stop + ': нет выстрела');
+    assert.ok(Math.hypot(b.x1 - e.x, b.y1 - e.y) < 4, `${stop}: облако легло в ${Math.round(Math.hypot(b.x1 - e.x, b.y1 - e.y))} px от стоящей цели`);
+    e.freezeT = 0; e.stunT = 0; S.skels = [];
+  }
+  S.shots = []; S.towers[cell].cd = 0; SIM.step(S, null);
+  const b = S.shots.find((s) => s.k === 'blob'); assert.ok(Math.hypot(b.x1 - e.x, b.y1 - e.y) > 10, 'идущую цель котёл упреждает');
+});
