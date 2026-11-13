@@ -126,54 +126,76 @@
 
   // Годно ли состояние для продолжения (сейв, sessionStorage). Три слоя:
   //  1) форма: состояние, каждая башня и каждый враг повторяют образец — то, что создают сами create, постройка и появление
-  //     врага. Каждое поле образца есть и того же рода (число — конечное); новые поля образца проверяются сами, лишние не мешают;
-  //  2) смысл: версия, карта по её валидатору, типы башен, перков и врагов из конфига, числа в своих границах, id без повторов;
-  //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, все числа остаются конечными.
+  //     врага. Каждое поле образца есть и того же рода; новые поля образца проверяются сами, лишние не мешают.
+  //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
+  //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
+  //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, prepT −1);
+  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
+  //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
+  //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
+  const SIGNED = new Set(['x', 'y', 'lane', 'aim', 'face', 'dx', 'dy']);
   const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
-  const like = (v, t) => { const k = kind(t);
+  const num = (v, t, tol, key) => typeof v === 'number' && Math.abs(v) <= C.SAVE_NUM_MAX && (v >= -tol || t < 0 || SIGNED.has(key));
+  const like = (v, t, tol, key) => { const k = kind(t);
     if (k === 'null') return true;                                    // в образце null — поле может быть чем угодно (перк, открытое)
-    if (k === 'number') return typeof v === 'number' && Number.isFinite(v);
+    if (k === 'number') return num(v, t, tol, key);
     if (kind(v) !== k) return false;
-    if (k === 'object') for (const key of Object.keys(t)) if (!like(v[key], t[key])) return false;
+    if (k === 'object') for (const key of Object.keys(t)) if (!like(v[key], t[key], tol, key)) return false;
     return true; };
-  const finite = (o) => { if (typeof o === 'number') return Number.isFinite(o);
-    if (o && typeof o === 'object') for (const k in o) if (!finite(o[k])) return false; return true; };
+  const bounded = (o) => { if (typeof o === 'number') return Math.abs(o) <= C.SAVE_NUM_MAX;   // NaN и ±Infinity сюда не проходят
+    if (o && typeof o === 'object') for (const k in o) if (!bounded(o[k])) return false; return true; };
   const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
   const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
-  let SHAPE = null;
+  let SHAPE = null, MAPC = { seed: null, json: '' };
   const shapes = () => {
     if (SHAPE) return SHAPE;
     const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
+    // образец, который не создался, молча отключил бы проверку формы своего типа: это ошибка разработки, падаем громко
+    for (const [what, all] of [['башни', towers], ['врага', enemies]]) for (const type in all)
+      if (kind(all[type]) !== 'object' || all[type].type !== type) throw new Error(`SIM.loadable: не создался образец ${what} ${type}`);
     // мелочь боя, у которой нет одного создателя: только поля, без которых шаг или кадр споткнутся
     return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, chain: false },
       shot: { k: '', x: 0, y: 0 }, cloud: { x: 0, y: 0, r: 0, t: 0, T: 0, dps: 0 }, beam: { x0: 0, y0: 0, x1: 0, y1: 0, t: 0 }, ev: { k: '', t: 0 } })));
   };
+  // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
+  const mapOfSeed = (seed) => { if (MAPC.seed !== seed) MAPC = { seed, json: JSON.stringify(MAPGEN.generate(seed)) }; return MAPC.json; };
+  // фаза согласована с номером волны и таймером паузы. Верхняя граница волны — последняя волна забега;
+  // бесконечный режим (#14) должен снять её для забега, продолжающегося после победы.
+  const phaseOk = (S) => {
+    const last = waveCount();
+    if (S.phase === 'prep') return int(S.wave, 0, last - 1) && (S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME));   // после последней волны пауз нет
+    if (S.phase === 'wave') return int(S.wave, 1, last) && int(S.qi, 0, S.queue.length);
+    if (S.phase === 'won') return S.wave === last;
+    if (S.phase === 'lost') return int(S.wave, 0, last);
+    return false;
+  };
   const loadable = (S) => {
+    const sh = shapes();
     try {
-      if (kind(S) !== 'object' || S.v !== C.VERSION || kind(S.map) !== 'object' || MAPGEN.validate(S.map).length) return false;
-      const sh = shapes();
-      if (!like(S, sh.state) || !finite(S)) return false;
-      if (!int(S.seed, 0, C.SEED.max) || S.map.seed !== S.seed || !int(S.rs, 0, 0xFFFFFFFF) || !(S.dt > 0 && S.dt <= C.DT_MAX)) return false;
-      if (S.t < 0 || S.souls < 0 || S.hp < 0 || !int(S.wave, 0, waveCount()) || !int(S.qi, 0, S.queue.length)) return false;
-      if (!['prep', 'wave', 'won', 'lost'].includes(S.phase) || S.towers.length !== cellCount(S)) return false;
+      if (kind(S) !== 'object' || S.v !== C.VERSION || kind(S.map) !== 'object') return false;
+      if (!(S.dt >= C.DT_MIN && S.dt <= C.DT_MAX)) return false;               // мельче — проба шла бы бесконечно
+      if (!like(S, sh.state, S.dt) || !bounded(S)) return false;
+      if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
+      if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
-        const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null;
-        if (!def || !like(tw, sh.towers[tw.type]) || tw.cell !== i || S.map.road.includes(i) || MAPGEN.hud(S.map, i)) return false;
+        const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null, blk = def && tw.cell === i ? cellBlock(S, i) : 'bounds';
+        if (!def || !like(tw, sh.towers[tw.type], S.dt) || (blk && blk !== 'occupied')) return false;   // клетка — по правилу постройки, занята собой
         if (!int(tw.lvl, 1, def.cost.length) || (tw.perk !== null && !own(def.perks, tw.perk)) || !freshId(tw.id)) return false; }
       for (const e of S.enemies) {
-        if (kind(e) !== 'object' || !own(EN, e.type) || !like(e, sh.enemies[e.type]) || !freshId(e.id)) return false;
-        for (const k in e.poison) if (!like(e.poison[k], sh.poison)) return false; }
-      for (const q of S.queue) if (!like(q, sh.queue) || !own(EN, q.e)) return false;
-      if (!S.shots.every((x) => like(x, sh.shot)) || !S.clouds.every((x) => like(x, sh.cloud)) || !S.beams.every((x) => like(x, sh.beam))) return false;
-      if (!S.ev.every((e) => like(e, sh.ev) && ['x', 'y'].every((k) => e[k] === undefined || like(e[k], 0)))) return false;
-      const R = JSON.parse(JSON.stringify(S));
-      for (let i = 0, n = Math.ceil(C.SAVE_TRIAL / R.dt); i < n; i++) step(R, null);
-      return finite(R);
+        if (kind(e) !== 'object' || !own(EN, e.type) || !like(e, sh.enemies[e.type], S.dt) || !freshId(e.id)) return false;
+        for (const k in e.poison) if (!like(e.poison[k], sh.poison, S.dt)) return false; }
+      for (const q of S.queue) if (!like(q, sh.queue, 0) || !own(EN, q.e)) return false;
+      const loose = (list, t) => list.every((x) => like(x, t, Infinity));     // координаты снарядов и лучей бывают за краем поля
+      if (!loose(S.shots, sh.shot) || !loose(S.clouds, sh.cloud) || !loose(S.beams, sh.beam)) return false;
+      if (!S.ev.every((e) => like(e, sh.ev, Infinity) && ['x', 'y'].every((k) => e[k] === undefined || num(e[k], 0, Infinity, k)))) return false;
+      const R = JSON.parse(JSON.stringify(S)), n = Math.min(Math.ceil(C.SAVE_TRIAL / R.dt), Math.ceil(C.SAVE_TRIAL / C.DT_MIN));
+      for (let i = 0; i < n; i++) step(R, null);
+      return bounded(R);
     } catch (e) { return false; }
   };
   // длина дороги (px), которую башня на клетке накрывает радиусом units
@@ -220,6 +242,7 @@
 
   // ---------------------------------------------------------------- волны
   const startWave = (S) => {
+    if (S.wave >= waveCount()) return;                                  // волн больше нет: не стартуем несуществующую
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.prepT = 0;
     const q = [];
     for (const g of C.WAVES[S.wave - 1]) for (let i = 0; i < g.n; i++) q.push({ at: g.at + i * g.gap, e: g.e });

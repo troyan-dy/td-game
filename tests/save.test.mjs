@@ -1,7 +1,7 @@
 // node --test tests/*.test.mjs — сид забега и сейв: разбор введённого сида, пригодность сохранённого состояния (SIM.loadable).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM } from './bots.mjs';
+import { SIM, smart, idle } from './bots.mjs';
 const C = SIM.CONFIG;
 
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
@@ -15,9 +15,9 @@ const midWave = () => {
   const ready = () => S.enemies.length >= 3 && S.shots.some((s) => s.k === 'ghost') && S.clouds.length;
   for (let i = 0; i < 120 * 120 && !ready(); i++) SIM.step(S, null);
   assert.ok(S.phase === 'wave' && ready(), 'не собралось состояние посреди волны');
-  return json(S);
+  return S;
 };
-const MID = midWave();
+const MID = json(midWave());
 const fresh = () => json(MID);
 const tower = (S) => S.towers.find(Boolean);
 
@@ -57,11 +57,44 @@ test('сейв: забег посреди волны после JSON годен 
   assert.equal(SIM.loadable(S), true);
   assert.equal(SIM.loadable(SIM.create(7)), true);
   const before = JSON.stringify(S); SIM.loadable(S); assert.equal(JSON.stringify(S), before, 'проверка изменила состояние');
-  const A = fresh(), B = json(A); run(A, 20); run(B, 20); assert.deepEqual(A, B);
+});
+
+test('сейв: живой забег и его JSON-копия дальше идут одинаково', () => {
+  const L = midWave(), J = json(L);
+  run(L, 20); run(J, 20);
+  assert.deepEqual(json(J), json(L));
+});
+
+// Защита от расширений состояния: всё, что реально бывает в партии, проверка принимает.
+// Тикет, добавивший в состояние поле, которое проверка не понимает, увидит это здесь.
+for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2]]) test(`сейв: снимки партии бота ${name} годны на всём её ходу и в конце`, () => {
+  const S = SIM.create(seed, { dt: 1 / 30 }), mem = {}, every = Math.round(20 / S.dt); let i = 0, n = 0;
+  SIM.step(S, { cmds: [{ k: 'call' }] });
+  while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
+    const cmds = i % 3 === 0 ? bot(S, mem) : null;
+    SIM.step(S, cmds ? { cmds } : null);
+    if (++i % every === 0) { n++; assert.equal(SIM.loadable(json(S)), true, `снимок на ${S.t.toFixed(0)} с, волна ${S.wave}, ${S.phase}`); }
+  }
+  assert.ok(n >= 5, 'снимков ' + n);
+  assert.ok(S.phase === 'won' || S.phase === 'lost', 'партия не закончилась');
+  assert.equal(SIM.loadable(json(S)), true, 'законченный забег (' + S.phase + ')');
+});
+
+test('сейв: старт волны за пределами забега не бросает исключение', () => {
+  const S = fresh(); S.phase = 'prep'; S.wave = SIM.waveCount(); S.prepT = 1; S.enemies = []; S.queue = []; S.qi = 0;
+  assert.doesNotThrow(() => run(S, 3));
+});
+
+test('сейв: крошечный шаг времени отвергается сразу, без долгой пробы', () => {
+  for (const dt of [1e-9, Number.MIN_VALUE, C.DT_MIN / 2]) {
+    const S = fresh(); S.dt = dt; const t0 = Date.now();
+    assert.equal(SIM.loadable(S), false, String(dt)); assert.ok(Date.now() - t0 < 500, 'проверка шла ' + (Date.now() - t0) + ' мс');
+  }
+  const S = fresh(); S.dt = C.DT_MIN; assert.equal(SIM.loadable(S), true, 'самый мелкий допустимый шаг');
 });
 
 test('сейв: новые поля в состоянии проверку не ломают', () => {
-  const S = fresh(); S.futureField = { a: 1 }; tower(S).branch = [1, 2, 3]; S.enemies[0].trait = 'x'; S.map.obstacles = [1, 2];
+  const S = fresh(); S.futureField = { a: 1 }; tower(S).branch = [1, 2, 3]; S.enemies[0].trait = 'x'; S.stats.relics = 0;
   assert.equal(SIM.loadable(S), true);
 });
 
@@ -100,6 +133,22 @@ const BAD = {
   'сид не совпадает с сидом карты': (S) => { S.seed = S.seed + 1; },
   'состояние случайности вне 32 бит': (S) => { S.rs = -1; },
   'шаг времени 0': (S) => { S.dt = 0; },
+  'шаг времени 1e-9': (S) => { S.dt = 1e-9; },
+  'шаг времени Number.MIN_VALUE': (S) => { S.dt = Number.MIN_VALUE; },
+  'пауза после последней волны (таймер старта волны 10 с)': (S) => { S.phase = 'prep'; S.wave = SIM.waveCount(); S.prepT = 10; S.enemies = []; S.queue = []; S.qi = 0; },
+  'таймер паузы длиннее паузы между волнами': (S) => { S.phase = 'prep'; S.prepT = C.PREP_TIME * 10; S.enemies = []; S.queue = []; S.qi = 0; },
+  'гигантский таймер паузы': (S) => { S.phase = 'prep'; S.prepT = 1e300; S.enemies = []; S.queue = []; S.qi = 0; },
+  'идёт волна 0': (S) => { S.wave = 0; },
+  'гигантское время': (S) => { S.t = 1e300; },
+  'отрицательное HP врага': (S) => { S.enemies[0].hp = -50; },
+  'отрицательный запас HP врага': (S) => { S.enemies[0].max = -50; },
+  'отрицательное вложенное в башню': (S) => { tower(S).invested = -1000; },
+  'отрицательные убийства башни': (S) => { tower(S).kills = -1; },
+  'отрицательная перезарядка башни': (S) => { tower(S).cd = -5; },
+  'отрицательное время в статистике': (S) => { S.stats.time = -10; },
+  'гигантская награда врага': (S) => { S.enemies[0].bounty = 1e300; },
+  'карта от другого сида при подменённом сиде': (S) => { S.seed = S.seed + 1; S.map.seed = S.seed; },
+  'дорога карты подменена': (S) => { const r = SIM.create(S.seed + 1).map.road; S.map.road = r; },
   'шаг времени крупнее предела': (S) => { S.dt = C.DT_MAX * 2; },
   'отрицательное время': (S) => { S.t = -1; },
   'неизвестная фаза': (S) => { S.phase = 'boss'; },
