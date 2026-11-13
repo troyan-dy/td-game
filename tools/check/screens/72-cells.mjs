@@ -24,9 +24,15 @@ export const steps = {
   cells_menu_cursed: menu('cursed'),
   // сначала карточка, потом клетка: цена с наценкой видна до клика — на карточке и над клеткой под курсором
   cells_armed_price: async (ctx, g) => {
-    const cell = await special(ctx, 'cursed'), types = await g.towerTypes(ctx), t = types[types.length - 1];
+    const types = await g.towerTypes(ctx), t = types[types.length - 1];
     await g.select(ctx, -1); await ctx.eval((t) => { SCENE.ui.armed = t; }, t);
-    await ctx.page.mouse.move(...await cellPoint(ctx, cell)); await ctx.wait(150);
+    for (let i = 0; i < 30 && await ctx.eval(() => document.getElementById('panel').classList.contains('show')); i++) await ctx.wait(50);
+    // проклятая клетка, до которой мышь достаёт: на части карт клетку закрывает плашка интерфейса (кнопка волны, разведка)
+    let cell = -1, pt = null;
+    for (const c of await ctx.eval(() => APP.play.map.specials.filter((s) => s.kind === 'cursed').map((s) => s.cell))) {
+      const p = await cellPoint(ctx, c); if (await ctx.eval(([x, y]) => document.elementFromPoint(x, y) === document.getElementById('c'), p)) { cell = c; pt = p; break; } }
+    if (cell < 0) return ctx.skip('все проклятые клетки этой карты закрыты интерфейсом');
+    await ctx.page.mouse.move(pt[0] + 20, pt[1] + 20); await ctx.page.mouse.move(...pt); await ctx.wait(150);
     const want = await ctx.eval(([c, t]) => SIM.canBuild(APP.play, c, t), [cell, t]);
     const price = await ctx.need(`.card[data-type="${t}"] .pr`);
     let shown = await price.innerText();                        // цена обновляется на следующем кадре: ждём условия, а не паузы
