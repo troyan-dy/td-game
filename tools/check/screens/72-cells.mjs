@@ -9,7 +9,7 @@ const clickCell = async (ctx, cell) => { await ctx.page.mouse.click(...await cel
 
 const menu = (kind) => async (ctx, g) => {
   // пауза не кончается посреди экрана: иначе волна и окно «Новый враг» закроют поле от мыши
-  if (kind === 'mound') { await g.newGame(ctx); await g.rich(ctx); await ctx.eval(() => { APP.play.prepT = 999; }); }
+  if (kind === 'mound') { await g.newGame(ctx); await g.rich(ctx); }
   const cell = await special(ctx, kind); await g.select(ctx, cell); await ctx.wait(100);
   const want = await ctx.eval(([k, cell]) => ({ name: SIM.CONFIG.SPECIAL[k].name, desc: SIM.CONFIG.SPECIAL[k].desc,
     costs: SIM.CONFIG.TOWER_ORDER.map((t) => SIM.canBuild(APP.play, cell, t).cost) }), [kind, cell]);

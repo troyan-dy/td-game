@@ -11,7 +11,7 @@ const findSpot = (ctx) => ctx.eval(() => { const S = APP.play, n = S.map.cols;
 const until = async (ctx, fn, arg, what) => { for (let i = 0; i < 40; i++) { if (await ctx.eval(fn, arg)) return; await ctx.wait(80); } throw new Error('не дождались: ' + what); };
 
 export async function steps(ctx, g) {
-  await g.newGame(ctx); await g.rich(ctx); await ctx.eval(() => { APP.play.prepT = 999; });
+  await g.newGame(ctx); await g.rich(ctx);
   const spot = await findSpot(ctx); if (!spot) throw new Error('нет клетки с тремя свободными соседями');
   const [c, nb] = spot, out = {};
   out.altar_preview = async () => {

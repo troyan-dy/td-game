@@ -25,9 +25,9 @@ export function steps() {
       await ctx.page.keyboard.press('Space'); await ctx.wait(100);
       paused = await snapshot(ctx);
       await reload(ctx, false);
-      const now = await snapshot(ctx), st = await ctx.eval(() => ({ paused: APP.paused, pause: document.getElementById('pause').classList.contains('show') }));
+      const now = await snapshot(ctx), st = await ctx.eval(() => ({ paused: APP.paused, label: document.getElementById('ui').classList.contains('paused'), menu: document.getElementById('gmenu').classList.contains('show') }));
       if (now !== paused) throw new Error('после перезагрузки вкладки забег не тот же: ' + (now ? JSON.parse(now).t : 'меню') + ' против ' + JSON.parse(paused).t);
-      if (!st.paused || !st.pause) throw new Error('забег на паузе после перезагрузки снят с паузы: ' + JSON.stringify(st));
+      if (!st.paused || !st.label || st.menu) throw new Error('забег на паузе после перезагрузки: не та пауза (метка без меню): ' + JSON.stringify(st));
       await ctx.shot('continue_reload');
     },
     continue_menu: async (ctx) => {
@@ -57,7 +57,8 @@ export function steps() {
         'враг без полей': (sv) => { sv.S.enemies[0] = { type: sv.S.enemies[0].type }; },
         'законченный забег': (sv) => { sv.S.phase = 'lost'; },
         'крошечный шаг времени (меню не должно зависнуть)': (sv) => { sv.S.dt = 1e-9; },
-        'пауза после последней волны': (sv) => { Object.assign(sv.S, { phase: 'prep', wave: lastWave, prepT: 10, enemies: [], queue: [], qi: 0 }); },
+        'пауза после последней волны': (sv) => { Object.assign(sv.S, { phase: 'prep', wave: lastWave, auto: true, autoT: 1, enemies: [], queue: [], qi: 0 }); },
+        'сейв прошлой сборки (без автоплея, с таймером паузы)': (sv) => { sv.S.v -= 1; delete sv.S.auto; delete sv.S.autoT; delete sv.S.hasteT; sv.S.prepT = 15; },
         'бесконечный режим до победы': (sv) => { sv.S.endless = true; },
       };
       for (const [name, f] of Object.entries(spoil)) {

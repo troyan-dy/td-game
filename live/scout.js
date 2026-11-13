@@ -99,7 +99,7 @@
       tip.style.left = x + 'px'; tip.style.top = (box.offsetTop + el.offsetTop) + 'px'; });
     box.addEventListener('pointerleave', hideTip);
     cv.addEventListener('pointerdown', () => { if (APP.play && APP.play.phase === 'prep') open = false; });   // поле важнее разведки
-    addEventListener('keydown', (e) => { const S = APP.play; if (!S || APP.paused || e.repeat || $('.overlay.show')) return;
+    addEventListener('keydown', (e) => { const S = APP.play; if (!S || e.repeat || $('.overlay.show')) return;   // и в паузе: разведка — только просмотр
       if (e.code === 'KeyI') toggle();
       else if (expanded(S) && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) { turn(e.code === 'ArrowRight' ? 1 : -1); e.preventDefault(); } });
   };
