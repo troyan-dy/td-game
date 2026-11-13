@@ -173,7 +173,7 @@
     } else { const w = h * 0.45; L.solid(x - w / 2, y - h, w, h * 0.75, COL.bone); L.solid(x - w * 0.3, y - h * 1.1, w * 0.6, h * 0.3, [0.95, 0.93, 0.85]); }
     L.glow(x + s.face * 3, y - h * 0.86, 8, COL.soul, 0.75);                                   // глаза-души
     if (fight) { const e = ST.enemies.find((o) => o.id === s.foe); if (e) {
-      const mx = (x + e.x) / 2, my = Math.min(y - h - 14, e.y - (EH[e.type] || SKEL_H) - 24),   // над полоской HP врага pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
+      const mx = (x + e.x) / 2, my = Math.min(y - h - 14, e.y - (EH[e.type] || SKEL_H) - 24) /* над полоской HP врага */, pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
       L.glow(mx, my, 16, [1, 0.9, 0.7], 0.25 * pulse);
       L.solid(mx, my, 18, 3, COL.bone, 0.75, 9, 1.5, pulse); L.solid(mx, my, 18, 3, COL.bone, -0.75, 9, 1.5, pulse); } }
   };
