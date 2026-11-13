@@ -64,7 +64,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 
 /* карточки строительства: все типы помещаются в зону интерфейса низа слева (8 клеток, MAP.keepout) */
 #cards { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; padding: 8px 10px; }
-.card { width: 88px; height: 118px; position: relative; padding: 4px 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer;
+.card { width: min(88px, calc((472px - (var(--n, 4) - 1) * 6px) / var(--n, 4))); height: 118px; position: relative; padding: 4px 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer;
   border: 3px solid var(--rim); border-radius: 6px; background: linear-gradient(180deg, #2f2449, #1d1531); box-shadow: inset 0 0 0 2px var(--rim2); }
 .card .pic { position: absolute; left: 0; right: 0; top: 6px; height: 58px; display: flex; align-items: flex-end; justify-content: center; }
 .card .pic img { max-height: 58px; max-width: 74px; image-rendering: auto; filter: drop-shadow(0 3px 2px #0008); }
@@ -72,6 +72,12 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 .card .nm { font: 700 15px var(--title); letter-spacing: 0.5px; }
 .card .pr { font: 700 16px var(--title); color: var(--soul); }
 .card .key { position: absolute; left: 5px; top: 3px; font: 12px var(--body); color: var(--dim); opacity: .8; }
+/* больше пяти типов башен: карточки уже, подписи мельче — полоса остаётся в своей зоне (8 клеток слева внизу) */
+#cards.many .card { padding: 4px 2px 6px; }
+#cards.many .card .pic img { max-width: 52px; max-height: 52px; }
+#cards.many .card .nm { font-size: 10.5px; letter-spacing: 0; }
+#cards.many .card .pr { font-size: 13px; white-space: nowrap; }
+#cards.many .card .key { left: 3px; top: 2px; font-size: 10px; }
 .card:hover { filter: brightness(1.2); }
 .card.armed, .card.can.target { border-color: var(--soul); box-shadow: inset 0 0 0 2px var(--rim2), 0 0 14px #6ff2e288; }
 .card.poor .pr { color: var(--bad); }

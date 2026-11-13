@@ -57,6 +57,8 @@
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
     const cards = h('div', 'frame', ''); cards.id = 'cards';
+    cards.style.setProperty('--n', C.TOWER_ORDER.length);            // ширина карточки считается в CSS от числа типов: полоса не шире своей зоны
+    if (C.TOWER_ORDER.length > 5) cards.classList.add('many');
     C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
