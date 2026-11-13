@@ -149,9 +149,7 @@
     if (e.ward > 0) L.glow(x, y - h * 0.5, h * 0.65, COL.ward, 0.22 + 0.08 * Math.sin(t * 8 + e.id));   // щит разведчика: первое попадание пройдёт мимо
     if (slowed && !frozen) L.glow(x, y - h * 0.4, h * 0.6, COL.soul, 0.18);
     if (e.curseT > 0) L.glow(x, y - h * 0.6, h * 0.55, COL.dark, 0.25);
-    // оглушение (Колокол): три звёздочки кружат над головой, пока враг стоит
-    if (e.stunT > 0) for (let j = 0; j < 3; j++) { const an = t * 7 + j * 2.094 + e.id;
-      L.star(x + Math.cos(an) * h * 0.32, y - h - 16 + Math.sin(an) * 4, 7, COL.stun, 0.95); }
+    if (e.stunT > 0) L.glow(x, y - h * 0.8, h * 0.6, COL.stun, 0.3);                 // оглушён (Колокол); звёзды — над полоской здоровья
     if (Object.keys(e.poison).length) L.puff(x, y - h * 0.4, h * 0.45, COL.poison, 0.22, e.id + Math.floor(t * 4));
   };
 
@@ -342,7 +340,10 @@
     for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 24;
       const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 10);
       L.solid(x - 1, y - 1, w + 2, 6, [0.05, 0.03, 0.08]); L.solid(x, y, w, 4, [0.35, 0.08, 0.1]);
-      L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow); }
+      L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow);
+      // оглушение (Колокол): три звезды кружат над полоской, пока враг стоит (после грейда — чёткие, не тонут в полоске)
+      if (e.stunT > 0) for (let j = 0; j < 3; j++) { const an = t * 6 + j * 2.094 + e.id;
+        L.star(e.x + Math.cos(an) * (w / 2 + 2), y - 9 + Math.sin(an) * 4, 10, COL.stun, 1); } }
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
