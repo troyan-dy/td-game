@@ -196,7 +196,7 @@
         name: 'КОЛОКОЛ', short: 'КОЛОКОЛ', title: 'Погребальный колокол', dmgType: 'phys', attack: 'pulse', muzzle: 70,
         art: { sprite: 'dark', tint: [1.55, 1.12, 0.55, 0.9], css: 'sepia(0.85) saturate(1.7) hue-rotate(-12deg) brightness(1.05)',
           color: [1.0, 0.74, 0.32], ui: '#e8a948', fx: 'crown', sound: 'bell' },
-        base: { cost: 130, dmg: 14, rate: 2.0, range: 2.4 },
+        base: { cost: 140, dmg: 12, rate: 2.0, range: 2.4 },
         tracks: { dmg: track(50, 0.35, { stun: 0.04 }), range: track(25, 0.08), rate: track(50, 0.12) },
         extra: { stun: 0.6, guard: 1.0 },
         show: [['Оглушение', '{stun} с']],
