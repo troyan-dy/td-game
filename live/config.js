@@ -270,7 +270,7 @@
   // берётся сильнейший. Вид — перекрашенный Фонарь.
   C.TOWERS.altar = {
     name: 'АЛТАРЬ', short: 'АЛТАРЬ', title: 'Алтарь крови', dmgType: 'aura', muzzle: 60,
-    art: { sprite: 'spirits', tint: [1.9, 0.32, 0.38, 0.85], css: 'hue-rotate(185deg) saturate(1.7)', color: [1.0, 0.26, 0.30], ui: '#ff4d5e', fx: 'orbs' },
+    art: { sprite: 'spirits', tint: [1.9, 0.32, 0.38, 0.85], css: 'sepia(1) saturate(4) hue-rotate(-40deg) brightness(0.9)', color: [1.0, 0.26, 0.30], ui: '#ff4d5e', fx: 'orbs' },
     base: { cost: 120, dmg: 0, rate: 1, range: 0 },
     tracks: { dmg: track(50, 0, { auraDmg: 0.03 }), range: track(40, 0, { auraRange: 0.15 }), rate: track(45, 0, { auraRate: 0.03 }) },
     extra: { auraR: 1, auraDmg: 0.15, auraRate: 0.10, auraRange: 0 },
