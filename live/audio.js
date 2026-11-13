@@ -45,6 +45,8 @@
       case 'die': if (ok('die', 0.05)) { noise(0.12, 0.08, 400, 1, 'lowpass'); tone('sine', 880 + (e.souls % 5) * 60, 1320, 0.12, 0.03, 0.05); } break;
       case 'build': tone('triangle', 130, 70, 0.25, 0.12); noise(0.25, 0.08, 300, 1, 'lowpass'); tone('sine', 520, 780, 0.15, 0.05, 0.1); break;
       case 'upgrade': case 'perk': [392, 494, 587, 784].forEach((f, i) => tone('triangle', f, 0, 0.22, 0.07, i * 0.07)); break;
+      case 'merge': [262, 330, 392, 523, 659].forEach((f, i) => tone('triangle', f, 0, 0.5, 0.06, i * 0.06)); noise(0.3, 0.05, 700, 1, 'lowpass'); break;   // слияние: восходящий аккорд
+      case 'stun': if (ok('stun', 0.15)) tone('sine', 660, 640, 0.25, 0.03); break;
       case 'move': noise(0.18, 0.06, 500, 1, 'lowpass'); tone('triangle', 330, 494, 0.18, 0.06, 0.06); break;
       case 'sell': tone('sine', 700, 350, 0.25, 0.06); noise(0.2, 0.05, 900, 2); break;
       case 'leak': tone('sawtooth', e.boss ? 70 : 110, 50, 0.5, 0.14); noise(0.4, 0.1, 200, 1, 'lowpass'); break;
