@@ -317,7 +317,7 @@ test('Казарма первой: скелеты гибрида бьют с п�
   const S = SIM.create(19), [a, b] = pairSpot(S); maxed(S, a, 'barracks'); maxed(S, b, 'barracks');
   SIM.step(S, { cmds: [{ k: 'call' }] }); for (let i = 0; i < 20 / S.dt && !(S.skels.some((s) => s.tw === S.towers[a].id) && S.skels.some((s) => s.tw === S.towers[b].id)); i++) SIM.step(S, null);
   const A = S.towers[a], B = S.towers[b]; assert.ok(S.skels.some((s) => s.tw === A.id) && S.skels.some((s) => s.tw === B.id), 'Казармы не призвали скелетов');
-  S.phase = 'prep'; S.enemies = []; S.queue = []; S.qi = 0; S.prepT = 10;
+  S.phase = 'prep'; S.enemies = []; S.queue = []; S.qi = 0;
   SIM.step(S, { cmds: [{ k: 'merge', cell: a, other: b }] }); assert.equal(S.towers[a].mix, 'barracks');
   assert.ok(S.skels.some((s) => s.tw === A.id), 'скелеты первой рассыпались'); assert.ok(!S.skels.some((s) => s.tw === B.id), 'скелеты второй остались');
   // Казарма с примесью Духов: удар скелета замедляет

@@ -1,6 +1,6 @@
 // node tools/diag.mjs [seed] — разумный бот по волнам: прочность, души, кто прорвался, урон каждой башни.
 import { SIM, smart } from '../tests/bots.mjs';
-const S = SIM.create(+process.argv[2] || 1), mem = {}; SIM.step(S, { cmds: [{ k: 'call' }] }); let i = 0, w = 1;
+const S = SIM.create(+process.argv[2] || 1), mem = {}; SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] }); let i = 0, w = 1;
 const leaks = {}, every = Math.round(0.1 / S.dt);
 while (S.phase === 'prep' || S.phase === 'wave') {
   const c = (i++ % every === 0) ? smart(S, mem) : null; SIM.step(S, c ? { cmds: c } : null);

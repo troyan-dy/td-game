@@ -322,7 +322,7 @@ test('ни в одном снимке партий ботов, берущих в
     if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'map') continue; const b = bad(o[k], path + '.' + k); if (b) return b; } return null; };
   for (const perks of sets) {
     const bot = planned(C.TOWER_ORDER, Object.keys(perks).length ? perks : undefined), S = SIM.create(3, { dt: 1 / 30 }), mem = {};
-    SIM.step(S, { cmds: [{ k: 'call' }] }); let i = 0;
+    SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] }); let i = 0;
     while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) { const c = i++ % 3 === 0 ? bot(S, mem) : null; SIM.step(S, c ? { cmds: c } : null);
       if (i % 30 === 0) { const b = bad(S, 'S'); assert.equal(b, null, `нечисловое значение ${b} на ${S.t.toFixed(0)} с (перки ${JSON.stringify(perks)})`); } }
   }

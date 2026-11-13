@@ -12,7 +12,7 @@ const RUN = SIM.waveCount();
 const json = (S) => JSON.parse(JSON.stringify(S));
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 // волна n идёт: забег поставлен на паузу перед ней и вызвал её
-const startAt = (S, n) => { S.phase = 'prep'; S.wave = n - 1; S.prepT = -1; SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.wave, n); return S; };
+const startAt = (S, n) => { S.phase = 'prep'; S.wave = n - 1; S.autoT = -1; SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.wave, n); return S; };
 // волна зачищена: все вышли и умерли — на следующем шаге её конец
 const clear = (S) => { S.qi = S.queue.length; S.enemies = []; SIM.step(S, null); };
 // забег, победивший на последней волне
@@ -29,7 +29,7 @@ test('победа на последней волне: забег ждёт вы�
   const t = S.stats.time; run(S, 30); SIM.step(S, { cmds: [{ k: 'call' }] });
   assert.equal(S.phase, 'won'); assert.equal(S.wave, RUN); assert.equal(S.stats.time, t);
   SIM.step(S, { cmds: [{ k: 'endless' }] });
-  assert.equal(S.phase, 'prep'); assert.equal(S.wave, RUN); assert.equal(S.endless, true); assert.equal(S.prepT, -1, 'первая волна бесконечного режима — по кнопке');
+  assert.equal(S.phase, 'prep'); assert.equal(S.wave, RUN); assert.equal(S.endless, true); assert.equal(S.autoT, -1, 'первая волна бесконечного режима — по кнопке');
   assert.ok(S.ev.some((e) => e.k === 'endless'));
   assert.equal(SIM.canEndless(S), false);
   assert.equal(SIM.loadable(json(S)), true);
@@ -39,8 +39,8 @@ test('победа на последней волне: забег ждёт вы�
   const B = endless(); SIM.step(B, { cmds: [{ k: 'endless' }] }); assert.equal(B.phase, 'prep'); assert.equal(B.wave, RUN);
 });
 
-test('обычный забег за последнюю волну не выходит, бесконечный — идёт дальше по кнопке и по таймеру', () => {
-  const N = SIM.create(5); N.wave = RUN; N.phase = 'prep'; N.prepT = 1;
+test('обычный забег за последнюю волну не выходит, бесконечный — идёт дальше по кнопке', () => {
+  const N = SIM.create(5); N.wave = RUN; N.phase = 'prep'; N.auto = true; N.autoT = 1;
   SIM.step(N, { cmds: [{ k: 'call' }] }); run(N, 3);
   assert.equal(N.wave, RUN, 'обычный забег вызвал волну после последней');
   assert.equal(SIM.lastWave(N), RUN);
@@ -49,8 +49,9 @@ test('обычный забег за последнюю волну не выхо
   assert.equal(S.wave, RUN + 1); assert.equal(S.phase, 'wave');
   assert.deepEqual(S.queue, WAVEGEN.queue(WAVEGEN.wave(S.seed, RUN + 1)), 'волна не от того же генератора');
   clear(S);
-  assert.equal(S.phase, 'prep', 'после волны бесконечного режима снова победа'); assert.equal(S.prepT, C.PREP_TIME);
-  run(S, C.PREP_TIME + 1); assert.equal(S.wave, RUN + 2, 'таймер паузы не начал следующую волну');
+  assert.equal(S.phase, 'prep', 'после волны бесконечного режима снова пауза'); assert.equal(S.autoT, C.RUN_CONTROL.autoDelay);
+  run(S, 60); assert.equal(S.wave, RUN + 1, 'без автоплея волна началась сама');
+  SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.wave, RUN + 2);
   // разведка видит волны за последней только в бесконечном режиме
   assert.deepEqual(SIM.scoutRange(S), { from: RUN + 3, to: RUN + 2 + C.SCOUT_AHEAD });
   assert.ok(SIM.preview(S, RUN + 3)); assert.equal(SIM.preview(won(), RUN + 1), null);

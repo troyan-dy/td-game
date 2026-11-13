@@ -49,10 +49,10 @@ export const smart = planned(MIX);
 export const spamBones = planned(['bones']);
 export const idle = (S) => (S.phase === 'relic' ? RELIC : null);
 
-// Партия: первая волна по кнопке, дальше по таймеру (бот не вызывает раньше). dt — шаг времени забега.
+// Партия: первая волна по кнопке, дальше автоплей (бот не вызывает раньше). dt — шаг времени забега.
 export const play = (bot, seed = 1, maxT = 5400, dt) => {
   const S = SIM.create(seed, { dt }), mem = {};
-  SIM.step(S, { cmds: [{ k: 'call' }] });
+  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   let i = 0;
   const waveLog = [], every = Math.max(1, Math.round(0.1 / S.dt));
   while (S.phase !== 'won' && S.phase !== 'lost' && S.t < maxT) {

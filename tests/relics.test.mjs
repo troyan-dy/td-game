@@ -54,13 +54,14 @@ test('реликвии: после 5-й волны забег стоит, пок
   const before = json(S), cell = SIM.rankCells(S, C.TYPICAL_RANGE)[0];
   SIM.step(S, { cmds: [{ k: 'call' }, { k: 'build', cell, type: 'bones' }, { k: 'relic', i: 7 }, { k: 'relic', i: -1 }, { k: 'relic', i: '1' }] });
   run(S, 60);
-  assert.equal(S.phase, 'relic'); assert.equal(S.wave, 5); assert.equal(S.prepT, before.prepT); assert.equal(S.stats.time, before.stats.time);
+  assert.equal(S.phase, 'relic'); assert.equal(S.wave, 5); assert.equal(S.autoT, before.autoT); assert.equal(S.hasteT, before.hasteT); assert.equal(S.stats.time, before.stats.time);
   assert.equal(S.towers[cell], null, 'постройка во время выбора'); assert.equal(S.souls, before.souls); assert.deepEqual(S.relics, []);
   SIM.step(S, { cmds: [{ k: 'relic', i: 1 }] });
   assert.deepEqual(S.relics, [before.offer[1]]); assert.equal(S.offer, null); assert.equal(S.phase, 'prep');
   assert.deepEqual(SIM.relicsOf(S).map((r) => r.id), [before.offer[1]]);
   assert.ok(S.ev.some((e) => e.k === 'relic' && e.id === before.offer[1]));
-  run(S, C.PREP_TIME + 1); assert.equal(S.wave, 6, 'после выбора пауза идёт и волна стартует сама');
+  run(S, 60); assert.equal(S.wave, 5, 'после выбора волна началась сама, без автоплея');
+  SIM.step(S, { cmds: [{ k: 'auto', on: true }] }); run(S, C.RUN_CONTROL.autoDelay + 0.1); assert.equal(S.wave, 6, 'после выбора автоплей не начал волну');
 });
 
 test('реликвии: выбор после 5, 10 и 15; после последней волны — победа без выбора', () => {
@@ -123,7 +124,7 @@ test('реликвии: забег на экране выбора после JSO
 
 test('реликвии: партия бота проходит экраны выбора (берёт первую) и её снимки годны', () => {
   const S = SIM.create(2, { dt: 1 / 30 }), mem = {}; let i = 0, relicSnaps = 0;
-  SIM.step(S, { cmds: [{ k: 'call' }] });
+  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
     if (S.phase === 'relic') { relicSnaps++; assert.equal(SIM.loadable(json(S)), true, 'снимок экрана выбора, волна ' + S.wave); }
     const cmds = i++ % 3 === 0 ? smart(S, mem) : null; SIM.step(S, cmds ? { cmds } : null);
@@ -211,9 +212,10 @@ const EFFECTS = {
     for (const e of A.ev) if (e.k === 'toll') bounty += e.souls;
     assert.equal(A.stats.kills, 0); assert.ok(A.stats.leaked > 0); assert.ok(A.stats.earned - B.stats.earned > 0, 'пропуски не принесли душ');
     assert.ok(bounty > 0); },
-  haste: () => { const [A, B] = pair('haste'); run(A, 4.3); run(B, 4.3); const left = A.prepT, a = A.souls, b = B.souls;
+  haste: () => { const [A, B] = pair('haste'); run(A, 4.3); run(B, 4.3); const left = A.hasteT, a = A.souls, b = B.souls;
+    assert.ok(left > 0 && left < RL.haste.window, 'окно ' + left);
     SIM.step(A, { cmds: [{ k: 'call' }] }); SIM.step(B, { cmds: [{ k: 'call' }] });
-    assert.equal(A.souls - a, Math.floor(left * 2)); assert.equal(B.souls, b); },
+    assert.equal(A.souls - a, Math.floor(left * RL.haste.perSec)); assert.equal(B.souls, b); },
   insight: () => { const [A, B] = pair('insight'); const c = plain(A);
     for (const S of [A, B]) { S.souls = 5000; SIM.step(S, { cmds: [{ k: 'build', cell: c, type: 'bones' }, ...[0, 1, 2, 3].map((i) => ({ k: 'upgrade', cell: c, track: C.TRACKS[i % 3] }))] }); }
     assert.equal(SIM.perkAt(A), 4); assert.equal(SIM.perkAt(B), C.PERK_AT);
