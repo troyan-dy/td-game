@@ -102,6 +102,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #panel .move, #panel .mvx { width: 100%; height: 32px; margin-top: 6px; font: 700 14px var(--title); }
 #panel .mv { margin-top: 8px; color: var(--soul); }
 #panel .note { font: 14px/1.3 var(--body); color: var(--dim); }
+#panel .bonus { margin-top: 6px; padding: 4px 8px; font: 700 15px/1.3 var(--body); border-left: 3px solid currentColor; background: #1a1229; }
+#panel .bonus.mound { color: #ffb04f; }
+#panel .bonus.well { color: var(--soul); }
+#panel .bonus.cursed { color: #ff5a78; }
+#panel .prices b.poor { color: var(--bad); }
+#panel .prices b.up, .card .pr.up { color: #ff5a78; }
+#panel .prices s.was { margin-right: 6px; color: var(--dim); }
 
 /* тултип */
 #tip { position: absolute; max-width: 300px; padding: 10px 12px; font: 15px/1.35 var(--body); display: none; pointer-events: none; z-index: 5; }
