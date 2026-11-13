@@ -181,11 +181,12 @@ test('цена решения: препятствия закрывают 20–30
       const [x, y] = MAPGEN.cellXY(m, i); let runs = 0, inr = false;
       for (const [px, py] of pts) { const v = Math.hypot(px - x, py - y) <= R; if (v && !inr) runs++; inr = v; }
       if (runs >= 2) { mn++; if (ob.has(i)) ms++; } }
-    nodes += mn; shut += ms; if (mn && ms / mn < 0.12) low++;
+    nodes += mn; shut += ms; if (mn >= 34 && ms / mn < 0.12) low++;
   }
   const share = shut / nodes;
   assert.ok(share >= 0.20 && share <= 0.30, `закрыто ${(share * 100).toFixed(1)}% узловых клеток`);
-  assert.ok(low <= 15, `карт, где закрыто меньше 12% узловых: ${low} из 300`);
+  // бедные узловыми клетками карты генератор бережёт (C.MAP.obstacles.nodeKeep), на богатых закрыта заметная доля всегда
+  assert.equal(low, 0, `карт с 34+ узловыми, где закрыто меньше 12%: ${low} из 300`);
 });
 
 test('проверка карты ловит неверные препятствия и особые клетки', () => {

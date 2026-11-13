@@ -148,7 +148,7 @@
     const ok = (i) => !taken.has(i) && cheb(m, i, gate) > 1 && cheb(m, i, crypt) > 1;
     // цена решения: заметная доля узловых клеток (бьют по двум и более участкам пути) закрыта надгробиями, руинами и елями
     const nodes = shuffle(nodeCells(m, free.filter((i) => dist[i] <= 3 && ok(i))), R);
-    const nn = Math.min(n - taken.size, Math.round(nodes.length * (OB.nodes[0] + R() * (OB.nodes[1] - OB.nodes[0]))));
+    const nn = Math.max(0, Math.min(n - taken.size, nodes.length - OB.nodeKeep, Math.round(nodes.length * (OB.nodes[0] + R() * (OB.nodes[1] - OB.nodes[0])))));
     for (const i of nodes.slice(0, nn)) taken.set(i, pickWeighted(OB.mix.filter(([kd]) => kd !== 'water'), R));
     // лес: клетки дальше от дороги — раньше, у края поля — ещё раньше (густой край леса), с шумом от сида
     const nf = Math.round((n - taken.size) * (OB.forest[0] + R() * (OB.forest[1] - OB.forest[0])));
