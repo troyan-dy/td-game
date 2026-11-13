@@ -24,7 +24,7 @@
     SELL_REFUND: 0.7,
     PREP_TIME: 15,                 // секунд между волнами (кроме первой: она стартует по кнопке)
     WAVE_BONUS: (w) => 30 + 8 * w, // души за зачистку волны w
-    HP_MULT: (w) => 1 + 0.11 * (w - 1),
+    HP_MULT: (w) => 1 + 0.16 * (w - 1) + 0.004 * (w - 1) ** 2,
     BOUNTY_MULT: (w) => 1 + 0.04 * (w - 1),
     ROAD_HALF: 27,
     TYPICAL_RANGE: 3.4,            // типичный радиус башни, ед.: покрытие дороги клеткой (меню постройки, подсказки, боты)                 // полуширина нарисованной дороги, px
@@ -123,9 +123,9 @@
       spirits: {
         name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic', attack: 'ghost', muzzle: 70,
         art: { sprite: 'spirits', color: [0.30, 0.95, 0.88], ui: '#6ff2e2', fx: 'orbs', sound: 'spirits' },
-        base: { cost: 110, dmg: 10, rate: 0.8, range: 3.2 },
+        base: { cost: 100, dmg: 14, rate: 0.8, range: 3.2 },
         tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(35, 0.08), rate: track(40, 0.12) },
-        extra: { speed: 380, slow: 0.30, slowTime: 1.5 },
+        extra: { speed: 380, slow: 0.35, slowTime: 1.5 },
         show: [['Замедление', '{slow%} · {slowTime} с']],
         desc: 'Призраки замедляют врагов. Урон небольшой, зато соседние башни успевают больше.',
         perks: {
@@ -137,7 +137,7 @@
       plague: {
         name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison', attack: 'blob', muzzle: 44,
         art: { sprite: 'plague', color: [0.45, 0.90, 0.25], ui: '#8be04e', fx: 'fumes', sound: 'plague' },
-        base: { cost: 130, dmg: 12, rate: 2.2, range: 3.0 },
+        base: { cost: 130, dmg: 8, rate: 2.2, range: 3.0 },
         tracks: { dmg: track(50, 0.35), range: track(35, 0.08), rate: track(45, 0.12) },
         extra: { cloudR: 0.9, cloudTime: 3, linger: 1.0, flight: 0.6 },
         names: { dmg: 'Яд' }, fmt: { dmg: '{dmg}/с' },
@@ -152,7 +152,7 @@
       dark: {
         name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
         art: { sprite: 'dark', color: [0.80, 0.38, 1.0], ui: '#c86bff', fx: 'crown', sound: 'dark' },
-        base: { cost: 150, dmg: 20, rate: 1.3, range: 3.2 },
+        base: { cost: 125, dmg: 30, rate: 1.2, range: 3.2 },
         tracks: { dmg: track(55, 0.35), range: track(40, 0.08), rate: track(50, 0.12) },
         extra: { heavy: 2 },
         show: [['По тяжёлым', '×{heavy}']],
@@ -208,9 +208,9 @@
     //          своей записью grim (например, у небоевой башни — другая ветка)
     GRIMOIRE: {
       all: {
-        dmg: { k: 0.06, cost: [120, 180, 260, 360, 480] },
+        dmg: { k: 0.09, cost: [120, 180, 260, 360, 480] },
         range: { k: 0.04, cost: [100, 150, 220, 300, 400] },
-        rate: { k: 0.05, cost: [120, 180, 260, 360, 480] },
+        rate: { k: 0.07, cost: [120, 180, 260, 360, 480] },
       },
       type: { track: 'dmg', k: 0.12, cost: [100, 170, 260] },
     },
