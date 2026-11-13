@@ -6,6 +6,8 @@
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
 // Конец забега: победа на последней волне (C.RUN_WAVES) — фаза 'won'; {k:'endless'} после неё (SIM.canEndless) продолжает забег
 // в бесконечном режиме (S.endless): волны идут дальше без предела (SIM.lastWave), забег кончается только поражением.
+// Реликвии (C.RELICS): после волн, где положена реликвия (relicDue), забег в фазе 'relic' стоит, пока не выбрана реликвия
+// {k:'relic',i} — номер в предложении S.offer (SIM.relicOffer); взятые — S.relics (SIM.relicsOf). Взята ли — только hasRelic.
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const MAPGEN = (typeof window !== 'undefined' && window.MAPGEN) || require('./mapgen.js');
@@ -52,6 +54,18 @@
     if (own(PERKS, id)) throw new Error(`перк ${id} есть у ${PERKS[id].type} и у ${type}: id перков должны быть уникальны`);
     PERKS[id] = { type, def: TW[type].perks[id] }; }
   const perkDef = (id) => (own(PERKS, id) ? PERKS[id].def : null);
+  // реликвии: id из конфига (в его порядке — от него зависит выбор по сиду); открытое — общий список с башнями
+  const RL = C.RELICS, RELIC_IDS = Object.keys(RL);
+  for (const id of RELIC_IDS) if (own(TW, id)) throw new Error(`реликвия ${id} совпадает по id с башней: список открытого общий`);
+  const hasRelic = (S, id) => S.relics.includes(id);                 // единственная проверка «взята ли реликвия»
+  const relicSum = (S, key) => { let n = 0; for (const id of S.relics) n += RL[id][key] || 0; return n; };   // числовые реликвии: сумма поля по взятым
+  // предложение после волны n: до C.RELIC_OFFER открытых и не взятых, от сида и номера волны (поток 'relics') — ход боя не влияет
+  const drawRelics = (seed, n, taken, unlocked) => {
+    const pool = RELIC_IDS.filter((id) => !taken.includes(id) && (!unlocked || unlocked.includes(id))), R = RNG.stream(seed, 'relics', n);
+    for (let i = 0; i < Math.min(C.RELIC_OFFER, pool.length); i++) { const j = i + Math.floor(R() * (pool.length - i)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    return pool.slice(0, C.RELIC_OFFER); };
+  // перк открывается с этой суммы ступеней (Раннее озарение — раньше)
+  const perkAt = (S) => (hasRelic(S, 'insight') ? RL.insight.perkAt : C.PERK_AT);
   // перки с наградой за убийство в радиусе (harvest): только для башен с ними смерть врага считает характеристики
   const KILL_PERKS = new Set(Object.keys(PERKS).filter((id) => PERKS[id].def.set && 'harvest' in PERKS[id].def.set));
   const cellXY = (S, i) => MAPGEN.cellXY(S.map, i);
@@ -97,6 +111,13 @@
   // кладёт своё число (well). Дальше сюда же — аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте.
   const externalBonus = (S, tw, o) => {
     if (tw.cell >= 0) { o.range += bonusOf(S, tw.cell, 'range'); o.dmg *= 1 + bonusOf(S, tw.cell, 'dmg'); const w = bonusOf(S, tw.cell, 'souls'); if (w) o.well = w; }
+    // реликвии про башни (поле tower в C.RELICS): для своих типов (only) и своей особой клетки (on) — set, mul, add, haste
+    for (const id of S.relics) { const b = RL[id].tower;
+      if (!b || (b.only && !b.only.includes(tw.type)) || (b.on && (tw.cell < 0 || MAPGEN.special(S.map, tw.cell) !== b.on))) continue;
+      Object.assign(o, b.set || {});
+      for (const [key, v] of Object.entries(b.mul || {})) o[key] = (o[key] || 0) * v;
+      for (const [key, v] of Object.entries(b.add || {})) o[key] = (o[key] || 0) + v;
+      if (b.haste) o.rate /= 1 + b.haste; }
     o.rangePx = o.range * UNIT; return o; };
   const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
@@ -129,7 +150,8 @@
     if (IDX_S !== S) { IDX = new Map(); for (const t of S.towers) if (t) IDX.set(t.id, t); IDX_S = S; }
     return IDX.get(id) || null; };
   const dropIndex = () => { IDX_S = null; };
-  const sellValue = (tw) => Math.floor(tw.invested * C.SELL_REFUND);
+  // сколько вернёт продажа (Честная сделка — всё вложенное); без S — обычная доля
+  const sellValue = (tw, S) => Math.floor(tw.invested * (S && hasRelic(S, 'deal') ? RL.deal.refund : C.SELL_REFUND));
   const waveCount = () => C.RUN_WAVES;                                       // волн в обычном забеге (победа на последней)
   const lastWave = (S) => (S.endless ? Infinity : C.RUN_WAVES);           // последняя волна этого забега: в бесконечном режиме предела нет
   const canEndless = (S) => S.phase === 'won' && !S.endless;
@@ -148,6 +170,7 @@
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
+      relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
     };
   };
 
@@ -166,7 +189,9 @@
   // cost — цена постройки на этой клетке с наценкой особой клетки (её и списывает команда build), base — цена без наценки
   const canBuild = (S, cell, type) => {
     const def = typeDef(type), blk = cellBlock(S, cell), base = def ? def.base.cost : null;
-    const cost = def ? Math.round(base * (1 + (blk === 'bounds' ? 0 : bonusOf(S, cell, 'cost')))) : null, no = (reason) => ({ ok: false, reason, cost, base });
+    const markup = blk === 'bounds' || hasRelic(S, 'hallowed') ? 0 : bonusOf(S, cell, 'cost');                  // Освящённая скверна — без наценки
+    const first = hasRelic(S, 'cornerstone') && !S.towers.some((t) => t && t.type === type) ? 1 - RL.cornerstone.firstOff : 1;   // Первый камень
+    const cost = def ? Math.round(base * (1 + markup) * first) : null, no = (reason) => ({ ok: false, reason, cost, base });
     if (blk) return no(blk);
     if (!def) return no('type');
     if (S.unlocked && !S.unlocked.includes(type)) return no('locked');
@@ -180,7 +205,8 @@
     const no = (reason) => ({ ok: false, reason });
     if (!(from >= 0 && from < cellCount(S)) || !S.towers[from]) return no('none');
     if (S.phase === 'won' || S.phase === 'lost') return no('ended');
-    if (S.phase !== 'prep') return no('phase');                         // только в паузе между волнами
+    // в паузе между волнами; Беспокойные мёртвые — ещё и раз за волну посреди боя
+    if (S.phase !== 'prep' && !(S.phase === 'wave' && hasRelic(S, 'restless') && S.waveMoved !== S.wave)) return no('phase');
     if (to === undefined) return { ok: true, reason: null };
     if (to === from) return no('same');
     const blk = cellBlock(S, to); return blk ? no(blk) : { ok: true, reason: null };
@@ -201,7 +227,8 @@
     if (!tw) return no('none');
     if (typeof track !== 'string' || !C.TRACKS.includes(track)) return no('track');
     const n = tw.tracks[track]; if (n >= tw.cap) return no('max');
-    const cost = TW[tw.type].tracks[track].cost[n]; if (typeof cost !== 'number') return no('price');
+    const price = TW[tw.type].tracks[track].cost[n]; if (typeof price !== 'number') return no('price');
+    const cost = Math.round(price * (1 - relicSum(S, 'trackDiscount')));          // Резец каменщика
     if (ended(S)) return no('ended', cost);
     if (S.souls < cost) return no('souls', cost);
     return { ok: true, reason: null, cost };
@@ -211,7 +238,7 @@
   // need — сколько ступеней ещё вложить до выбора перка
   const canPerk = (S, cell, p) => {
     const tw = towerAt(S, cell), pd = tw && own(TW[tw.type].perks, p) ? TW[tw.type].perks[p] : null, cost = pd ? pd.cost : null;
-    const need = tw ? Math.max(0, C.PERK_AT - steps(tw)) : C.PERK_AT, no = (reason) => ({ ok: false, reason, cost, need });
+    const need = tw ? Math.max(0, perkAt(S) - steps(tw)) : perkAt(S), no = (reason) => ({ ok: false, reason, cost, need });
     if (!tw) return no('none');
     if (!pd) return no('perk');
     if (hasPerk(tw, p)) return no('chosen');
@@ -284,10 +311,21 @@
     const R = C.RUN_WAVES, E = S.endless, prepOk = S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME);
     if (S.phase === 'prep') return (E ? int(S.wave, R, Infinity) : int(S.wave, 0, R - 1)) && prepOk;
     if (S.phase === 'wave') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 1, R);
+    if (S.phase === 'relic') return relicDue(S.wave) && (E ? S.wave > R : int(S.wave, 1, R - 1)) && S.prepT >= 0 && S.prepT <= C.PREP_TIME;
     if (S.phase === 'won') return !E && S.wave === R;
     if (S.phase === 'lost') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 0, R);
     return false;
   };
+  // реликвии: известные, без повторов, не больше, чем было выборов к этой волне; предложение — только в фазе выбора и ровно то,
+  // что даёт сид (иначе после загрузки игрок выбирал бы из чужого набора); перенос посреди боя — не позже текущей волны
+  const relicsOk = (S) => {
+    if (!Array.isArray(S.relics) || !S.relics.every((id) => own(RL, id)) || new Set(S.relics).size !== S.relics.length) return false;
+    if (!int(S.waveMoved, 0, S.wave)) return false;
+    const cleared = S.phase === 'wave' || S.phase === 'lost' ? S.wave - 1 : S.wave; let chances = S.phase === 'relic' ? -1 : 0;
+    for (let n = 1; n <= cleared && chances < S.relics.length; n++) if (relicDue(n)) chances++;
+    if (S.relics.length > chances) return false;
+    if (S.phase !== 'relic') return S.offer === null;
+    return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked)); };
   const loadable = (S) => {
     const sh = shapes();
     try {
@@ -297,6 +335,7 @@
       if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
+      if (!relicsOk(S)) return false;
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
         const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null, blk = def && tw.cell === i ? cellBlock(S, i) : 'bounds';
@@ -343,6 +382,7 @@
       if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.prepT = -1; ev(S, 'endless', { wave: S.wave }); }
       return; }
     if (S.phase === 'won' || S.phase === 'lost') return;
+    if (S.phase === 'relic' && c.k !== 'relic') return;               // на выборе реликвии забег стоит: другие команды не действуют
     dropIndex();
     const tw = c.cell >= 0 && c.cell < cellCount(S) ? S.towers[c.cell] : null, at = tw ? cellXY(S, c.cell) : null;
     if (c.k === 'build') {
@@ -360,15 +400,24 @@
       pay(S, cp.cost); tw.perks.push(c.p); tw.invested += cp.cost; tw.built = S.t;
       ev(S, 'perk', { cell: c.cell, p: c.p, x: at[0], y: at[1] });
     } else if (c.k === 'sell') {
-      if (!tw) return; const v = sellValue(tw); S.souls += v; S.towers[c.cell] = null;
+      if (!tw) return; const v = sellValue(tw, S); S.souls += v; S.towers[c.cell] = null;
       ev(S, 'sell', { cell: c.cell, souls: v, type: tw.type, x: at[0], y: at[1] });
     } else if (c.k === 'move') {
       // башня переезжает целиком, тем же объектом: меняется только клетка, всё остальное (прокачка, перк, счётчики) едет с ней
       if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
-      S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to;
+      S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave;
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'call') {
-      if (S.phase === 'prep' && S.wave < lastWave(S)) startWave(S);
+      if (S.phase !== 'prep' || S.wave >= lastWave(S)) return;
+      if (S.prepT > 0 && hasRelic(S, 'haste')) { const g = Math.floor(S.prepT * RL.haste.perSec);   // Нетерпение: души за оставшуюся паузу
+        if (g) { S.souls += g; S.stats.earned += g; ev(S, 'haste', { souls: g }); } }
+      startWave(S);
+    } else if (c.k === 'relic') {                                     // { k: 'relic', i } — номер в предложении S.offer
+      if (S.phase !== 'relic' || !int(c.i, 0, S.offer.length - 1)) return;
+      const id = S.offer[c.i], take = RL[id].take || {};
+      S.relics.push(id); S.offer = null; S.phase = 'prep';
+      if (take.souls) S.souls += take.souls; if (take.hp) S.hp += take.hp;
+      ev(S, 'relic', { id });
     }
   };
 
@@ -413,7 +462,8 @@
   };
   const kill = (S, e, tw) => {
     e.dead = true; const def = EN[e.type];
-    S.souls += e.bounty; S.stats.kills++; S.stats.earned += e.bounty; if (tw) tw.kills++;
+    const coin = relicSum(S, 'killSouls');                              // Кровавая монета
+    S.souls += e.bounty + coin; S.stats.kills++; S.stats.earned += e.bounty + coin; if (tw) tw.kills++;
     ev(S, 'die', { x: e.x, y: e.y, type: e.type, souls: e.bounty, face: e.face, boss: !!def.boss });
     const well = tw ? bonusOf(S, tw.cell, 'souls') : 0;                // источник душ под башней-убийцей
     if (well) { S.souls += well; S.stats.earned += well; const [wx, wy] = cellXY(S, tw.cell); ev(S, 'well', { x: wx, y: wy - 40, souls: well, cell: tw.cell }); }
@@ -547,7 +597,7 @@
     dropIndex();
     if (inp && inp.cmds) for (const c of inp.cmds) doCmd(S, c);
     S.t += DT;
-    if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
+    if (S.phase === 'won' || S.phase === 'lost' || S.phase === 'relic') { pruneEv(S); return; }   // на выборе реликвии время забега стоит
     S.stats.time += DT;
     // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
     if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < lastWave(S)) startWave(S); }
@@ -578,7 +628,8 @@
       const v = e.freezeT > 0 ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
-        e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss }); }
+        e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss });
+        if (hasRelic(S, 'toll')) { S.souls += e.bounty; S.stats.earned += e.bounty; ev(S, 'toll', { x: cx, y: cy - 40, souls: e.bounty }); } }   // Плата за проход
     }
     // облака яда
     for (const c of S.clouds) {
@@ -586,6 +637,7 @@
       for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - c.x, (e.y - c.y) * 1.4) <= c.r) {
         const key = 'p' + c.tw, old = e.poison[key];
         e.poison[key] = { dps: Math.max(c.dps, old ? old.dps : 0), t: c.linger, tw: c.tw, pest: c.pest || (old ? old.pest : null) };
+        if (!old && hasRelic(S, 'caustic')) damage(S, e, c.dps * RL.caustic.burst, 'poison', tw);   // Едкая плоть: урон сразу при заражении
         if (c.acid) { e.shred = c.acid.shred; e.shredT = c.acid.t; }
       }
       if (!tw && c.t > 0.5) c.t = 0.5;
@@ -599,13 +651,24 @@
     // конец волны / партии
     if (S.hp <= 0 && S.phase !== 'lost') { S.phase = 'lost'; ev(S, 'lose', {}); }
     else if (S.phase === 'wave' && S.qi >= S.queue.length && !S.enemies.length) {
-      const bonus = C.WAVE_BONUS(S.wave); S.souls += bonus; S.stats.earned += bonus;
+      // Десятина — сумма по реликвиям; Ростовщик — доля душ в запасе до награды
+      const interest = hasRelic(S, 'usury') ? Math.min(RL.usury.interestMax, Math.floor(S.souls * RL.usury.interest)) : 0;
+      const bonus = C.WAVE_BONUS(S.wave) + relicSum(S, 'waveSouls') + interest; S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
       if (S.wave >= lastWave(S)) { S.phase = 'won'; ev(S, 'win', {}); }
-      else { S.phase = 'prep'; S.prepT = C.PREP_TIME; }
+      else { S.phase = 'prep'; S.prepT = C.PREP_TIME; if (relicDue(S.wave)) offerRelics(S); }
     }
     pruneEv(S);
   };
+  // выбор реликвии после волны: забег встаёт, пока игрок не выберет (таймер паузы ждёт полным); открытых не осталось — выбора нет
+  const offerRelics = (S) => { const o = drawRelics(S.seed, S.wave, S.relics, S.unlocked); if (!o.length) return;
+    S.offer = o; S.phase = 'relic'; ev(S, 'relicOffer', { wave: S.wave }); };
+  // реликвия для интерфейса: { id, name, icon, kind, desc } — описание с числами из её данных
+  const relicText = (id) => { const r = RL[id], t = r.tower || {};
+    return fill(r.desc, Object.assign({}, r, r.take || {}, t, t.set || {}, t.mul || {}, t.add || {})); };
+  const relicInfo = (id) => ({ id, name: RL[id].name, icon: RL[id].icon, kind: RL[id].kind, desc: relicText(id) });
+  const relicOffer = (S) => (S.phase === 'relic' && S.offer ? S.offer.map(relicInfo) : null);
+  const relicsOf = (S) => S.relics.map(relicInfo);
   const pruneEv = (S) => { if (S.ev.length > 300 || (S.ev.length && S.t - S.ev[0].t > 4)) S.ev = S.ev.filter((e) => S.t - e.t < 4).slice(-300); };
 
   // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
@@ -651,6 +714,7 @@
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
+    hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;
