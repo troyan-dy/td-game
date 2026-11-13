@@ -7,7 +7,7 @@ const C = SIM.CONFIG;
 const MIX = ['bones', 'spirits', 'plague', 'dark'];
 const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse' };
 // лучшие клетки под оборону: по покрытию дороги (запоминаются на партию)
-const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, 3.4).slice(0, n));
+const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, C.TYPICAL_RANGE).slice(0, n));
 
 // Разумный игрок: строит на клетках с лучшим покрытием дороги, смешивает типы, качает и берёт перки.
 export const smart = (S, mem) => {
