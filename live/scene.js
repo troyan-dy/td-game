@@ -185,6 +185,28 @@
   // ---------------------------------------------------------------- особые клетки
   // на клетке: слабая заливка, уголки по краям и свечение — край клетки виден из-под башни; в правом верхнем углу — значок
   // (рисуется поверх всего; нижний угол клеток над карточками башен закрыт интерфейсом)
+  // ---------------------------------------------------------------- аура Алтаря крови
+  // клетки ауры (SIM.auraCells) — красноватая заливка и рамка квадрата; усиленные башни (SIM.auraTargets) — свечение у основания,
+  // а у выбранного, наведённого и будущего алтаря ещё уголки на их клетках и пунктир от алтаря. type — превью будущего алтаря
+  const AURA = [1.0, 0.30, 0.36];
+  const corners = (ST, cell, col, a) => { const x = (cell % ST.map.cols) * TILE, y = Math.floor(cell / ST.map.cols) * TILE, b = 3, l = 18;
+    for (const [cx, cy, sx, sy] of [[x + 3, y + 3, 1, 1], [x + TILE - 3, y + 3, -1, 1], [x + 3, y + TILE - 3, 1, -1], [x + TILE - 3, y + TILE - 3, -1, -1]]) {
+      L.solid(sx > 0 ? cx : cx - l, sy > 0 ? cy : cy - b, l, b, col, 0, 0, 0, a); L.solid(sx > 0 ? cx : cx - b, sy > 0 ? cy : cy - l, b, l, col, 0, 0, 0, a); } };
+  const drawAura = (ST, cell, type, strong, t) => {
+    const cells = SIM.auraCells(ST, cell, type); if (!cells.length) return;
+    const p = 0.85 + 0.15 * Math.sin(t * 2.4 + cell), n = ST.map.cols;
+    fillCells(ST, cells, AURA, (strong ? 0.13 : 0.05) * p);
+    const xs = cells.map((c) => c % n), ys = cells.map((c) => Math.floor(c / n)), x0 = Math.min(...xs) * TILE, y0 = Math.min(...ys) * TILE;
+    const w = (Math.max(...xs) + 1) * TILE - x0, h = (Math.max(...ys) + 1) * TILE - y0, a = (strong ? 0.75 : 0.32) * p;
+    L.solid(x0, y0, w, 2, AURA, 0, 0, 0, a); L.solid(x0, y0 + h - 2, w, 2, AURA, 0, 0, 0, a); L.solid(x0, y0 + 2, 2, h - 4, AURA, 0, 0, 0, a); L.solid(x0 + w - 2, y0 + 2, 2, h - 4, AURA, 0, 0, 0, a);
+    const [ax, ay] = SIM.cellXY(ST, cell);
+    for (const c of SIM.auraTargets(ST, cell, type)) { const [x, y] = SIM.cellXY(ST, c);
+      L.glow(x, y - 6, 34, AURA, (strong ? 0.45 : 0.22) * p);
+      if (!strong) continue;
+      corners(ST, c, [1, 0.55, 0.6], 0.95);
+      const d = Math.hypot(x - ax, y - ay), ang = Math.atan2(y - ay, x - ax);
+      for (let k = 16; k < d - 16; k += 14) L.solid(ax + Math.cos(ang) * k, ay + Math.sin(ang) * k, 7, 3, [1, 0.6, 0.65], ang, 3.5, 1.5, 0.85); }
+  };
   const BLOCKED = ['road', 'obstacle'];                                   // на таких клетках подсветка красная, круга будущей башни нет
   const SPC = { mound: [1.0, 0.68, 0.30], well: COL.soul, cursed: [1.0, 0.22, 0.36] };
   const drawSpecialGround = (ST, t) => { const b = 3, l = 16;
@@ -227,6 +249,8 @@
     // сетка проявляется в паузе между волнами и при выбранной башне; при переносе ярче, допустимые клетки подсвечены
     const moving = !ST.demo && ui.move >= 0 && !!ST.towers[ui.move];
     if (!ST.demo && (moving || ST.phase === 'prep' || (ui.sel >= 0 && ST.towers[ui.sel]))) drawGrid(ST, moving ? 0.26 : 0.12);
+    // ауры стоящих алтарей: всегда видны слабо, у выбранного или наведённого — ярко, с уголками и пунктиром к усиленным
+    if (!moving) ST.towers.forEach((tw) => { if (tw && SIM.hasAura(tw.type)) drawAura(ST, tw.cell, undefined, ui.sel === tw.cell || ui.hover === tw.cell, t); });
     if (moving) {
       const mt = ST.towers[ui.move], col = tcol(mt.type), cells = SIM.moveCells(ST, ui.move), ok = ui.hover >= 0 && cells.includes(ui.hover);
       fillCells(ST, cells, [0.86, 0.94, 1.0], 0.17 + 0.05 * Math.sin(t * 4));        // светлая заливка: бирюза сливается с травой фона
@@ -245,11 +269,14 @@
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, BLOCKED.includes(SIM.canBuild(ST, ui.hover, pType).reason) ? 'no' : 'ok', t);
-      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.towerStats(ST, selT).rangePx, tcol(selT.type), t); }
+      // у алтаря вместо круга дальности — аура (выше); у будущего алтаря — превью ауры и тех, кого он усилит
+      if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); if (!SIM.hasAura(selT.type)) drawRange(x, y, SIM.towerStats(ST, selT).rangePx, tcol(selT.type), t); }
+      else if (ui.sel >= 0 && !BLOCKED.includes(SIM.canBuild(ST, ui.sel, pType).reason) && SIM.hasAura(pType)) drawAura(ST, ui.sel, pType, true, t);
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), tcol(pType), t, 0.8); }
       else if (ui.hover >= 0 && ui.armed && !ST.towers[ui.hover] && !BLOCKED.includes(SIM.canBuild(ST, ui.hover, ui.armed).reason)) {
-        const [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), tcol(ui.armed), t, 0.7); }
-      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.towerStats(ST, h).rangePx, tcol(h.type), t, 0.45); }
+        const [x, y] = SIM.cellXY(ST, ui.hover);
+        if (SIM.hasAura(ui.armed)) drawAura(ST, ui.hover, ui.armed, true, t); else drawRange(x, y, SIM.buildRangePx(ST, ui.hover, ui.armed), tcol(ui.armed), t, 0.7); }
+      if (ui.hover >= 0 && ST.towers[ui.hover] && ui.hover !== ui.sel && !SIM.hasAura(ST.towers[ui.hover].type)) { const h = ST.towers[ui.hover], [x, y] = SIM.cellXY(ST, ui.hover); drawRange(x, y, SIM.towerStats(ST, h).rangePx, tcol(h.type), t, 0.45); }
     }
 
     // облака яда (на земле)
