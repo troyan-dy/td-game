@@ -88,6 +88,7 @@
       <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
+      <b>Гримуар</b> (кнопка ✦ вверху справа или G) — в любой момент за души усиливает сразу все башни, и построенные позже: урон, дальность, скорость и отдельно каждый тип.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
       <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
   // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
@@ -214,8 +215,11 @@
     return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
       <div><div class="nm">${d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
       <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
-      <div><span>Убито</span><b data-v="kills">${tw.kills}</b></div></div>`;
+      <div><span>Убито</span><b data-v="kills">${tw.kills}</b></div></div>${grimLine(S, tw)}`;
   };
+  // что дают башне покупки Гримуара (уже вошли в характеристики выше); пусто, пока ничего не куплено
+  const grimLine = (S, tw) => { const g = SIM.grimBonus(S, tw.type), parts = C.TRACKS.filter((k) => g[k] > 0).map((k) => `${trackName(tw.type, k).toLowerCase()} <b>+${Math.round(g[k] * 100)}%</b>`);
+    return parts.length ? `<div class="grim">✦ Гримуар: ${parts.join(' · ')}</div>` : ''; };
   // почему ступень или перк недоступны — словами (подсказка при наведении); пустая строка — доступно
   const trackWhy = (S, cu) => ({ max: 'Ветка прокачана до предела этой башни', price: 'Следующая ступень этой ветки пока недоступна', souls: `Не хватает ${cu.cost - S.souls} душ`, ended: 'Забег окончен' }[cu.reason] || '');
   const perkWhy = (S, cp) => ({ steps: `Откроется после ${C.PERK_AT} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
@@ -439,7 +443,7 @@
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
-      if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'wave') savedAt = 0;
+      if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'grim' || e.k === 'wave') savedAt = 0;
     }
     if (seenEv.size > 3000) markSeen();
     if (performance.now() - savedAt >= SAVE_EVERY) persist();
