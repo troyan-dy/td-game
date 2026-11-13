@@ -13,7 +13,7 @@
 const V = Date.now(), STATIC = !!window.__STATIC__;
 const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src + '?v=' + V; s.onload = res; s.onerror = () => rej(new Error('failed ' + src)); document.head.appendChild(s); });
 (async () => {
-  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js', 'relics.js', 'grimoire.js']) await load(f);
+  for (const f of ['assets.js', 'sizes.js', 'rigs.js', 'gl.js', 'lib.js', 'config.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'towerart.js', 'scene.js', 'audio.js', 'ui.js', 'scout.js', 'relics.js', 'grimoire.js']) await load(f);
   const q = new URLSearchParams(location.search), render = q.has('render');
   const VW = SIM.VIEW.W, VH = SIM.VIEW.H, stage = document.getElementById('stage'), cv = document.getElementById('c');
   const fit = () => { const k = Math.min(innerWidth / VW, innerHeight / VH); stage.style.width = VW * k + 'px'; stage.style.height = VH * k + 'px';
@@ -76,7 +76,7 @@ const load = (src) => new Promise((res, rej) => { const s = document.createEleme
   };
   loop();
   if (STATIC) { dev.style.display = 'none'; return; }
-  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'config.js', 'ui.js', 'scout.js', 'relics.js', 'grimoire.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
+  const WATCH = ['index.html', 'scene.js', 'rng.js', 'mapgen.js', 'wavegen.js', 'sim.js', 'meta.js', 'bgmap.js', 'towerart.js', 'config.js', 'ui.js', 'scout.js', 'relics.js', 'grimoire.js', 'ui.css', 'lib.js', 'gl.js', 'assets.js', 'sizes.js', 'rigs.js', 'audio.js'], stamp = {};
   const poll = async () => {
     for (const f of WATCH) {
       try { const r = await fetch(f + '?poll=' + Date.now(), { method: 'HEAD', cache: 'no-store' }); const m = r.headers.get('last-modified') + r.headers.get('content-length');

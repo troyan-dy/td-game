@@ -20,7 +20,7 @@ const boosted = (st, o, a, msg) => { near(st.dmg, o.dmg * (1 + a.auraDmg), msg +
 test('Алтарь крови — тип из данных: в порядке карточек, не стреляет, три перка, ветки — прибавки ауры', () => {
   assert.ok(C.TOWER_ORDER.includes('altar')); assert.equal(A.title, 'Алтарь крови'); assert.equal(A.attack, undefined);
   assert.equal(Object.keys(A.perks).length, 3);
-  assert.equal(A.art.sprite, 'spirits'); assert.ok(A.art.tint && A.art.tint[3] > 0, 'алтарь — перекрашенный фонарь');
+  assert.equal(A.art.sprite, 'altar'); assert.ok(!A.art.tint, 'алтарь — свой процедурный вид, не перекраска');
   const S = SIM.create(2), [c] = spot(S, 3), tw = build(S, c, 'altar'), o = SIM.towerStats(S, tw);
   assert.equal(o.auraR, 1); assert.ok(o.auraDmg > 0 && o.auraRate > 0);
   for (const [track, key] of [['dmg', 'auraDmg'], ['range', 'auraRange'], ['rate', 'auraRate']]) {

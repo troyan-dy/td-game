@@ -35,9 +35,9 @@ const duel = (seed, type, hp, perk) => withLimit(1, () => {
   return { S, tw, sk, e, st: SIM.towerStats(S, tw) };
 });
 
-test('Казарма строится данными: тип в конфиге и в порядке карточек, вид — перекрашенная баллиста', () => {
+test('Казарма строится данными: тип в конфиге и в порядке карточек, вид — свой (частокол со знаменем)', () => {
   assert.ok(C.TOWER_ORDER.includes('barracks'));
-  const A = SIM.art('barracks'); assert.equal(A.sprite, 'bones'); assert.ok(A.tint && A.tint[3] > 0, 'нет перекраски');
+  const A = SIM.art('barracks'); assert.equal(A.sprite, 'barracks'); assert.ok(!A.tint, 'Казарма — свой процедурный вид, не перекраска');
   assert.equal(Object.keys(B.perks).length, 3);
   const S = SIM.create(2), cell = freeCell(S); S.souls = B.base.cost;
   SIM.step(S, { cmds: [{ k: 'build', cell, type: 'barracks' }] });

@@ -107,6 +107,8 @@
     VIEW_TOP: 56,                  // выше этой линии (низ плашек HUD) башня не рисуется: высокие башни верхнего ряда ужимаются
 
     // Башни — данные; новый тип добавляется записью здесь (код ветвится по виду атаки, а не по имени типа).
+    //   name     — имя башни везде (карточка, панель, меню, открытия); title — полное имя (в подсказке); short — не используется
+    //   role     — что башня делает, одной короткой строкой (подсказка карточки, меню постройки, панель); tag — то же в 1–2 слова (карточка)
     //   base     — значения без прокачки: cost — постройка, dmg — урон за попадание (у облака — яд в секунду),
     //              rate — секунд между выстрелами, range — радиус в единицах UNIT
     //   tracks   — ветки dmg | range | rate: track(первая цена, k, also). Урон и радиус растут на k за ступень,
@@ -119,8 +121,10 @@
     //   art      — внешний вид (недостающее — из ART): sprite — чей набор спрайтов tw_<sprite>_<вид> брать, tint — перекраска
     //              [r, g, b, сила] на холсте, css — то же в DOM (CSS filter), color — цвет свечения и круга радиуса (линейный
     //              0..1), ui — цвет заглушки в DOM, fx — живые детали сцены (orbs | fumes | crown), sound — звук выстрела,
-    //              flip — поворачивать спрайт к цели. Новый тип — перекраска существующего: { sprite: 'dark', tint: [...] }
-    //   perks    — id (уникальны среди всех типов: гибрид хранит перки обоих типов) → { name, cost, desc (шаблон SIM.fill),
+    //              flip — поворачивать спрайт к цели. Новый тип — перекраска существующего ({ sprite: 'dark', tint: [...] })
+  //              или процедурный вид: sprite — имя рисунка в live/towerart.js (Колокол, Казарма, Алтарь)
+    //   perks    — id (уникальны среди всех типов: гибрид хранит перки обоих типов) → { name, cost, act — что делает, в 2–4 слова
+    //              (кнопка перка, шаблон SIM.fill), desc (шаблон SIM.fill),
     //              set | add | mul — что перк делает с характеристиками башни (ставит, прибавляет, умножает) }.
     //              Правило: характеристику, которая растёт от веток (dmg, range, rate и всё, что в also), перк меняет только
     //              через add или mul — set затёр бы рост от ступеней. set — для своих параметров перка (pen, bolts, …).
@@ -137,7 +141,7 @@
     //              Новый тип добавляется записью: его примесь — тоже запись.
     TOWERS: {
       bones: {
-        name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys', attack: 'bolt', muzzle: 58,
+        name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', role: 'урон по одной цели', tag: 'одна цель', dmgType: 'phys', attack: 'bolt', muzzle: 58,
         art: { sprite: 'bones', color: [0.90, 0.85, 0.72], ui: '#e6d9b8', sound: 'bones', flip: true },
         base: { cost: 100, dmg: 26, rate: 1.0, range: 3.6 },
         tracks: { dmg: track(45, 0.35), range: track(20, 0.08), rate: track(40, 0.12) },
@@ -145,13 +149,13 @@
         desc: 'Дальний одиночный выстрел. Дёшево, но броня рыцарей гасит почти половину урона.',
         mix: { name: 'Пронзание', icon: '➶', add: { pierceN: 1, pierceK: 0.7, pierceR: 1.2 }, desc: 'Удар проходит насквозь: ещё {pierceN} враг рядом с целью (до {pierceR кл}) получает {pierceK%} урона.' },
         perks: {
-          pierce: { name: 'Пронзающий болт', cost: 180, needs: 'bolt', set: { pierce: 4, pierceFalloff: 0.15 }, desc: 'Болт пробивает до {pierce} врагов по линии, −{pierceFalloff%} урона за каждого.' },
-          volley: { name: 'Залп', cost: 180, needs: 'bolt', set: { bolts: 3, boltMult: 0.4 }, desc: 'Болты по {bolts} разным целям за выстрел, каждый — {boltMult%} урона.' },
-          crush: { name: 'Бронебой', cost: 180, set: { pen: 0.5 }, desc: 'Болт не замечает {pen%} брони цели: рыцари и паладины гасят куда меньше урона.' },
+          pierce: { name: 'Пронзающий болт', cost: 180, act: 'пробивает {pierce}', needs: 'bolt', set: { pierce: 4, pierceFalloff: 0.15 }, desc: 'Болт пробивает до {pierce} врагов по линии, −{pierceFalloff%} урона за каждого.' },
+          volley: { name: 'Залп', cost: 180, act: '{bolts} цели разом', needs: 'bolt', set: { bolts: 3, boltMult: 0.4 }, desc: 'Болты по {bolts} разным целям за выстрел, каждый — {boltMult%} урона.' },
+          crush: { name: 'Бронебой', cost: 180, act: '−{pen%} брони цели', set: { pen: 0.5 }, desc: 'Болт не замечает {pen%} брони цели: рыцари и паладины гасят куда меньше урона.' },
         },
       },
       spirits: {
-        name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic', attack: 'ghost', muzzle: 70,
+        name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', role: 'замедляет врагов', tag: 'замедляет', dmgType: 'magic', attack: 'ghost', muzzle: 70,
         art: { sprite: 'spirits', color: [0.30, 0.95, 0.88], ui: '#6ff2e2', fx: 'orbs', sound: 'spirits' },
         base: { cost: 100, dmg: 14, rate: 0.8, range: 3.2 },
         tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(20, 0.08), rate: track(40, 0.12) },
@@ -160,13 +164,13 @@
         desc: 'Призраки замедляют врагов. Урон небольшой, зато соседние башни успевают больше.',
         mix: { name: 'Замедление', icon: '❄', add: { slow: 0.3, slowTime: 1.5 }, desc: 'Попадание замедляет врага на {slow%} на {slowTime} с (у Духов — сверх их замедления).' },
         perks: {
-          frost: { name: 'Ледяной ужас', cost: 180, set: { freezeChance: 0.15, freeze: 0.6 }, desc: 'Шанс {freezeChance%} сковать врага ужасом на {freeze} с.' },
-          pack: { name: 'Стая', cost: 180, needs: 'ghost', set: { bounces: 2, bounceMult: 0.8, bounceRange: 1.5 }, desc: 'Призрак перескакивает ещё на {bounces} цели, каждый раз с {bounceMult%} урона.' },
-          chill: { name: 'Могильный холод', cost: 180, add: { slow: 0.12 }, set: { slowTime: 3 }, desc: 'Замедление сильнее на {slow п} пунктов и держится {slowTime} с вместо {base:slowTime} с.' },
+          frost: { name: 'Ледяной ужас', cost: 180, act: '{freezeChance%} — сковать', set: { freezeChance: 0.15, freeze: 0.6 }, desc: 'Шанс {freezeChance%} сковать врага ужасом на {freeze} с.' },
+          pack: { name: 'Стая', cost: 180, act: 'скачет на +{bounces}', needs: 'ghost', set: { bounces: 2, bounceMult: 0.8, bounceRange: 1.5 }, desc: 'Призрак перескакивает ещё на {bounces} цели, каждый раз с {bounceMult%} урона.' },
+          chill: { name: 'Могильный холод', cost: 180, act: 'дольше и сильнее', add: { slow: 0.12 }, set: { slowTime: 3 }, desc: 'Замедление сильнее на {slow п} пунктов и держится {slowTime} с вместо {base:slowTime} с.' },
         },
       },
       plague: {
-        name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison', attack: 'blob', muzzle: 44,
+        name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', role: 'яд по площади, сквозь броню', tag: 'яд толпе', dmgType: 'poison', attack: 'blob', muzzle: 44,
         art: { sprite: 'plague', color: [0.45, 0.90, 0.25], ui: '#8be04e', fx: 'fumes', sound: 'plague' },
         base: { cost: 130, dmg: 8, rate: 2.2, range: 3.0 },
         tracks: { dmg: track(50, 0.35), range: track(20, 0.08), rate: track(45, 0.12) },
@@ -176,13 +180,13 @@
         desc: 'Ядовитое облако травит всех внутри. Яд не замечает брони.',
         mix: { name: 'Яд', icon: '☣', add: { venom: 0.45, venomTime: 3 }, desc: 'Попадание отравляет: {venom%} урона попадания в секунду, {venomTime} с, сквозь броню.' },
         perks: {
-          pestilence: { name: 'Мор', cost: 180, set: { pestR: 0.7, pestTime: 2 }, desc: 'Отравленный враг при смерти оставляет облако на {pestTime} с (без цепной реакции).' },
-          acid: { name: 'Кислота', cost: 180, set: { shred: 0.30, shredTime: 2 }, desc: 'Облако снижает броню врагов на {shred п} пунктов на {shredTime} с.' },
-          miasma: { name: 'Миазмы', cost: 180, needs: 'blob', mul: { cloudR: 1.4 }, add: { cloudTime: 1.5 }, desc: 'Облако на {cloudR+%} шире и висит на {cloudTime} с дольше.' },
+          pestilence: { name: 'Мор', cost: 180, act: 'облако из трупа', set: { pestR: 0.7, pestTime: 2 }, desc: 'Отравленный враг при смерти оставляет облако на {pestTime} с (без цепной реакции).' },
+          acid: { name: 'Кислота', cost: 180, act: '−{shred п} брони', set: { shred: 0.30, shredTime: 2 }, desc: 'Облако снижает броню врагов на {shred п} пунктов на {shredTime} с.' },
+          miasma: { name: 'Миазмы', cost: 180, act: 'облако шире', needs: 'blob', mul: { cloudR: 1.4 }, add: { cloudTime: 1.5 }, desc: 'Облако на {cloudR+%} шире и висит на {cloudTime} с дольше.' },
         },
       },
       dark: {
-        name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
+        name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', role: 'бьёт толстых: боссов, повозки', tag: 'по толстым', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
         art: { sprite: 'dark', color: [0.80, 0.38, 1.0], ui: '#c86bff', fx: 'crown', sound: 'dark' },
         base: { cost: 125, dmg: 30, rate: 1.2, range: 3.2 },
         tracks: { dmg: track(55, 0.35), range: track(25, 0.08), rate: track(50, 0.12) },
@@ -191,17 +195,16 @@
         desc: 'Луч бьёт самую живучую цель, пробивает защиту священников, вдвое сильнее по повозкам и боссам.',
         mix: { name: 'Пробой', icon: '✷', add: { pen: 0.45, mpen: 0.45 }, skip: ['poison'], desc: 'Удар не замечает {pen%} брони и {mpen%} магической защиты цели.' },
         perks: {
-          harvest: { name: 'Жатва', cost: 180, set: { harvest: 2 }, desc: '+{harvest} души за каждого врага, погибшего в радиусе.' },
-          curse: { name: 'Проклятие', cost: 180, set: { curse: 0.2, curseTime: 3 }, desc: 'Цель получает +{curse%} урона от всех башен {curseTime} с.' },
-          split: { name: 'Двойной луч', cost: 180, needs: 'beam', set: { split: 0.5 }, desc: 'Луч задевает и вторую по живучести цель в радиусе — {split%} урона.' },
+          harvest: { name: 'Жатва', cost: 180, act: '+{harvest} души с трупа', set: { harvest: 2 }, desc: '+{harvest} души за каждого врага, погибшего в радиусе.' },
+          curse: { name: 'Проклятие', cost: 180, act: '+{curse%} урона цели', set: { curse: 0.2, curseTime: 3 }, desc: 'Цель получает +{curse%} урона от всех башен {curseTime} с.' },
+          split: { name: 'Двойной луч', cost: 180, act: 'второй луч', needs: 'beam', set: { split: 0.5 }, desc: 'Луч задевает и вторую по живучести цель в радиусе — {split%} урона.' },
         },
       },
       // Колокол: удар по площади вокруг себя (вид атаки pulse). stun — оглушение, с (растёт с веткой урона); guard — сколько
       // очнувшийся враг невосприимчив к новому оглушению, с (иначе несколько колоколов держат врага вечно); боссы не оглушаются
       bell: {
-        name: 'КОЛОКОЛ', short: 'КОЛОКОЛ', title: 'Погребальный колокол', dmgType: 'phys', attack: 'pulse', muzzle: 70,
-        art: { sprite: 'dark', tint: [1.55, 1.12, 0.55, 0.9], css: 'sepia(0.85) saturate(1.7) hue-rotate(-12deg) brightness(1.05)',
-          color: [1.0, 0.74, 0.32], ui: '#e8a948', fx: 'crown', sound: 'bell' },
+        name: 'КОЛОКОЛ', short: 'КОЛОКОЛ', title: 'Погребальный колокол', role: 'оглушает вокруг — сам почти не убивает', tag: 'оглушает', dmgType: 'phys', attack: 'pulse', muzzle: 70,
+        art: { sprite: 'bell', color: [1.0, 0.74, 0.32], ui: '#e8a948', fx: 'crown', sound: 'bell' },   // звонница — код (live/towerart.js)
         base: { cost: 140, dmg: 12, rate: 2.0, range: 2.4 },
         tracks: { dmg: track(50, 0.35, { stun: 0.04 }), range: track(25, 0.08), rate: track(50, 0.12) },
         extra: { stun: 0.6, guard: 1.0 },
@@ -209,9 +212,9 @@
         desc: 'Бьёт разом всех врагов вокруг себя и ненадолго оглушает. Радиус малый — ставь у поворотов. Боссы не оглушаются.',
         mix: { name: 'Мини-оглушение', icon: '♫', add: { stunChance: 0.25, stunMini: 0.4 }, desc: 'Шанс {stunChance%} оглушить цель на {stunMini} с (кроме боссов).' },
         perks: {
-          toll: { name: 'Набат', cost: 180, needs: 'pulse', add: { stun: 0.5 }, desc: 'Оглушение держится на {stun} с дольше.' },
-          knell: { name: 'Погребальный звон', cost: 180, set: { curse: 0.2, curseTime: 2.5 }, desc: 'Все задетые, и боссы тоже, получают +{curse%} урона от всех башен {curseTime} с.' },
-          drone: { name: 'Гул', cost: 180, set: { drag: 0.35, dragTime: 2 }, desc: 'Очнувшийся враг ещё {dragTime} с замедлен на {drag%}; босс замедляется сразу.' },
+          toll: { name: 'Набат', cost: 180, act: 'оглушение +{stun} с', needs: 'pulse', add: { stun: 0.5 }, desc: 'Оглушение держится на {stun} с дольше.' },
+          knell: { name: 'Погребальный звон', cost: 180, act: '+{curse%} урона всем', set: { curse: 0.2, curseTime: 2.5 }, desc: 'Все задетые, и боссы тоже, получают +{curse%} урона от всех башен {curseTime} с.' },
+          drone: { name: 'Гул', cost: 180, act: 'замедляет после', set: { drag: 0.35, dragTime: 2 }, desc: 'Очнувшийся враг ещё {dragTime} с замедлен на {drag%}; босс замедляется сразу.' },
         },
       },
       // Казарма: не стреляет, а ставит скелетов (вид атаки summon) на ближайшую клетку дороги в радиусе. Ветки значат своё:
@@ -219,8 +222,8 @@
       //   extra: hp — HP скелета, limit — скелетов на башню сразу, hit — секунд между ударами скелета,
       //   reach — на каком расстоянии от себя скелет хватает врага, ед. Ближний урон врагов по скелету — melee в ENEMIES.
       barracks: {
-        name: 'КАЗАРМА', short: 'КАЗАРМА', title: 'Костяная казарма', dmgType: 'phys', attack: 'summon', muzzle: 40,
-        art: { sprite: 'bones', tint: [0.62, 0.80, 1.35, 0.65], css: 'sepia(1) hue-rotate(175deg) saturate(1.7) brightness(0.95)', color: [0.55, 0.72, 1.0], ui: '#8cb8ff', sound: null },
+        name: 'КАЗАРМА', short: 'КАЗАРМА', title: 'Костяная казарма', role: 'скелеты держат врагов на дороге', tag: 'держит', dmgType: 'phys', attack: 'summon', muzzle: 40,
+        art: { sprite: 'barracks', color: [0.55, 0.72, 1.0], ui: '#8cb8ff', sound: null },   // частокол со знаменем — код (live/towerart.js)
         base: { cost: 110, dmg: 18, rate: 7.5, range: 3.0 },
         tracks: { dmg: track(45, 0.25, { hp: 30 }), range: track(20, 0.10), rate: track(40, 0.20) },
         extra: { hp: 120, limit: 2, hit: 1.0, reach: 0.55 },
@@ -232,9 +235,9 @@
         mix: { name: 'Подъём мёртвых', icon: '☠', add: { raiseCd: 5, raiseMax: 3, raiseHp: 100, raiseDmg: 0.5, raiseHit: 1, raiseReach: 0.55 },
           desc: 'Убитый враг встаёт скелетом на {raiseHp} HP (удар — {raiseDmg%} урона гибрида): не чаще раза в {raiseCd} с, до {raiseMax} сразу.' },
         perks: {
-          legion: { name: 'Костяной легион', cost: 180, needs: 'summon', add: { limit: 1 }, desc: 'Скелетов в строю на {limit} больше.' },
-          grip: { name: 'Мёртвая хватка', cost: 180, set: { grip: 0.25 }, desc: 'Враг в хватке скелета получает +{grip%} урона от всех башен.' },
-          burst: { name: 'Костяной взрыв', cost: 180, set: { burst: 4, burstR: 1.2 }, desc: 'Погибший скелет взрывается: {burst}× его удара врагам в {burstR кл} вокруг.' },
+          legion: { name: 'Костяной легион', cost: 180, act: '+{limit} скелет', needs: 'summon', add: { limit: 1 }, desc: 'Скелетов в строю на {limit} больше.' },
+          grip: { name: 'Мёртвая хватка', cost: 180, act: 'хваченным +{grip%}', set: { grip: 0.25 }, desc: 'Враг в хватке скелета получает +{grip%} урона от всех башен.' },
+          burst: { name: 'Костяной взрыв', cost: 180, act: 'взрыв при гибели', set: { burst: 4, burstR: 1.2 }, desc: 'Погибший скелет взрывается: {burst}× его удара врагам в {burstR кл} вокруг.' },
         },
       },
     },
@@ -400,10 +403,10 @@
   // и чаще. Тип с аурой — тот, у кого в extra есть auraR (SIM.hasAura). Ветки — прибавки ауры, а не свои dmg/range/rate
   // (у тех k = 0): урон — auraDmg (доля к урону соседа), дальность — auraRange (единицы UNIT к радиусу соседа),
   // скорость — auraRate (интервал соседа делится на 1 + auraRate). Несколько алтарей не складываются: по каждой прибавке
-  // берётся сильнейший. Вид — перекрашенный Фонарь.
+  // берётся сильнейший. Вид — процедурный (live/towerart.js).
   C.TOWERS.altar = {
-    name: 'АЛТАРЬ', short: 'АЛТАРЬ', title: 'Алтарь крови', dmgType: 'aura', muzzle: 60,
-    art: { sprite: 'spirits', tint: [1.9, 0.32, 0.38, 0.85], css: 'sepia(1) saturate(4) hue-rotate(-40deg) brightness(0.9)', color: [1.0, 0.26, 0.30], ui: '#ff4d5e', fx: 'orbs' },
+    name: 'АЛТАРЬ', short: 'АЛТАРЬ', title: 'Алтарь крови', role: 'усиливает соседей — сам не стреляет', tag: 'усиливает', dmgType: 'aura', muzzle: 60,
+    art: { sprite: 'altar', color: [1.0, 0.26, 0.30], ui: '#ff4d5e' },   // плита, чаша с кровью и свечи — код (live/towerart.js)
     base: { cost: 120, dmg: 0, rate: 1, range: 0 },
     tracks: { dmg: track(50, 0, { auraDmg: 0.03 }), range: track(25, 0, { auraRange: 0.15 }), rate: track(45, 0, { auraRate: 0.03 }) },
     extra: { auraR: 1, auraDmg: 0.15, auraRate: 0.10, auraRange: 0 },
@@ -413,9 +416,9 @@
     // примесь: ослабленная аура (гибрид сам себя не усиливает); перки Алтаря на гибриде её усиливают
     mix: { name: 'Аура', icon: '♥', add: { auraR: 1, auraDmg: 0.12, auraRate: 0.08, auraRange: 0 }, desc: 'Ослабленная аура: башни на соседних клетках бьют на {auraDmg%} сильнее и на {auraRate%} чаще.' },
     perks: {
-      offering: { name: 'Кровавое подношение', cost: 180, add: { auraDmg: 0.12 }, desc: 'Урон соседних башен растёт ещё на {auraDmg п} пунктов.' },
-      frenzy: { name: 'Исступление', cost: 180, add: { auraRate: 0.12 }, desc: 'Соседние башни стреляют чаще ещё на {auraRate п} пунктов.' },
-      circle: { name: 'Кровавый круг', cost: 180, set: { auraR: 2 }, desc: 'Аура достаёт башни до {auraR} клеток вокруг алтаря, а не только соседей.' },
+      offering: { name: 'Кровавое подношение', cost: 180, act: 'соседи: урон +{auraDmg п}%', add: { auraDmg: 0.12 }, desc: 'Урон соседних башен растёт ещё на {auraDmg п} пунктов.' },
+      frenzy: { name: 'Исступление', cost: 180, act: 'соседи: темп +{auraRate п}%', add: { auraRate: 0.12 }, desc: 'Соседние башни стреляют чаще ещё на {auraRate п} пунктов.' },
+      circle: { name: 'Кровавый круг', cost: 180, act: 'аура на {auraR} кл.', set: { auraR: 2 }, desc: 'Аура достаёт башни до {auraR} клеток вокруг алтаря, а не только соседей.' },
     },
   };
   C.TOWER_ORDER.push('altar');

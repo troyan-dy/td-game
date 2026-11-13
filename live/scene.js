@@ -8,7 +8,7 @@
   const SZ = (n, def) => (window.SIZES && window.SIZES[n]) || def;
   S.REPEAT = [];
   S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones', move: -1, merge: -1, mergeTo: -1 };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток; move — клетка переносимой башни (-1 — не переносим); merge/mergeTo — первая башня слияния и выбранный сосед
-  S.programs = () => { L.init(W, H); L.glyphs(); L.SUN = [W * 0.15, -300]; };
+  S.programs = () => { L.init(W, H); L.glyphs(); L.SUN = [W * 0.15, -300]; if (window.TOWERART) TOWERART.install(); };   // процедурный вид новых башен — как обычный арт
   S.LIGHTS = [];
   // фон перестраивается, когда в кадре другая карта (новый забег, титульное демо)
   let bgKey = '';
@@ -50,12 +50,19 @@
   // Метки ступеней рисуются отдельным проходом поверх всех башен (иначе башни нижнего ряда закрывают метки верхнего):
   // у каждой башни по одной полосе на ветку (длина — доля от потолка), у выбранной и наведённой — подробные ступени с пустыми.
   let MARKS = [], HYB = [];
-  // значки примеси над гибридами: тёмная плашка с рамкой цвета примеси и символ (чёткий, после грейда)
-  const drawHybridIcons = () => { for (const [x, y, icon, col, ui, id] of HYB) {
-      L.solid(x - 12, y - 12, 24, 24, [0.05, 0.03, 0.09], 0, 0, 0, 0.9);
-      L.solid(x - 12, y - 12, 24, 2, col); L.solid(x - 12, y + 10, 24, 2, col); L.solid(x - 12, y - 10, 2, 20, col); L.solid(x + 10, y - 10, 2, 20, col);
-      L.label('mix' + id, icon, x, y, { size: 15, col: ui, out: '#14081a', al: 0.5 }); }
+  // значки примеси над гибридами: крупная тёмная плашка с двойной рамкой (цвет первой башни снаружи, примеси внутри) и символ
+  // примеси (чёткий, после грейда) — гибрид виден на поле без приглядывания
+  const drawHybridIcons = () => { for (const [x, y, icon, col, ui, id, own] of HYB) { const R = 17, b = 3;
+      L.solid(x - R - 2, y - R - 2, 2 * R + 4, 2 * R + 4, [0.04, 0.02, 0.07], 0, 0, 0, 0.95);
+      for (const [c, o] of [[own, 0], [col, b]]) { const r = R - o;
+        L.solid(x - r, y - r, 2 * r, b, c); L.solid(x - r, y + r - b, 2 * r, b, c); L.solid(x - r, y - r + b, b, 2 * r - 2 * b, c); L.solid(x + r - b, y - r + b, b, 2 * r - 2 * b, c); }
+      L.label('mix' + id, icon, x, y, { size: 22, col: ui, out: '#14081a', al: 0.5 }); }
     HYB = []; };
+  // подставка гибрида: плита в два цвета — слева цвет первой башни, справа примеси (рисуется под спрайтом)
+  const hybridPlinth = (x, y, own, mix, t) => { const w = 64, hh = 12, y0 = y - 3, p = 0.85 + 0.15 * Math.sin(t * 2.2);
+    L.solid(x - w / 2 - 2, y0 - 2, w + 4, hh + 4, [0.05, 0.03, 0.09], 0, 0, 0, 0.9);
+    L.solid(x - w / 2, y0, w / 2, hh, own.map((v) => v * 0.75), 0, 0, 0, 0.95); L.solid(x, y0, w / 2, hh, mix.map((v) => v * 0.75), 0, 0, 0, 0.95);
+    L.solid(x - w / 2, y0, w / 2, 3, own, 0, 0, 0, p); L.solid(x, y0, w / 2, 3, mix, 0, 0, 0, p); L.solid(x - 1, y0, 2, hh, [0.05, 0.03, 0.09], 0, 0, 0, 0.9); };
   const drawMarks = () => {
     for (const [tw, x, y, sel] of MARKS) C.TRACKS.forEach((k, r) => { const got = tw.tracks[k], yy = y + 15 + r * 5;
       if (sel) { const w = Math.min(7, Math.floor(56 / tw.cap)), x0 = x - (tw.cap * w - 2) / 2;
@@ -78,6 +85,7 @@
       w *= fit < 1 ? fit * (1 + 0.14 * (lk - 1)) : 1;
     }
     L.shadow(x, y + 4, 40, 13, 0.55);
+    if (A.hybrid) { hybridPlinth(x, y + 8, A.own, A.mixColor, t); L.glow(x, y - h * 0.4, 52 + 8 * lk, A.mixColor, 0.34, 3.2); }   // гибрид: плита в два цвета и постоянное свечение
     if (lk > 1) L.glow(x, y - h * 0.3, 26 + 10 * lk, col, (fit < 1 ? 0.16 : 0.08) * (lk - 1), 3.2);              // вид 2–3: свечение основания
     if (sel) L.glow(x, y - h * 0.45, h * 0.7, col, 0.30, 3.2);
     if (has(n)) {
@@ -85,7 +93,15 @@
       // перекраска типа (A.tint) и отблеск 3-го вида складываются в один оттенок
       const glint = lk === 3 ? (fit < 1 ? 0.22 : 0.1) : 0, base = A.tint || [1, 1, 1, 0];
       const tint = glint ? [base[3] ? base[0] : col[0] * 1.3, base[3] ? base[1] : col[1] * 1.3, base[3] ? base[2] : col[2] * 1.3, Math.max(base[3], glint)] : base;
-      L.sprite(n, 0, 0, { m: M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick))), w, h, pivot: [w / 2, h], u: { tint } });
+      const bm = M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick)));
+      L.sprite(n, 0, 0, { m: bm, w, h, pivot: [w / 2, h], u: { tint } });
+      // процедурный вид (live/towerart.js): части поверх кадра (колокол качается от удара и чуть — сам), огни свечей
+      const code = window.TOWERART && TOWERART.get(n);
+      if (code) { const f = w / code.W, swing = Math.exp(-3 * (GT - tw.fireT)) * 0.32 * Math.sin((GT - tw.fireT) * 13) + 0.03 * Math.sin(t * 1.6 + tw.cell);
+        for (const q of code.parts) L.sprite(q.tex, 0, 0, { m: M.of(bm, M.t((q.at[0] - code.W / 2) * f, (q.at[1] - code.H) * f), M.r(swing)),
+          w: q.cv.width / TOWERART.P * f, h: q.cv.height / TOWERART.P * f, pivot: [q.pivot[0] * f, q.pivot[1] * f], u: { tint } });
+        for (const [lx, ly] of code.lights) { const gx = x + (lx - code.W / 2) * f, gy = y + 10 - (code.H - ly) * f;
+          if (inBand(gy)) L.glow(gx, gy, 12, [1, 0.62, 0.25], 0.5 + 0.2 * Math.sin(t * 9 + lx + tw.cell) * Math.sin(t * 5.3 + ly)); } }
     } else placeholderTower(tw, A, x, y, h * pop, kick, t, lk);
     // живые детали поверх спрайта (в полосе HUD не рисуются)
     if (A.fx === 'orbs') for (let i = 0; i < 1 + lk; i++) { const a = t * 1.3 + i * 6.283 / (1 + lk), r = 24 + 4 * lk;
@@ -98,8 +114,8 @@
     if (SIM.perksOf(tw).length) L.glow(x, y - 8, 30, col, 0.25 + 0.1 * Math.sin(t * 3));
     // гибрид: пульсирующее свечение и кольцо цвета примеси у основания, значок примеси над башней (рисуется после грейда)
     if (A.hybrid) { const p = 0.5 + 0.5 * Math.sin(t * 2.6 + tw.cell);
-      L.glow(x, y - h * 0.45, 46 + 8 * lk, A.mixColor, 0.22 + 0.14 * p, 3.2); L.ring(x, y + 2, 40, 18, A.mixColor, 0.35 + 0.25 * p, 0.12);
-      HYB.push([x + 22, Math.max(C.VIEW_TOP + 16, y + 10 - h + 6), A.icon, A.mixColor, A.mixUi, tw.id]); }
+      L.glow(x, y - h * 0.45, 46 + 8 * lk, A.mixColor, 0.16 + 0.1 * p, 3.2);
+      HYB.push([x + 24, Math.max(C.VIEW_TOP + 22, y + 10 - h + 10), A.icon, A.mixColor, A.mixUi, tw.id, A.own]); }
     MARKS.push([tw, x, y, sel]);
     const [mx, my] = SIM.muzzle(ST, tw), off = SIM.muzzleH(tw), fitH = Math.min(1, room / (off + 10));
     L.anchor('muzzle_' + tw.type, [mx, my], [x, y + 10 - (off + 10) * fitH], 2);
@@ -164,14 +180,17 @@
   };
 
   // ---------------------------------------------------------------- скелеты Казармы
-  // перекрашенный риг ополченца (бледный, с бирюзовыми глазами): поднимается из земли, в бою переминается и на каждом
-  // ударе делает выпад к врагу; над схваткой — скрещённые кости (враг задержан)
-  const SKEL_TINT = [1.25, 1.55, 2.0, 0.85], SKEL_H = 31;
+  // перекрашенный риг ополченца — свой с первого взгляда: почти белая кость, бирюзовые горящие глаза, бирюзовое кольцо «свой»
+  // под ногами (как у выделенного юнита) и полоска здоровья только у раненого. Поднимается из земли, в бою переминается и
+  // на каждом ударе делает выпад к врагу; над схваткой — скрещённые кости (враг задержан)
+  const SKEL_TINT = [1.7, 1.95, 2.1, 0.92], SKEL_H = 31, ALLY = [0.35, 1.0, 0.92];
   const drawSkel = (ST, s, GT, t) => {
     const rise = Math.min(1, Math.max(0, GT - s.born) / 0.35), h = SKEL_H * (0.35 + 0.65 * rise), fight = s.foe > 0;
     const lunge = Math.max(0, 1 - (GT - s.hitT) / 0.22), x = Math.round(s.x + s.face * 8 * lunge), y = Math.round(s.y);
     L.shadow(x, y + 2, h * 0.45, h * 0.16, 0.5);
-    L.glow(x, y - 2, 20, COL.soul, 0.14 + (fight ? 0.08 : 0));
+    const rp = 0.75 + 0.25 * Math.sin(t * 3 + s.id);                                                  // кольцо «свой» (L.ring лежит на 0.85 квада)
+    L.ring(Math.round(s.x), y + 2, 17 / 0.85, 17 * 0.42 / 0.85, ALLY, 0.75 * rp * rise, 0.16);
+    L.glow(x, y - 2, 22, COL.soul, 0.18 + (fight ? 0.08 : 0));
     const rig = window.RIGS && window.RIGS.militia, k = rig ? h / rig.H : 1, rph = fight ? GT * 9 + s.id : 0;
     if (rig && rig.parts.every((p) => has(p.tex))) {
       for (const p of rig.parts) {
@@ -181,7 +200,7 @@
         L.sprite(p.tex, 0, 0, { m: M.of(M.t(x, y + 1), M.s(s.face, 1), M.t(p.at[0] * k, p.at[1] * k), M.r(a)), w, h: hh, pivot: [p.jt[0] * sc, p.jt[1] * sc], u: { tint: tn, alpha: 0.6 + 0.4 * rise } });
       }
     } else { const w = h * 0.45; L.solid(x - w / 2, y - h, w, h * 0.75, COL.bone); L.solid(x - w * 0.3, y - h * 1.1, w * 0.6, h * 0.3, [0.95, 0.93, 0.85]); }
-    L.glow(x + s.face * 3, y - h * 0.86, 8, COL.soul, 0.75);                                   // глаза-души
+    L.glow(x + s.face * 3, y - h * 0.86, 13, COL.soul, 0.9); L.star(x + s.face * 2, y - h * 0.86, 4, [0.8, 1, 1], 0.95);   // горящие глаза-души
     if (fight) { const e = ST.enemies.find((o) => o.id === s.foe); if (e) {
       const mx = (x + e.x) / 2, my = Math.min(y - h - 14, e.y - (EH[e.type] || SKEL_H) - 24) /* над полоской HP врага */, pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
       L.glow(mx, my, 16, [1, 0.9, 0.7], 0.25 * pulse);
@@ -432,9 +451,9 @@
       // оглушение (Колокол): три звезды кружат над полоской, пока враг стоит (после грейда — чёткие, не тонут в полоске)
       if (e.stunT > 0) for (let j = 0; j < 3; j++) { const an = t * 6 + j * 2.094 + e.id;
         L.star(e.x + Math.cos(an) * (w / 2 + 2), y - 9 + Math.sin(an) * 4, 10, COL.stun, 1); } }
-    // полоски HP скелетов — бирюзовые, тоньше вражеских
-    for (const s of ST.skels || []) { const k = Math.max(0, s.hp / s.max), x = Math.round(s.x - 10), y = Math.round(s.y - SKEL_H - 9);
-      L.solid(x - 1, y - 1, 22, 5, [0.05, 0.03, 0.08]); L.solid(x, y, 20, 3, [0.12, 0.2, 0.3]); L.solid(x, y, Math.round(20 * k), 3, COL.soul); }
+    // полоски HP скелетов — бирюзовые, тоньше вражеских и только у раненых (у врагов полоска красно-зелёная)
+    for (const s of ST.skels || []) { const k = Math.max(0, s.hp / s.max); if (k >= 0.999) continue; const x = Math.round(s.x - 10), y = Math.round(s.y - SKEL_H - 9);
+      L.solid(x - 1, y - 1, 22, 4, [0.05, 0.03, 0.08]); L.solid(x, y, 20, 2, [0.12, 0.2, 0.3]); L.solid(x, y, Math.round(20 * k), 2, COL.soul); }
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
