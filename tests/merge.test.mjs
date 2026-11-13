@@ -298,3 +298,32 @@ test('сейв с гибридом годен и продолжается так
   for (let i = 0; i < 5 / S.dt; i++) { SIM.step(S, null); SIM.step(J, null); }
   assert.deepEqual(json(J), json(S));
 });
+
+test('примесь Казармы — скелет на месте убитого врага, с кулдауном и пределом поднятых', () => {
+  const { S, a, tw } = hybrid(18, 'dark', 'barracks'), st = SIM.towerStats(S, tw), add = T.barracks.mix.add;
+  near(st.raiseCd, add.raiseCd, 'кулдаун в характеристиках');
+  const es = dummies(S, a, 'militia', [st.rangePx * 0.5, st.rangePx * 0.5, st.rangePx * 0.5]); for (const e of es) e.hp = 1;
+  fires(S, tw, 1, 0);
+  const raised = () => S.skels.filter((s) => s.tw === tw.id && s.raised);
+  assert.equal(raised().length, 1, 'убитый враг не встал скелетом');
+  const s = raised()[0], dead = es.find((e) => e.dead); assert.ok(dead, 'враг не убит');
+  near(s.x, dead.x, 'скелет на месте врага'); near(s.max, add.raiseHp, 'HP скелета'); near(s.dmg, st.dmg * add.raiseDmg, 'удар скелета');
+  assert.ok(S.map.road.includes(s.cell));
+  fires(S, tw, 1, 0); assert.equal(raised().length, 1, 'второй скелет раньше кулдауна');
+  assert.equal(SIM.loadable(json(S)), true, 'сейв с поднятым скелетом');
+});
+
+test('Казарма первой: скелеты гибрида бьют с примесью второй и остаются при слиянии; Казарма второй — её скелеты рассыпаются', () => {
+  const S = SIM.create(19), [a, b] = pairSpot(S); maxed(S, a, 'barracks'); maxed(S, b, 'barracks');
+  SIM.step(S, { cmds: [{ k: 'call' }] }); for (let i = 0; i < 20 / S.dt && !(S.skels.some((s) => s.tw === S.towers[a].id) && S.skels.some((s) => s.tw === S.towers[b].id)); i++) SIM.step(S, null);
+  const A = S.towers[a], B = S.towers[b]; assert.ok(S.skels.some((s) => s.tw === A.id) && S.skels.some((s) => s.tw === B.id), 'Казармы не призвали скелетов');
+  S.phase = 'prep'; S.enemies = []; S.queue = []; S.qi = 0; S.prepT = 10;
+  SIM.step(S, { cmds: [{ k: 'merge', cell: a, other: b }] }); assert.equal(S.towers[a].mix, 'barracks');
+  assert.ok(S.skels.some((s) => s.tw === A.id), 'скелеты первой рассыпались'); assert.ok(!S.skels.some((s) => s.tw === B.id), 'скелеты второй остались');
+  // Казарма с примесью Духов: удар скелета замедляет
+  const H = hybrid(19, 'barracks', 'spirits'), sc = SIM.skelCells(H.S, H.tw)[0], [hx, hy] = SIM.cellXY(H.S, H.a), [sx, sy] = SIM.cellXY(H.S, sc);
+  const [e] = dummies(H.S, H.a, 'militia', [Math.hypot(sx - hx, sy - hy)]);
+  for (let i = 0; i < 20 / H.S.dt && !(e.slowT > 0); i++) SIM.step(H.S, null);
+  assert.ok(e.slowT > 0 && hurt(e) > 0, 'скелет гибрида не замедлил врага'); near(e.slowK, T.spirits.mix.add.slow, 'замедление от скелета');
+  assert.equal(SIM.perkOn(H.tw, 'legion'), true); const Q = hybrid(19, 'bones', 'barracks', null, 'legion'); assert.equal(SIM.perkOn(Q.tw, 'legion'), false);
+});

@@ -25,10 +25,13 @@ export async function bots() {
 export const PAGE = '/live/index.html';
 export const VIEWPORTS = [{ width: 1280, height: 720 }, { width: 1920, height: 1080 }];
 
-// Свежая страница: пустые localStorage и sessionStorage, игра загрузилась.
+// Профиль открытий «открыто всё» (live/meta.js): экраны строят любые башни, как до открытий. Новый профиль — в 88-meta.mjs.
+export const PROFILE_KEY = 'necropolis.profile';
+export const ALL_OPEN = { v: 1, best: 0, wins: 0, fastest: null, runs: 0, totals: {}, done: [], unlocked: [], all: true };
+// Свежая страница: пустые localStorage и sessionStorage (кроме профиля «открыто всё»), игра загрузилась.
 export async function open(ctx) {
   await ctx.goto(ctx.pagePath);
-  await ctx.eval(() => { localStorage.clear(); sessionStorage.clear(); });
+  await ctx.eval(([k, p]) => { localStorage.clear(); sessionStorage.clear(); localStorage.setItem(k, JSON.stringify(p)); }, [PROFILE_KEY, ALL_OPEN]);
   await ctx.page.reload();
   await ctx.page.waitForFunction(() => window.__ready && window.UI && window.APP, null, { timeout: 60000 });
 }

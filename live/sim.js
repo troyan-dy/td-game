@@ -11,6 +11,7 @@
 // в бесконечном режиме (S.endless): волны идут дальше без предела (SIM.lastWave), забег кончается только поражением.
 // Реликвии (C.RELICS): после волн, где положена реликвия (relicDue), забег в фазе 'relic' стоит, пока не выбрана реликвия
 // {k:'relic',i} — номер в предложении S.offer (SIM.relicOffer); взятые — S.relics (SIM.relicsOf). Взята ли — только hasRelic.
+// Скелеты Казармы — S.skels (раздел «скелеты»): держат врагов на дороге; без своей башни рассыпаются.
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
   const MAPGEN = (typeof window !== 'undefined' && window.MAPGEN) || require('./mapgen.js');
@@ -87,7 +88,7 @@
   // perks — взятые перки (id), slots — сколько перков башня может держать (обычная — C.PERK_SLOTS, гибрид — C.MERGE.slots);
   // mix — тип второй башни у гибрида (её примесь), у обычной башни null: гибрид — башня с mix, повторно не сливается;
   // после постройки ещё id, invested (всё вложенное: постройка, ступени, перки, у гибрида — обе башни и слияние), kills,
-  // dmg (нанесённый урон) и служебные cd, fireT, aim, built. Перки читаются только через hasPerk / freeSlots / perksOf.
+  // dmg (нанесённый урон) и служебные cd, fireT, aim, built, raiseT (когда гибрид с примесью Казармы последний раз поднял скелета). Перки читаются только через hasPerk / freeSlots / perksOf.
   const fresh = (cell, type) => ({ cell, type, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, 0])), cap: C.TRACK_MAX, perks: [], slots: C.PERK_SLOTS, mix: null });
   const steps = (tw) => C.TRACKS.reduce((n, k) => n + tw.tracks[k], 0);
   const look = (tw) => 1 + C.LOOK_AT.filter((n) => steps(tw) >= n).length;
@@ -236,8 +237,9 @@
       v: C.VERSION, seed, dt: opts.dt || C.DT, unlocked: opts.unlocked || null, map,
       t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
-      towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
+      towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1, skels: [],
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0, merges: 0 }, seen: {}, waveStats: null,
+      wonStats: null,                                                       // счётчики на момент победы (время победы — для рекордов)
       relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
       grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
     };
@@ -430,11 +432,12 @@
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
+    const skel = makeSkel(S, towers[Object.keys(TW)[0]], S.map.road[0], { hp: 1, dmg: 1, hit: 1, reach: 1 }, 0);
     // образец, который не создался, молча отключил бы проверку формы своего типа: это ошибка разработки, падаем громко
     for (const [what, all] of [['башни', towers], ['врага', enemies]]) for (const type in all)
       if (kind(all[type]) !== 'object' || all[type].type !== type) throw new Error(`SIM.loadable: не создался образец ${what} ${type}`);
     // мелочь боя, у которой нет одного создателя: только поля, без которых шаг или кадр споткнутся
-    return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, tw: 0, pest: null },
+    return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, skel, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, tw: 0, pest: null },
       shot: { k: '', x: 0, y: 0 }, cloud: { x: 0, y: 0, r: 0, t: 0, T: 0, dps: 0, linger: 0 }, beam: { x0: 0, y0: 0, x1: 0, y1: 0, t: 0 }, ev: { k: '', t: 0 } })));
   };
   // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
@@ -493,6 +496,7 @@
         if (kind(e) !== 'object' || !own(EN, e.type) || !like(e, sh.enemies[e.type], S.dt) || !freshId(e.id)) return false;
         for (const k in e.poison) if (!like(e.poison[k], sh.poison, S.dt)) return false; }
       for (const q of S.queue) if (!like(q, sh.queue, 0) || !own(EN, q.e)) return false;
+      for (const s of S.skels) if (!like(s, sh.skel, S.dt) || !freshId(s.id) || !S.map.road.includes(s.cell)) return false;   // скелет — на клетке дороги
       const loose = (list, t) => list.every((x) => like(x, t, Infinity));     // координаты снарядов и лучей бывают за краем поля
       if (!loose(S.shots, sh.shot) || !loose(S.clouds, sh.cloud) || !loose(S.beams, sh.beam)) return false;
       if (!S.ev.every((e) => like(e, sh.ev, Infinity) && ['x', 'y'].every((k) => e[k] === undefined || num(e[k], 0, Infinity, k)))) return false;
@@ -537,7 +541,7 @@
       const cb = canBuild(S, c.cell, c.type); if (!cb.ok) return;
       const [x, y] = cellXY(S, c.cell);
       pay(S, cb.cost);
-      S.towers[c.cell] = Object.assign(fresh(c.cell, c.type), { id: S.nid++, cd: 0.4, invested: cb.cost, kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t });
+      S.towers[c.cell] = Object.assign(fresh(c.cell, c.type), { id: S.nid++, cd: 0.4, invested: cb.cost, kills: 0, dmg: 0, fireT: -9, aim: 0, built: S.t, raiseT: -9 });
       ev(S, 'build', { cell: c.cell, type: c.type, x, y });
     } else if (c.k === 'upgrade') {                                   // { k: 'upgrade', cell, track: 'dmg' | 'range' | 'rate' }
       const cu = canUpgrade(S, c.cell, c.track); if (!cu.ok) return;
@@ -548,16 +552,17 @@
       pay(S, cp.cost); tw.perks.push(c.p); tw.invested += cp.cost; tw.built = S.t;
       ev(S, 'perk', { cell: c.cell, p: c.p, x: at[0], y: at[1] });
     } else if (c.k === 'sell') {
-      if (!tw) return; const v = sellValue(tw, S); S.souls += v; S.towers[c.cell] = null;
+      if (!tw) return; const v = sellValue(tw, S); S.souls += v; S.towers[c.cell] = null; dismiss(S, tw);
       ev(S, 'sell', { cell: c.cell, souls: v, type: tw.type, x: at[0], y: at[1] });
     } else if (c.k === 'move') {
       // башня переезжает целиком, тем же объектом: меняется только клетка, всё остальное (прокачка, перк, счётчики) едет с ней
       if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
-      S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave;
+      S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave; dismiss(S, tw);   // скелеты у старой клетки рассыпаются
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'merge') {                                     // { k: 'merge', cell, other } — other становится примесью башни на cell
       if (!canMerge(S, c.cell, c.other).ok) return; const o = S.towers[c.other], [fx, fy] = cellXY(S, c.other);
       pay(S, C.MERGE.cost); Object.assign(tw, hybridOf(tw, o), { built: S.t }); S.towers[c.other] = null; S.stats.merges++;
+      dismiss(S, o);                                                  // скелеты второй башни (Казармы) рассыпаются, первой — остаются при гибриде
       ev(S, 'merge', { cell: c.cell, other: c.other, type: tw.type, mix: tw.mix, x: at[0], y: at[1], fx, fy });
     } else if (c.k === 'grim') {                                      // { k: 'grim', line } — ступень линии Гримуара
       const cg = canGrim(S, c.line); if (!cg.ok) return;
@@ -632,6 +637,7 @@
     for (const key in e.poison) { const p = e.poison[key];
       if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, linger: p.pest.linger, tw: p.tw, pest: null, fx: null, hit: [] });
         ev(S, 'cloud', { x: e.x, y: e.y, small: true }); break; } }
+    if (tw) raise(S, e, tw);                                           // примесь Казармы: убитый встаёт скелетом гибрида
     if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i), true); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
   };
 
@@ -741,6 +747,7 @@
       ev(S, 'pulse', { x, y, r: st.rangePx, cell: tw.cell, type: tw.type });
       return true;
     } },
+    summon: { idle: true, run: (S, tw, st) => summon(S, tw, st) },        // Казарма: скелет на дорогу (раздел «скелеты»)
   };
   const attackOf = (tw) => { const a = TW[tw.type].attack; return own(ATTACKS, a) ? ATTACKS[a] : null; };
   // выстрел (или действие без целей): итоговые характеристики, если сработал (по ним перезарядка), иначе null
@@ -808,6 +815,70 @@
     S.shots = keep;
   };
 
+  // ---------------------------------------------------------------- скелеты Казармы
+  // Скелет — сущность состояния S.skels: { id, tw (id башни), cell (клетка дороги), x, y, hp, max, dmg, hit (с между ударами),
+  //   cd (до удара), reach (px), foe (id удерживаемого врага, 0 — свободен), face, born, hitT, grip, burst, burstR (px) }.
+  // Числа — из итоговых характеристик башни в момент призыва (как у снаряда). Свободный скелет хватает ближайшего врага в reach,
+  // которого не держит другой скелет; враг с unstoppable (босс) не хватается. Удержанный враг стоит и бьёт скелета
+  // с силой melee своего типа в секунду; скелет бьёт его раз в hit с. Погибший скелет сдвигает призыв своей башни на её интервал.
+  // Без своей башни скелет рассыпается (продажа, перенос, башня убрана из состояния).
+  // клетки дороги в радиусе башни, от ближней к дальней (куда Казарма ставит скелетов; подсветка в сцене)
+  const skelCells = (S, tw, st) => { const [x, y] = cellXY(S, tw.cell), r = (st || towerStats(S, tw)).rangePx, out = [];
+    for (const c of S.map.road) { const [cx, cy] = cellXY(S, c), d = Math.hypot(cx - x, cy - y); if (d <= r) out.push([c, d]); }
+    return out.sort((a, b) => a[1] - b[1] || a[0] - b[0]).map((c) => c[0]); };
+  const SKEL_FX = { kind: 'phys' };
+  // примесь Казармы: враг e, убитый гибридом tw, встаёт его скелетом на ближайшей клетке дороги — не чаще раза в raiseCd с и не
+  // больше raiseMax поднятых сразу (числа из итоговых характеристик гибрида)
+  const raise = (S, e, tw) => {
+    if (!isHybrid(tw) || !TW[tw.mix].mix.add.raiseCd) return; const st = towerStats(S, tw);
+    if (!(st.raiseCd > 0) || S.t - tw.raiseT < st.raiseCd || S.skels.filter((s) => s.tw === tw.id && s.raised).length >= st.raiseMax) return;
+    let cell = S.map.road[0], bd = Infinity; for (const c of S.map.road) { const [x, y] = cellXY(S, c), d = Math.hypot(x - e.x, y - e.y); if (d < bd) { bd = d; cell = c; } }
+    const s = makeSkel(S, tw, cell, Object.assign({}, st, { hp: st.raiseHp, dmg: st.dmg * st.raiseDmg, hit: st.raiseHit, reach: st.raiseReach }), 0);
+    s.x = e.x; s.y = e.y; s.raised = true; S.skels.push(s); tw.raiseT = S.t;
+    ev(S, 'summon', { x: s.x, y: s.y, cell: tw.cell, raised: true }); };
+  // новый скелет башни tw на клетке дороги cell; n — сколько её скелетов уже на этой клетке (сдвиг вбок, чтобы не слипались)
+  const makeSkel = (S, tw, cell, st, n) => { const [x, y] = cellXY(S, cell), off = n ? (n % 2 ? 1 : -1) * 14 * Math.ceil(n / 2) : 0;
+    return { id: S.nid++, tw: tw.id, cell, x: x + off, y: y + Math.abs(off) * 0.3, hp: st.hp, max: st.hp, dmg: st.dmg, hit: st.hit, cd: 0, reach: st.reach * UNIT,
+      foe: 0, face: 1, born: S.t, hitT: -9, grip: st.grip || 0, burst: (st.burst || 0) * st.dmg, burstR: (st.burstR || 0) * UNIT, fx: fxOf(tw, st) }; };
+  // призыв: до лимита; клетка — ближайшая из тех, где своих скелетов меньше всего. Сработал ли (перезарядка — по нему)
+  const summon = (S, tw, st) => {
+    const mine = S.skels.filter((s) => s.tw === tw.id); if (mine.length >= st.limit) return false;
+    const cells = skelCells(S, tw, st); if (!cells.length) return false;
+    const on = (c) => mine.filter((s) => s.cell === c).length, cell = cells.reduce((b, c) => (on(c) < on(b) ? c : b), cells[0]);
+    const s = makeSkel(S, tw, cell, st, on(cell)); S.skels.push(s);
+    ev(S, 'summon', { x: s.x, y: s.y, cell: tw.cell });
+    return true; };
+  // скелеты башни рассыпаются (продажа, перенос)
+  const dismiss = (S, tw) => { S.skels = S.skels.filter((s) => { if (s.tw !== tw.id) return true; ev(S, 'skelDie', { x: s.x, y: s.y }); return false; }); };
+  // шаг скелетов — до движения врагов. Возвращает id удержанных врагов: в этом шаге они стоят
+  const stepSkels = (S) => {
+    const held = new Set(); if (!S.skels.length) return held;
+    const DT = S.dt, keep = [];
+    S.skels = S.skels.filter((s) => towerOf(S, s.tw));
+    for (const s of S.skels) { const e = s.foe ? findEnemy(S, s.foe) : null;
+      if (e && !e.dead && !held.has(e.id)) held.add(e.id); else s.foe = 0; }
+    for (const s of S.skels) if (!s.foe) { let best = null, bd = s.reach;
+      for (const e of S.enemies) if (!e.dead && !held.has(e.id) && !EN[e.type].unstoppable) { const d = Math.hypot(e.x - s.x, e.y - s.y); if (d <= bd) { bd = d; best = e; } }
+      if (best) { s.foe = best.id; held.add(best.id); } }
+    for (const s of S.skels) {
+      if (s.cd > 0) s.cd -= DT;
+      const e = s.foe ? findEnemy(S, s.foe) : null; if (!e) continue;
+      s.face = e.x >= s.x ? 1 : -1;
+      if (s.grip) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, s.grip); e.curseT = Math.max(e.curseT, 0.25); }   // Мёртвая хватка
+      if (s.cd <= 0) { s.cd = s.hit; s.hitT = S.t; strike(S, e, s.dmg, s.fx || SKEL_FX, towerOf(S, s.tw), s.tw);   // удар — с эффектами башни (примесь гибрида) ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'skel' });
+        if (e.dead) { s.foe = 0; continue; } }
+      s.hp -= (EN[e.type].melee === undefined ? C.MELEE : EN[e.type].melee) * DT;
+    }
+    for (const s of S.skels) { if (s.hp > 0) { keep.push(s); continue; }
+      const tw = towerOf(S, s.tw); ev(S, 'skelDie', { x: s.x, y: s.y });
+      if (s.burst) { for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - s.x, e.y - s.y) <= s.burstR) damage(S, e, s.burst, 'phys', tw);   // Костяной взрыв
+        ev(S, 'burst', { x: s.x, y: s.y, r: s.burstR }); }
+      if (s.foe) held.delete(s.foe);
+      if (tw) tw.cd = Math.max(tw.cd, towerStats(S, tw).rate); }
+    S.skels = keep;
+    return held;
+  };
+
   // ---------------------------------------------------------------- шаг
   const step = (S, inp) => {
     const DT = S.dt;
@@ -828,6 +899,7 @@
     // знамёна: соседи знаменосца быстрее (не складываются); убит знаменосец — на следующем шаге ускорения нет
     const banners = S.enemies.filter((e) => !e.dead && EN[e.type].haste);
     for (const e of S.enemies) { e.haste = 0; for (const b of banners) if (b !== e && Math.hypot(b.x - e.x, b.y - e.y) <= EN[b.type].hasteR * UNIT) e.haste = Math.max(e.haste, EN[b.type].haste); }
+    const held = stepSkels(S);                                        // скелеты: схватка, удары, гибель; кого держат
     // враги: статусы, лечение, движение
     for (const e of S.enemies) {
       if (e.dead) continue; const def = EN[e.type];
@@ -844,7 +916,7 @@
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
         ev(S, 'heal', { x: e.x, y: e.y, any }); } }
-      const v = e.freezeT > 0 || e.stunT > 0 ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
+      const v = e.freezeT > 0 || e.stunT > 0 || held.has(e.id) ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss });
@@ -879,7 +951,7 @@
       const interest = hasRelic(S, 'usury') ? Math.min(RL.usury.interestMax, Math.floor(S.souls * RL.usury.interest)) : 0;
       const bonus = C.WAVE_BONUS(S.wave) + relicSum(S, 'waveSouls') + interest; S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
-      if (S.wave >= lastWave(S)) { S.phase = 'won'; ev(S, 'win', {}); }
+      if (S.wave >= lastWave(S)) { S.phase = 'won'; S.wonStats = Object.assign({}, S.stats); ev(S, 'win', {}); }
       else { S.phase = 'prep'; S.prepT = C.PREP_TIME; if (relicDue(S.wave)) offerRelics(S); }
     }
     pruneEv(S);
@@ -941,6 +1013,7 @@
     hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
     hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
     canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
+    skelCells,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;

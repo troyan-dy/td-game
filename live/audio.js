@@ -52,6 +52,8 @@
       case 'boss': tone('sawtooth', 65, 49, 1.4, 0.12); tone('sawtooth', 98, 73, 1.4, 0.08); break;
       case 'waveClear': [523, 659, 784].forEach((f, i) => tone('triangle', f, 0, 0.3, 0.06, i * 0.1)); break;
       case 'heal': if (e.any && ok('heal', 0.4)) tone('sine', 660, 990, 0.3, 0.025); break;
+      case 'summon': if (ok('summon', 0.1)) { noise(0.18, 0.06, 2400, 6); tone('triangle', 180, 320, 0.16, 0.05, 0.04); } break;   // скелет встал: стук костей
+      case 'skelDie': if (ok('skelDie', 0.08)) { noise(0.14, 0.08, 1600, 4); tone('square', 220, 90, 0.12, 0.03); } break;
       case 'freeze': if (ok('frz', 0.1)) noise(0.2, 0.05, 5000, 4); break;
       case 'win': [262, 330, 392, 523].forEach((f, i) => tone('triangle', f, 0, 0.6, 0.09, i * 0.18)); break;
       case 'lose': [220, 196, 175, 131].forEach((f, i) => tone('sawtooth', f, f * 0.97, 0.6, 0.07, i * 0.25)); break;

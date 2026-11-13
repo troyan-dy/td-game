@@ -8,7 +8,7 @@
   // дополнительных характеристик типа за ступень этой ветки (например, замедление Духов растёт со ступенями урона)
   const track = (first, k, also) => Object.assign({ cost: TRACK_COST.map((m) => Math.round(first * m / 5) * 5), k }, also ? { also } : null);
   const C = {
-    VERSION: 8,                    // 8: слияние — гибриды (7: Гримуар; 6: реликвии; 5: башня — ветки, потолок, слоты и список перков; 4: препятствия и особые клетки)
+    VERSION: 9,                    // 9: слияние — гибриды (8: скелеты Казармы; 7: Гримуар; 6: реликвии; 5: башня — ветки, потолок, слоты и список перков; 4: препятствия и особые клетки)
     UNIT: 48,
     DT: 1 / 120,                   // шаг симуляции по умолчанию; забег может задать свой (create(seed, { dt }))
     DT_MAX: 0.1,                   // самый крупный шаг, с которым сохранённый забег считается годным (SIM.loadable)
@@ -205,6 +205,29 @@
           drone: { name: 'Гул', cost: 180, set: { drag: 0.35, dragTime: 2 }, desc: 'Очнувшийся враг ещё {dragTime} с замедлен на {drag%}; босс замедляется сразу.' },
         },
       },
+      // Казарма: не стреляет, а ставит скелетов (вид атаки summon) на ближайшую клетку дороги в радиусе. Ветки значат своё:
+      //   dmg — удар скелета (dmg) и его HP (hp, прибавка also), rate — секунд между призывами, range — радиус выбора клетки.
+      //   extra: hp — HP скелета, limit — скелетов на башню сразу, hit — секунд между ударами скелета,
+      //   reach — на каком расстоянии от себя скелет хватает врага, ед. Ближний урон врагов по скелету — melee в ENEMIES.
+      barracks: {
+        name: 'КАЗАРМА', short: 'КАЗАРМА', title: 'Костяная казарма', dmgType: 'phys', attack: 'summon', muzzle: 40,
+        art: { sprite: 'bones', tint: [0.62, 0.80, 1.35, 0.65], css: 'sepia(1) hue-rotate(175deg) saturate(1.7) brightness(0.95)', color: [0.55, 0.72, 1.0], ui: '#8cb8ff', sound: null },
+        base: { cost: 120, dmg: 12, rate: 7.5, range: 3.0 },
+        tracks: { dmg: track(45, 0.25, { hp: 30 }), range: track(30, 0.10), rate: track(40, 0.20) },
+        extra: { hp: 120, limit: 2, hit: 1.0, reach: 0.55 },
+        names: { dmg: 'Скелет', rate: 'Призыв' }, fmt: { dmg: '{hp} HP · {dmg}', rate: '{rate} с' },
+        show: [['Скелетов', 'до {limit}']],
+        desc: 'Ставит скелетов на ближайшую дорогу. Скелет держит врага, пока другие башни его добивают. Боссы скелетов не замечают.',
+        // примесь: убитый гибридом враг встаёт скелетом гибрида (не чаще раза в raiseCd с, не больше raiseMax сразу); у скелета
+        // raiseHp HP, удар — raiseDmg урона гибрида раз в raiseHit с, хватает врага в raiseReach (ед. UNIT); его удары — с эффектами гибрида
+        mix: { name: 'Подъём мёртвых', icon: '☠', add: { raiseCd: 5, raiseMax: 2, raiseHp: 100, raiseDmg: 0.5, raiseHit: 1, raiseReach: 0.55 },
+          desc: 'Убитый враг встаёт скелетом на {raiseHp} HP (удар — {raiseDmg%} урона гибрида): не чаще раза в {raiseCd} с, до {raiseMax} сразу.' },
+        perks: {
+          legion: { name: 'Костяной легион', cost: 180, needs: 'summon', add: { limit: 1 }, desc: 'Скелетов в строю на {limit} больше.' },
+          grip: { name: 'Мёртвая хватка', cost: 180, set: { grip: 0.25 }, desc: 'Враг в хватке скелета получает +{grip%} урона от всех башен.' },
+          burst: { name: 'Костяной взрыв', cost: 180, set: { burst: 4, burstR: 1.2 }, desc: 'Погибший скелет взрывается: {burst}× его удара врагам в {burstR кл} вокруг.' },
+        },
+      },
     },
     // Гримуар — общая прокачка внутри забега за души: действует на все подходящие башни, и построенные позже (внешний бонус
     // в SIM.towerStats). Ступеней в линии — сколько цен. k — прибавка за ступень в долях своей характеристики башни:
@@ -224,7 +247,8 @@
     TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
     ART: { sprite: 'bones', tint: null, css: '', color: [0.8, 0.8, 0.8], ui: '#bbbbbb', fx: null, sound: null, flip: false },   // вид башни по умолчанию
     LOOK_MUZZLE: 4,
-    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark', 'bell'],
+    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark', 'bell',
+      'barracks'],
 
     // Враги. speed — ед/с вдоль дороги, armor/mres — доли. Для генератора волн (live/wavegen.js): threat — цена угрозы
     // (в ополченцах), minWave — с какой волны тип может выйти, weight — как часто выбирается в отряд, gap — интервал между
@@ -232,35 +256,37 @@
     // врага ({spawnOnDeath.n} — путь; {aura%} — доля в процентах). alone: false — тип не ходит один: в волне с ним всегда есть
     // отряд того, кто может. Цена угрозы — единственное, что связывает бюджет с составом: чтобы выровнять суммарные HP волн
     // при одном бюджете, достаточно поставить threat пропорционально эффективным HP типа, код менять не нужно.
+    // melee — ближний урон по скелету Казармы в секунду (нет поля — MELEE); unstoppable — скелет такого врага не держит (боссы).
     // Новый тип врага — одна строка здесь.
+    MELEE: 10,                     // ближний урон врага по скелету в секунду, если у типа нет своего melee
     ENEMIES: {
-      militia: { name: 'Ополченец', hp: 50, speed: 64, armor: 0, mres: 0, bounty: 6, leak: 1, size: 1,
+      militia: { name: 'Ополченец', hp: 50, speed: 64, armor: 0, mres: 0, bounty: 6, leak: 1, size: 1, melee: 10,
         threat: 1, minWave: 1, weight: 3, gap: 0.8,
         desc: 'Быстрый и хрупкий. Опасен толпой.' },
-      knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1,
+      knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1, melee: 16,
         threat: 4, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
         desc: 'Щит гасит 45% физического урона. Против него — Чума и Тьма.' },
-      priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1,
+      priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1, melee: 6,
         heal: 12, healEvery: 4, healR: 1.5, healTargets: 3, healLock: 1.5,   // до 3 самых раненых; одного — не чаще раза в healLock с
         threat: 4, minWave: 5, weight: 1.5, gap: 2.2, alone: false, ability: 'Лечит до {healTargets} союзников на {heal} HP раз в {healEvery} с',
         desc: 'Лечит союзников рядом. Магия Духов вязнет в его вере, Кости и Тьма — нет.' },
       // ward — сколько первых попаданий (любых: болт, призрак, луч, яд) проходят мимо; haste — прибавка к скорости врагов
       // в радиусе hasteR (единицы UNIT) вокруг знаменосца, сам он не ускоряется, ауры не складываются.
       // look — вид на поле и в интерфейсе без своего арта: спрайт и риг типа as, перекрашенные tint [r, g, b, сила], и CSS-фильтр картинки
-      scout: { name: 'Разведчик', hp: 42, speed: 112, armor: 0, mres: 0, bounty: 8, leak: 1, size: 1, ward: 1,
+      scout: { name: 'Разведчик', hp: 42, speed: 112, armor: 0, mres: 0, bounty: 8, leak: 1, size: 1, ward: 1, melee: 6,
         threat: 2, minWave: 4, weight: 1.5, gap: 0.9, ability: 'Очень быстрый; первое попадание по нему — промах',
         look: { as: 'militia', tint: [0.55, 1.35, 0.55, 0.6], css: 'hue-rotate(70deg) saturate(1.8) brightness(1.1)' },
         desc: 'Очень быстрый. Первое попадание по нему проходит мимо — против него хороши скорострельные башни.' },
-      banner: { name: 'Знаменосец', hp: 210, speed: 44, armor: 0.2, mres: 0.1, bounty: 16, leak: 1, size: 1,
+      banner: { name: 'Знаменосец', hp: 210, speed: 44, armor: 0.2, mres: 0.1, bounty: 16, leak: 1, size: 1, melee: 14,
         haste: 0.3, hasteR: 2,
         threat: 6, minWave: 6, weight: 1, gap: 2.4, alone: false, ability: 'Ускоряет врагов рядом с собой на {haste%}%',
         look: { as: 'knight', tint: [1.45, 0.45, 0.35, 0.55], css: 'hue-rotate(-35deg) saturate(2.4) brightness(0.95)' },
         desc: 'Знамя гонит соседей вперёд: +30% скорости всем рядом. Убей его первым — ускорение пропадёт.' },
-      cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true,
+      cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true, melee: 35,
         spawnOnDeath: { type: 'militia', n: 2 },
         threat: 22, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
         desc: 'Медленная и толстая. При поломке из неё выскакивают ополченцы.' },
-      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true,
+      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true, unstoppable: true,
         aura: 0.15, auraR: 1.5,
         threat: 100, minWave: 10, ability: 'Аура: +{aura%}% брони соседям; пропуск — {leak} прочности',
         desc: 'Босс. Аура укрепляет броню соседей. Пропуск стоит 10 прочности склепа.' },
@@ -331,6 +357,32 @@
       horde: { name: 'Толпа', desc: 'Много слабых врагов плотным потоком.', budget: 1.7, hp: 0.55, gap: 0.6, bounty: 0.6 },
       healers: { name: 'С лекарями', desc: 'Священники идут с отрядом и лечат сильнее.', share: { priest: 0.35 }, heal: 1.5, minWave: 5 },
       rich: { name: 'Богатая', desc: 'Враги несут добычу: живучее, но щедрее.', bounty: 1.75, hp: 1.15 },
+    },
+
+    // Открытия между забегами (live/meta.js). Новый профиль: открыты первые startTowers типов из TOWER_ORDER и первые
+    // startRelics реликвий пула (C.RELICS — по порядку конфига). Остальное открывается по одному: достижения с gives 'tower'
+    // по порядку этого списка получают закрытые башни по порядку TOWER_ORDER, с gives 'relic' — закрытые реликвии по порядку
+    // пула. Достижение, которому не хватило предмета, просто отмечается (предмет откроется, когда появится в конфиге).
+    // Условия (все должны выполниться): wave — дойти до волны; win — победить; faster — победить быстрее, с игры;
+    // run — счётчики забега (S.stats) не меньше; runMax — не больше; total — суммы за все забеги не меньше
+    // (суммируются счётчики S.stats, плюс runs — забегов и wins — побед).
+    UNLOCKS: {
+      startTowers: 4, startRelics: 10,
+      achievements: [
+        { id: 'wave10', name: 'Десятая волна', desc: 'Дойти до 10-й волны', gives: 'tower', wave: 10 },
+        { id: 'win', name: 'Склеп устоял', desc: 'Победить в забеге', gives: 'tower', win: true },
+        { id: 'merge', name: 'Первое слияние', desc: 'Слить две башни в гибрид', gives: 'tower', run: { merges: 1 } },
+        { id: 'wave5', name: 'Боевое крещение', desc: 'Дойти до 5-й волны', gives: 'relic', wave: 5 },
+        { id: 'kills500', name: 'Пятьсот павших', desc: 'Повергнуть 500 врагов за все забеги', gives: 'relic', total: { kills: 500 } },
+        { id: 'runs3', name: 'Упорство', desc: 'Сыграть 3 забега', gives: 'relic', total: { runs: 3 } },
+        { id: 'wave15', name: 'Пятнадцатая волна', desc: 'Дойти до 15-й волны', gives: 'relic', wave: 15 },
+        { id: 'souls3000', name: 'Скупщик душ', desc: 'Собрать 3000 душ за один забег', gives: 'relic', run: { earned: 3000 } },
+        { id: 'kills2500', name: 'Жатва', desc: 'Повергнуть 2500 врагов за все забеги', gives: 'relic', total: { kills: 2500 } },
+        { id: 'steady', name: 'Крепкие стены', desc: 'Победить, потеряв не больше 5 прочности склепа', gives: 'relic', win: true, runMax: { leaked: 5 } },
+        { id: 'fast', name: 'Без промедления', desc: 'Победить быстрее чем за 25 минут игры', gives: 'relic', faster: 1500 },
+        { id: 'wave25', name: 'За гранью', desc: 'Дойти до 25-й волны в бесконечном режиме', gives: 'relic', wave: 25 },
+        { id: 'wins3', name: 'Хранитель', desc: 'Победить 3 раза', gives: 'relic', total: { wins: 3 } },
+      ],
     },
   };
 
