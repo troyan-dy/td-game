@@ -8,12 +8,22 @@
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
+  // Сейв — { S, at, tab }: tab — метка вкладки, которая его пишет. Метка живёт в sessionStorage: та же после перезагрузки
+  // вкладки, новая в новой вкладке. Вкладка стирает сейв только свой, а чужая запись в него отключает её автосохранение.
+  const TAB = (() => { const id = () => Math.random().toString(36).slice(2, 10);
+    try { let t = sessionStorage.getItem('necropolis.tab'); if (!t) { t = id(); sessionStorage.setItem('necropolis.tab', t); } return t; } catch (e) { return id(); } })();
   // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable).
   // Негодный (битый JSON, старая версия, порча) молча выбрасываем. Ключи сейвов прежних сборок (necropolis.save.v1…) убираем.
+  // Вердикт помним по строке сейва: проверка с пробой не повторяется, пока сейв тот же (показ меню, затем «Продолжить»).
+  let checked = { raw: null, ok: false };
   const saved = () => {
-    let raw = null, sv = null; try { raw = localStorage.getItem(SAVE_KEY); sv = JSON.parse(raw); } catch (e) {}
-    if (sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S)) return sv;
-    if (raw !== null) store.del(SAVE_KEY); return null; };
+    let raw = null, sv = null; try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+    if (raw === null) return null;
+    try { sv = JSON.parse(raw); } catch (e) {}
+    const ok = raw === checked.raw ? checked.ok : !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S));
+    checked = { raw, ok };
+    if (ok) return sv;
+    store.del(SAVE_KEY); return null; };
   const dropOldSaves = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith(SAVE_KEY + '.')) localStorage.removeItem(k); } catch (e) {} };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
@@ -53,7 +63,7 @@
     wire();
   };
   // волна, на которой игрок продолжит: идущая, а в паузе — следующая
-  const waveOf = (S) => Math.min(C.WAVES.length, Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
+  const waveOf = (S) => Math.min(SIM.waveCount(), Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
   const menuHTML = () => { const sv = saved();
     return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
       <div class="col">${sv ? `<button class="btn green two" id="m-cont"><span class="l1">Продолжить</span><span class="l2">волна ${waveOf(sv.S)} · сид ${sv.S.seed}</span></button>` : ''}
@@ -125,11 +135,12 @@
     $('#b-menu').addEventListener('click', () => togglePause(true));
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', () => togglePause(false));
-    $('#p-restart').addEventListener('click', () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('pause', false); });
+    $('#p-restart').addEventListener('click', () => { APP.newGame(); resetRun(); showOverlay('pause', false); persist(); });
     $('#p-menu').addEventListener('click', () => { persist(); showOverlay('pause', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
-      if (!APP.play) { if (k === 'Enter' && e.target.id !== 'm-seed') { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
+      // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
+      if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
@@ -269,8 +280,9 @@
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
   const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
-    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); } else showMenu(); };
-    const start = (seed) => { store.del(SAVE_KEY); APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+    // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
+    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
+    const start = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
     $('#m-new').onclick = () => start();
     const inp = $('#m-seed'); inp.oninput = seedInput; seedInput();
     $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); start(r.seed); } else AUDIO.ui('deny'); };
@@ -283,20 +295,30 @@
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
       <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
-    showOverlay('end', true); store.del(SAVE_KEY);
+    showOverlay('end', true);
     $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { detached = false; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
-  // и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег сейв стирает.
-  let savedAt = 0;
-  const persist = () => { const S = APP.play; savedAt = performance.now(); if (!S || S.demo) return;
-    if (S.phase === 'won' || S.phase === 'lost') store.del(SAVE_KEY); else store.set(SAVE_KEY, { S, at: Date.now() }); };
+  // и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег стирает сейв один раз (dropOwn).
+  // Вкладка, чей сейв перезаписала другая вкладка (detached), больше не пишет, пока не начнёт или не продолжит забег сама.
+  let savedAt = 0, detached = false, writeFailed = false;
+  const persist = () => { const S = APP.play; savedAt = performance.now();
+    if (!S || S.demo || detached || S.phase === 'won' || S.phase === 'lost') return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ S, at: Date.now(), tab: TAB })); }
+    catch (e) {                                       // не записалось: старый сейв вернул бы игрока далеко назад — убираем его
+      store.del(SAVE_KEY);
+      if (!writeFailed) { writeFailed = true; toast('Забег не сохраняется<small>Хранилище браузера недоступно или переполнено</small>', '', 5000); } } };
+  // свой забег закончился: стираем сейв, только если в хранилище лежит именно он
+  const dropOwn = () => { try { const sv = JSON.parse(localStorage.getItem(SAVE_KEY)); if (sv && sv.tab === TAB) localStorage.removeItem(SAVE_KEY); } catch (e) {} };
+  const onStorage = (e) => { if (e.key !== SAVE_KEY || e.newValue === null || !APP.play || detached) return;
+    let tab = null; try { tab = JSON.parse(e.newValue).tab; } catch (x) {}
+    if (tab !== TAB) { detached = true; toast('Забег сохраняет другая вкладка<small>Здесь прогресс больше не сохраняется</small>', '', 5000); } };
 
   // ---------------------------------------------------------------- кадр
   let lastSouls = -1, lastHp = -1, wasEnded = false;
@@ -326,7 +348,7 @@
     if (seenEv.size > 3000) markSeen();
     if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
-    if (isEnded && !wasEnded) { select(-1); setTimeout(() => showEnd(APP.play), 900); }
+    if (isEnded && !wasEnded) { select(-1); dropOwn(); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     renderPanel(false); coach(S);
@@ -334,7 +356,7 @@
 
   UI.init = (A, canvas) => {
     APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol); dropOldSaves(); markSeen();
-    addEventListener('pagehide', persist); addEventListener('beforeunload', persist);
+    addEventListener('pagehide', persist); addEventListener('beforeunload', persist); addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
     if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
   };

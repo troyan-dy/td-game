@@ -1,6 +1,6 @@
 // Продолжение забега после перезагрузки страницы: посреди волны в паузе — та же вкладка (забег сразу на месте) и новая
 // вкладка (пустой sessionStorage: меню с «Продолжить», после нажатия — ровно то же состояние). Негодные сейвы (битый JSON,
-// старая версия, башня неизвестного типа, законченный забег, ключ прежней сборки) «Продолжить» не дают и стираются.
+// старая версия, башня неизвестного типа, законченный забег, крошечный шаг, пауза после последней волны, ключ прежней сборки) «Продолжить» не дают и стираются.
 const KEY = 'necropolis.save';
 const reload = async (ctx, newTab) => {
   // новая вкладка: localStorage общий, sessionStorage свой. Дев-перезагрузка пишет забег в sessionStorage при уходе со страницы,
@@ -49,13 +49,15 @@ export function steps() {
     },
     continue_bad: async (ctx) => {
       if (!paused) ctx.skip('нет забега из предыдущего шага');
-      const good = await ctx.eval((k) => { APP.toMenu(); return localStorage.getItem(k); }, KEY);
+      const [good, lastWave] = await ctx.eval((k) => { APP.toMenu(); return [localStorage.getItem(k), SIM.waveCount()]; }, KEY);
       const spoil = {
         'битый JSON': () => '{{{',
         'старая версия': (sv) => { sv.S.v -= 1; },
         'башня неизвестного типа': (sv) => { sv.S.towers[sv.S.towers.findIndex(Boolean)] = { type: 'nope' }; },
         'враг без полей': (sv) => { sv.S.enemies[0] = { type: sv.S.enemies[0].type }; },
         'законченный забег': (sv) => { sv.S.phase = 'lost'; },
+        'крошечный шаг времени (меню не должно зависнуть)': (sv) => { sv.S.dt = 1e-9; },
+        'пауза после последней волны': (sv) => { Object.assign(sv.S, { phase: 'prep', wave: lastWave, prepT: 10, enemies: [], queue: [], qi: 0 }); },
       };
       for (const [name, f] of Object.entries(spoil)) {
         const sv = JSON.parse(good), v = f(sv);
