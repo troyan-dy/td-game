@@ -42,6 +42,15 @@ export async function steps(ctx, g) {
     if (await ctx.eval(() => document.querySelectorAll('#panel .pips i').length) !== 24) throw new Error('в панели не 24 метки ступеней');
     await ctx.shot('panel_cap8');
   };
+  // характеристики изменились извне (алтарь, Гримуар, клетка — здесь имитация правкой базы типа): открытая панель их показывает
+  out.panel_external = async () => {
+    const cell = spots[0]; await g.select(ctx, cell); await ctx.wait(80);
+    const read = () => ctx.eval(() => document.querySelector('#panel .st b').textContent);
+    const before = await read();
+    await ctx.eval((t) => { SIM.CONFIG.TOWERS[t].base.dmg *= 2; }, types[0]); await ctx.wait(120);
+    const after = await read(); await ctx.eval((t) => { SIM.CONFIG.TOWERS[t].base.dmg /= 2; }, types[0]); await ctx.wait(120);
+    if (after === before) throw new Error(`панель не обновила урон после изменения характеристик: ${before} → ${after}`);
+  };
   out.panel_empty = async () => { await ctx.eval(() => { document.getElementById('tip').classList.remove('show'); APP.play.souls = 99999; });
     await g.select(ctx, spots[types.length + 1]); await ctx.shot('panel_empty'); };
   return out;

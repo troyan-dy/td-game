@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { SIM, play, smart } from './bots.mjs';
+import { SIM, play, smart, planned } from './bots.mjs';
 import { RUNS, resultOf, results, describe } from './runs.mjs';
 const require = createRequire(import.meta.url);
 const MAPGEN = require('../live/mapgen.js');
@@ -275,17 +275,79 @@ test('описания перков собираются из данных: чи
 test('новый тип башни добавляется данными: с видом атаки стреляет, без вида атаки не стреляет', () => {
   const base = { cost: 50, dmg: 7, rate: 0.5, range: 3 }, tracks = T.bones.tracks;
   T.zz_beam = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', attack: 'beam', muzzle: 40, base, tracks, extra: { heavy: 1 }, perks: {} };
-  T.zz_none = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', muzzle: 40, base, tracks, extra: { aura: 0.2 }, perks: {} };
+  T.zz_none = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', muzzle: 40, base, tracks, extra: { aura: 0.2 }, perks: {},
+    fmt: { dmg: '+{aura%} урона соседям' }, art: { sprite: 'dark', tint: [1, 0.3, 0.3, 0.5] } };
   try {
     const S = SIM.create(2), [a, b] = SIM.rankCells(S, 3.4); S.souls = 1e4;
     SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'zz_beam' }, { k: 'build', cell: b, type: 'zz_none' }, { k: 'upgrade', cell: b, track: 'dmg' }] });
     assert.ok(S.towers[a] && S.towers[b], 'тип из данных не построился');
     assert.equal(SIM.towerStats(S, S.towers[b]).aura, 0.2); assert.equal(S.towers[b].tracks.dmg, 1);
+    // формат ветки и вид — из данных типа, недостающее — из общих значений
+    assert.equal(SIM.trackText('zz_none', 'dmg', SIM.towerStats(S, S.towers[b])), '+20% урона соседям');
+    assert.equal(SIM.trackText('zz_beam', 'range', SIM.towerStats(S, S.towers[a])), SIM.fill(C.TRACK_FMT.range, SIM.towerStats(S, S.towers[a]), {}));
+    const art = SIM.art('zz_none'); assert.equal(art.sprite, 'dark'); assert.deepEqual(art.tint, [1, 0.3, 0.3, 0.5]); assert.deepEqual(art.color, C.ART.color);
+    assert.deepEqual(SIM.art('zz_beam'), C.ART);
     assert.equal(SIM.muzzle(S, S.towers[a])[1], SIM.cellXY(S, a)[1] - 40);
     SIM.step(S, { cmds: [{ k: 'call' }] }); const fired = { zz_beam: 0, zz_none: 0 };
     for (let i = 0; i < 40 / S.dt; i++) { SIM.step(S, null); for (const e of S.ev) if (e.k === 'fire' && e.t === S.t) fired[e.type]++; }
     assert.ok(fired.zz_beam > 0 && S.towers[a].dmg > 0, 'тип с атакой не стрелял'); assert.equal(fired.zz_none, 0); assert.equal(S.towers[b].fireT, -9);
   } finally { delete T.zz_beam; delete T.zz_none; }
+});
+
+test('яд от облака «Мора» кончается в свой срок, а не держится до смерти врага', () => {
+  // котёл с Мором травит хрупкого врага рядом с живучим; хрупкий умирает — его облако травит живучего; котёл продаём:
+  // новых облаков нет, и яд на живучем кончается не позже, чем через срок яда после последнего облака
+  const S = SIM.create(3), cell = freeCell(S), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const tw = tower(S, cell, 'plague', ups); SIM.step(S, { cmds: [{ k: 'perk', cell, p: 'pestilence' }] });
+  const r = SIM.towerStats(S, tw).rangePx * 0.5, [weak, tough] = dummies(S, cell, 'militia', [r, r]);   // в одной точке дороги
+  weak.hp = weak.max = 5;
+  for (const e of [weak, tough]) { e.slowK = 1; e.slowT = 1e9; }   // упреждение котла по скорости — ноль: облако ложится прямо на манекенов
+  let pest = false;
+  for (let i = 0; i < 6 / S.dt && !pest; i++) { SIM.step(S, null); pest = S.ev.some((e) => e.k === 'cloud' && e.small); }
+  assert.ok(pest, 'облако Мора не появилось');
+  SIM.step(S, { cmds: [{ k: 'sell', cell }] });
+  const linger = T.plague.extra.linger;
+  let last = S.t; for (let i = 0; i < 12 / S.dt; i++) { SIM.step(S, null);
+    for (const p of Object.values(tough.poison)) assert.ok(Number.isFinite(p.t) && Number.isFinite(p.dps), 'яд без числа: ' + JSON.stringify(p));
+    if (S.clouds.length) last = S.t; }
+  assert.deepEqual(tough.poison, {}, `яд держится ${(S.t - last).toFixed(1)} с после последнего облака при сроке ${linger} с`);
+});
+
+test('ни в одном снимке партий ботов, берущих все перки, нет нечисловых значений', () => {
+  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split' }];
+  const all = new Set(); for (const p of sets) for (const v of Object.values(p)) all.add(v);
+  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
+  const bad = (o, path) => { if (typeof o === 'number') return Number.isFinite(o) ? null : path;
+    if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'map') continue; const b = bad(o[k], path + '.' + k); if (b) return b; } return null; };
+  for (const perks of sets) {
+    const bot = planned(C.TOWER_ORDER, Object.keys(perks).length ? perks : undefined), S = SIM.create(3, { dt: 1 / 30 }), mem = {};
+    SIM.step(S, { cmds: [{ k: 'call' }] }); let i = 0;
+    while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) { const c = i++ % 3 === 0 ? bot(S, mem) : null; SIM.step(S, c ? { cmds: c } : null);
+      if (i % 30 === 0) { const b = bad(S, 'S'); assert.equal(b, null, `нечисловое значение ${b} на ${S.t.toFixed(0)} с (перки ${JSON.stringify(perks)})`); } }
+  }
+});
+
+test('вид атаки, действующий без целей: зовётся и без врагов, перезарядка — только когда сработал', () => {
+  let calls = 0, acted = 0;
+  SIM.ATTACKS.zz_idle = { idle: true, run: () => { calls++; if (calls % 3) return false; acted++; return true; } };
+  T.zz_idle = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'phys', attack: 'zz_idle', muzzle: 40, base: { cost: 50, dmg: 1, rate: 2, range: 1 }, tracks: T.bones.tracks, perks: {} };
+  try {
+    const S = SIM.create(2), cell = freeCell(S); S.souls = 1e4; SIM.step(S, { cmds: [{ k: 'build', cell, type: 'zz_idle' }] });
+    for (let i = 0; i < 10 / S.dt; i++) SIM.step(S, null);
+    assert.equal(S.enemies.length, 0); assert.ok(calls > 0, 'действие без целей не позвано');
+    // за 10 с: перезарядка 2 с после каждого срабатывания, повтор через 0.05 с после отказа
+    assert.ok(acted >= 4 && acted <= 6, `сработало ${acted} раз из ${calls} вызовов`);
+    assert.ok(S.ev.some((e) => e.k === 'fire' && e.type === 'zz_idle'));
+  } finally { delete SIM.ATTACKS.zz_idle; delete T.zz_idle; }
+});
+
+test('характеристики в два этапа: свои (база, ветки, перки) и итоговые (свои плюс внешние бонусы)', () => {
+  const S = SIM.create(2), cell = freeCell(S), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const tw = tower(S, cell, 'spirits', ups); SIM.step(S, { cmds: [{ k: 'perk', cell, p: 'chill' }] });
+  const own = SIM.ownStats(S, tw), all = SIM.towerStats(S, tw);
+  assert.equal(own.slow, T.spirits.extra.slow + T.spirits.tracks.dmg.also.slow * tw.tracks.dmg + T.spirits.perks.chill.add.slow);
+  assert.deepEqual(all, own, 'внешних бонусов пока нет — итоговые равны своим');
+  assert.deepEqual(SIM.ownStats(S, tw, 'dmg'), SIM.towerStats(S, tw, 'dmg'));
 });
 
 test('продажа возвращает 70% всего вложенного (постройка, ступени веток, перк) и освобождает клетку', () => {

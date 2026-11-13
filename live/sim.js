@@ -48,6 +48,8 @@
     if (own(PERKS, id)) throw new Error(`перк ${id} есть у ${PERKS[id].type} и у ${type}: id перков должны быть уникальны`);
     PERKS[id] = { type, def: TW[type].perks[id] }; }
   const perkDef = (id) => (own(PERKS, id) ? PERKS[id].def : null);
+  // перки с наградой за убийство в радиусе (harvest): только для башен с ними смерть врага считает характеристики
+  const KILL_PERKS = new Set(Object.keys(PERKS).filter((id) => PERKS[id].def.set && 'harvest' in PERKS[id].def.set));
   const cellXY = (S, i) => MAPGEN.cellXY(S.map, i);
   const cellCount = (S) => S.map.cols * S.map.rows;
   const towerAt = (S, cell) => (cell >= 0 && cell < cellCount(S) && S.towers[cell]) || null;
@@ -64,17 +66,14 @@
   const perksOf = (tw) => tw.perks.slice();
   const hasPerk = (tw, p) => tw.perks.includes(p);
   const freeSlots = (tw) => Math.max(0, tw.slots - tw.perks.length);
-  // годна ли башня из сейва: известный тип, числа ступеней, список перков известных id не длиннее слотов
-  const towerOk = (tw) => !!tw && typeof tw === 'object' && !!typeDef(tw.type) && !!tw.tracks && C.TRACKS.every((k) => Number.isInteger(tw.tracks[k]) && tw.tracks[k] >= 0)
-    && Number.isInteger(tw.cap) && Number.isInteger(tw.slots) && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && tw.perks.every((p) => !!perkDef(p))
-    && [tw.id, tw.cell, tw.invested, tw.kills, tw.dmg, tw.cd].every((v) => typeof v === 'number' && Number.isFinite(v));
-
-  // ИТОГОВЫЕ характеристики башни — единственное место, где они считаются: стрельба, снаряды, панель и подсказки читают только их.
-  // База типа → ветки (основные dmg/range/rate и прибавки also к extra) → перки (set, затем mul, затем add) → бонусы со стороны
-  // (особые клетки, Гримуар, Алтарь крови, реликвии вписываются здесь же, перед rangePx).
+  // Характеристики башни считаются только здесь, в два явных этапа; стрельба, снаряды, панель и подсказки читают результат.
+  //  ownStats   — СВОИ: база типа → ветки (основные dmg/range/rate и прибавки also к extra) → перки башни (set, затем mul, затем add).
+  //               От них считаются эффекты, которые башня даёт другим (аура Алтаря берёт свои характеристики соседа, а не
+  //               итоговые — иначе два алтаря рядом зациклились бы).
+  //  towerStats — ИТОГОВЫЕ: свои плюс внешние бонусы (externalBonus: клетка, аура соседей, Гримуар, реликвии).
   // plus — ветка, в которую мысленно добавлена ещё одна ступень (панель показывает, что даст следующая ступень).
   // { dmg, rate (секунд между выстрелами), range (единицы UNIT), rangePx, ...extra типа, ...параметры перков }
-  const towerStats = (S, tw, plus) => {
+  const ownStats = (S, tw, plus) => {
     const d = TW[tw.type], b = d.base, g = d.tracks, n = (k) => tw.tracks[k] + (plus === k ? 1 : 0);
     const o = Object.assign({}, d.extra || {}, { dmg: b.dmg * (1 + g.dmg.k * n('dmg')), range: b.range * (1 + g.range.k * n('range')), rate: b.rate / (1 + g.rate.k * n('rate')) });
     for (const k of C.TRACKS) if (g[k].also) for (const [key, v] of Object.entries(g[k].also)) o[key] = (o[key] || 0) + v * n(k);
@@ -85,19 +84,27 @@
     o.rangePx = o.range * UNIT;
     return o;
   };
+  // внешние бонусы к своим характеристикам o — единственное место для них: особые клетки (курган, проклятая земля),
+  // аура соседей (от их ownStats), Гримуар, реликвии. Меняет o на месте; пересчитывает rangePx, если тронут range. Пока пусто.
+  const externalBonus = (S, tw, o) => { o.rangePx = o.range * UNIT; return o; };
+  const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
   // итоговые характеристики будущей башни типа type на клетке cell (подсказка карточки, меню постройки); cell -1 — без клетки
   const buildStats = (S, cell, type) => towerStats(S, fresh(cell, type));
   const rangeTiles = (units) => units * UNIT / C.GRID.tile;          // радиус в клетках сетки (для подписей)
   // Шаблон текста из данных (описания перков, строки характеристик): {key} — число, {key%} — доля в процентах,
   // {key+%} — множитель как прибавка в процентах (1.4 → 40%), {key п} — доля в пунктах (0.12 → 12), {key кл} — единицы UNIT в клетках,
-  // {base:key} — значение extra типа без перков. vals — откуда брать key, base — extra типа.
-  const num = (v) => String(Math.round(v * 100) / 100);
-  const fill = (text, vals, base) => text.replace(/\{(base:)?(\w+)(%|\+%| п| кл)?\}/g, (m, isBase, key, f) => {
+  // {key /с} — интервал в секундах как частота «в секунду» (1 / v), {base:key} — значение extra типа без перков. vals — откуда брать key, base — extra типа.
+  const fmtNum = (v) => String(Math.round(v * 100) / 100);
+  const fill = (text, vals, base) => text.replace(/\{(base:)?(\w+)(%|\+%| п| кл| \/с)?\}/g, (m, isBase, key, f) => {
     const src = isBase ? base : vals, v = src && own(src, key) ? src[key] : undefined;
     if (typeof v !== 'number') throw new Error(`шаблон «${text}»: нет числа ${key}`);
-    return f === '%' ? Math.round(v * 100) + '%' : f === '+%' ? Math.round((v - 1) * 100) + '%' : f === ' п' ? String(Math.round(v * 100)) : f === ' кл' ? rangeTiles(v).toFixed(1) + ' кл.' : num(v); });
+    return f === '%' ? Math.round(v * 100) + '%' : f === '+%' ? Math.round((v - 1) * 100) + '%' : f === ' п' ? String(Math.round(v * 100)) : f === ' кл' ? rangeTiles(v).toFixed(1) + ' кл.' : f === ' /с' ? (1 / v).toFixed(2) + '/с' : fmtNum(v); });
   // описание перка с числами из его же данных (set, add, mul) и extra его типа
+  // внешний вид типа: art типа поверх C.ART (сцена, интерфейс и звук берут вид только отсюда)
+  const art = (type) => Object.assign({}, C.ART, (own(TW, type) && TW[type].art) || {});
+  // значение ветки track башни для панели — по шаблону fmt типа (или C.TRACK_FMT) из характеристик st
+  const trackText = (type, track, st) => fill(((own(TW, type) && TW[type].fmt) || {})[track] || C.TRACK_FMT[track], st, (TW[type] && TW[type].extra) || {});
   const perkText = (id) => { const P = PERKS[id], pd = P.def, base = TW[P.type].extra || {};
     return fill(pd.desc, Object.assign({}, base, pd.mul || {}, pd.add || {}, pd.set || {}), base); };
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола» типа (muzzle в конфиге);
@@ -196,15 +203,97 @@
     if (S.souls < cost) return no('souls');
     return { ok: true, reason: null, cost, need };
   };
-  // годно ли состояние для продолжения (сейв, sessionStorage): текущая версия, годная карта, все поля на месте
+  // ---------------------------------------------------------------- сид и сейв
+  // сид из поля ввода: целое 0..C.SEED.max цифрами; пробелы по краям и ведущие нули не мешают.
+  // → { ok, seed, reason: null | 'empty' | 'negative' | 'big' | 'format' }; причину словами показывает интерфейс
+  const parseSeed = (text) => {
+    const s = text === null || text === undefined ? '' : String(text).trim(), no = (reason) => ({ ok: false, seed: null, reason });
+    if (!s) return no('empty');
+    if (/^-[0-9]+$/.test(s)) return no('negative');
+    if (!/^[0-9]+$/.test(s)) return no('format');
+    const d = s.replace(/^0+(?=[0-9])/, '');
+    if (d.length > String(C.SEED.max).length || +d > C.SEED.max) return no('big');
+    return { ok: true, seed: +d, reason: null };
+  };
+
+  // Годно ли состояние для продолжения (сейв, sessionStorage). Три слоя:
+  //  1) форма: состояние, каждая башня и каждый враг повторяют образец — то, что создают сами create, постройка и появление
+  //     врага. Каждое поле образца есть и того же рода; новые поля образца проверяются сами, лишние не мешают.
+  //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
+  //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
+  //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, prepT −1);
+  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
+  //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
+  //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
+  const SIGNED = new Set(['x', 'y', 'lane', 'aim', 'face', 'dx', 'dy']);
+  const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
+  const num = (v, t, tol, key) => typeof v === 'number' && Math.abs(v) <= C.SAVE_NUM_MAX && (v >= -tol || t < 0 || SIGNED.has(key));
+  const like = (v, t, tol, key) => { const k = kind(t);
+    if (k === 'null') return true;                                    // в образце null — поле может быть чем угодно (перк, открытое)
+    if (k === 'number') return num(v, t, tol, key);
+    if (kind(v) !== k) return false;
+    if (k === 'object') for (const key of Object.keys(t)) if (!like(v[key], t[key], tol, key)) return false;
+    return true; };
+  const bounded = (o) => { if (typeof o === 'number') return Math.abs(o) <= C.SAVE_NUM_MAX;   // NaN и ±Infinity сюда не проходят
+    if (o && typeof o === 'object') for (const k in o) if (!bounded(o[k])) return false; return true; };
+  const int = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
+  let SHAPE = null, MAPC = { seed: null, json: '' };
+  const shapes = () => {
+    if (SHAPE) return SHAPE;
+    const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
+    S.souls = 1e9; S.wave = 1;
+    Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
+    for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
+    // образец, который не создался, молча отключил бы проверку формы своего типа: это ошибка разработки, падаем громко
+    for (const [what, all] of [['башни', towers], ['врага', enemies]]) for (const type in all)
+      if (kind(all[type]) !== 'object' || all[type].type !== type) throw new Error(`SIM.loadable: не создался образец ${what} ${type}`);
+    // мелочь боя, у которой нет одного создателя: только поля, без которых шаг или кадр споткнутся
+    return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, tw: 0, pest: null },
+      shot: { k: '', x: 0, y: 0 }, cloud: { x: 0, y: 0, r: 0, t: 0, T: 0, dps: 0, linger: 0 }, beam: { x0: 0, y0: 0, x1: 0, y1: 0, t: 0 }, ev: { k: '', t: 0 } })));
+  };
+  // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
+  const mapOfSeed = (seed) => { if (MAPC.seed !== seed) MAPC = { seed, json: JSON.stringify(MAPGEN.generate(seed)) }; return MAPC.json; };
+  // фаза согласована с номером волны и таймером паузы. Верхняя граница волны — последняя волна забега;
+  // бесконечный режим (#14) должен снять её для забега, продолжающегося после победы.
+  // башня по смыслу своей модели: ступень каждой ветки — целое 0..cap; cap — целый, от потолка обычной башни до числа
+  // заданных цен; слотов перков не меньше, чем у обычной башни; перки — без повторов, не больше слотов, все — перки её типа
+  const towerOk = (tw, def) => {
+    const prices = Math.min(...C.TRACKS.map((k) => def.tracks[k].cost.length));
+    return int(tw.cap, C.TRACK_MAX, prices) && C.TRACKS.every((k) => int(tw.tracks[k], 0, tw.cap)) && int(tw.slots, C.PERK_SLOTS, C.SAVE_NUM_MAX)
+      && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && new Set(tw.perks).size === tw.perks.length && tw.perks.every((p) => own(def.perks, p));
+  };
+  const phaseOk = (S) => {
+    const last = waveCount();
+    if (S.phase === 'prep') return int(S.wave, 0, last - 1) && (S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME));   // после последней волны пауз нет
+    if (S.phase === 'wave') return int(S.wave, 1, last);
+    if (S.phase === 'won') return S.wave === last;
+    if (S.phase === 'lost') return int(S.wave, 0, last);
+    return false;
+  };
   const loadable = (S) => {
+    const sh = shapes();
     try {
-      if (!S || typeof S !== 'object' || S.v !== C.VERSION || !S.map || MAPGEN.validate(S.map).length) return false;
-      const num = (v) => typeof v === 'number' && Number.isFinite(v), arr = Array.isArray;
-      return num(S.seed) && num(S.dt) && S.dt > 0 && S.dt <= C.DT_MAX && num(S.t) && num(S.rs) && num(S.souls) && num(S.hp) && num(S.wave) && num(S.nid)
-        && ['prep', 'wave', 'won', 'lost'].includes(S.phase) && arr(S.towers) && S.towers.length === cellCount(S) && S.towers.every((t, i) => t === null || (towerOk(t) && t.cell === i))
-        && arr(S.enemies) && arr(S.shots) && arr(S.clouds) && arr(S.beams) && arr(S.ev) && arr(S.queue)
-        && !!S.stats && typeof S.stats === 'object' && !!S.seen && typeof S.seen === 'object';
+      if (kind(S) !== 'object' || S.v !== C.VERSION || kind(S.map) !== 'object') return false;
+      if (!(S.dt >= C.DT_MIN && S.dt <= C.DT_MAX)) return false;               // мельче — проба шла бы бесконечно
+      if (!like(S, sh.state, S.dt) || !bounded(S)) return false;
+      if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
+      if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
+      if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
+      const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
+      for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
+        const def = kind(tw) === 'object' && own(TW, tw.type) ? TW[tw.type] : null, blk = def && tw.cell === i ? cellBlock(S, i) : 'bounds';
+        if (!def || !like(tw, sh.towers[tw.type], S.dt) || (blk && blk !== 'occupied')) return false;   // клетка — по правилу постройки, занята собой
+        if (!towerOk(tw, def) || !freshId(tw.id)) return false; }
+      for (const e of S.enemies) {
+        if (kind(e) !== 'object' || !own(EN, e.type) || !like(e, sh.enemies[e.type], S.dt) || !freshId(e.id)) return false;
+        for (const k in e.poison) if (!like(e.poison[k], sh.poison, S.dt)) return false; }
+      for (const q of S.queue) if (!like(q, sh.queue, 0) || !own(EN, q.e)) return false;
+      const loose = (list, t) => list.every((x) => like(x, t, Infinity));     // координаты снарядов и лучей бывают за краем поля
+      if (!loose(S.shots, sh.shot) || !loose(S.clouds, sh.cloud) || !loose(S.beams, sh.beam)) return false;
+      if (!S.ev.every((e) => like(e, sh.ev, Infinity) && ['x', 'y'].every((k) => e[k] === undefined || num(e[k], 0, Infinity, k)))) return false;
+      const R = JSON.parse(JSON.stringify(S)), n = Math.min(Math.ceil(C.SAVE_TRIAL / R.dt), Math.ceil(C.SAVE_TRIAL / C.DT_MIN));
+      for (let i = 0; i < n; i++) step(R, null);
+      return bounded(R);
     } catch (e) { return false; }
   };
   // длина дороги (px), которую башня на клетке накрывает радиусом units
@@ -291,12 +380,12 @@
     S.souls += e.bounty; S.stats.kills++; S.stats.earned += e.bounty; if (tw) tw.kills++;
     ev(S, 'die', { x: e.x, y: e.y, type: e.type, souls: e.bounty, face: e.face, boss: !!def.boss });
     // души за смерть в радиусе башни (Жатва): параметр перка — из итоговых характеристик башни
-    for (const t of S.towers) if (t && t.perks.length) { const st = towerStats(S, t); if (!st.harvest) continue;
+    for (const t of S.towers) if (t && t.perks.some((p) => KILL_PERKS.has(p))) { const st = towerStats(S, t); if (!st.harvest) continue;
       const [sx, sy] = cellXY(S, t.cell); if (Math.hypot(e.x - sx, e.y - sy) <= st.rangePx) { const g = st.harvest; S.souls += g; S.stats.earned += g; ev(S, 'harvest', { x: e.x, y: e.y, souls: g, cell: t.cell }); }
     }
     // Мор: яд, полученный из облака башни с этим перком, при смерти оставляет малое облако (без цепной реакции)
     for (const key in e.poison) { const p = e.poison[key];
-      if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, tw: p.tw, pest: null, acid: null });
+      if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, linger: p.pest.linger, tw: p.tw, pest: null, acid: null });
         ev(S, 'cloud', { x: e.x, y: e.y, small: true }); break; } }
     if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i)); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
   };
@@ -305,15 +394,17 @@
   const inRange = (S, tw, r) => { const [sx, sy] = cellXY(S, tw.cell), out = [];
     for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - sx, e.y - sy) <= r) out.push(e); return out; };
   const firstOf = (list) => list.reduce((b, e) => (!b || e.d > b.d ? e : b), null);
-  // Виды атаки (поле attack типа в конфиге): обработчик получает итоговые характеристики st, цели в радиусе cand и точку
-  // выстрела. Снаряд запоминает все свои числа (урон, перки) в момент выстрела: проданная, прокачанная или перенесённая
-  // башня их не меняет. Тип без attack не стреляет. Новый вид атаки — новая запись здесь и, если снаряд новый, в stepShots.
+  // Виды атаки (поле attack типа в конфиге): { run(S, tw, st, cand, mx, my) → сработал ли (true — перезарядка st.rate),
+  //   idle — true, если вид действует и без целей в радиусе (выставить скелета заранее): тогда run зовётся и при пустом cand }.
+  // st — итоговые характеристики, cand — враги в радиусе, (mx, my) — точка выстрела. Снаряд запоминает все свои числа
+  // (урон, перки) в момент выстрела: проданная, прокачанная или перенесённая башня их не меняет. Тип без attack не действует.
+  // Новый вид атаки — новая запись здесь и, если снаряд новый, ветка в stepShots и отрисовка в сцене.
   const ATTACKS = {
-    bolt: (S, tw, st, cand, mx, my) => {                             // болт: первая по дороге цель; Залп, Пронзание, Бронебой
+    bolt: { run: (S, tw, st, cand, mx, my) => {                             // болт: первая по дороге цель; Залп, Пронзание, Бронебой
       if (st.bolts) {
         const ts = cand.sort((a, b) => b.d - a.d).slice(0, st.bolts);
         ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg * st.boltMult, pen: st.pen || 0, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
-        tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx); return;
+        tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx); return true;
       }
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
       if (st.pierce) {
@@ -322,35 +413,40 @@
         S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, pen: st.pen || 0, sp: st.speed, tw: tw.id,
           pierce: st.pierce, falloff: st.pierceFalloff, hit: [] });
       } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg, pen: st.pen || 0, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y });
-    },
-    ghost: (S, tw, st, cand, mx, my) => {                            // призрак: урон и замедление; Стая, Ледяной ужас, Могильный холод
+      return true;
+    } },
+    ghost: { run: (S, tw, st, cand, mx, my) => {                            // призрак: урон и замедление; Стая, Ледяной ужас, Могильный холод
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
       S.shots.push({ k: 'ghost', x: mx, y: my, tid: e.id, dmg: st.dmg, slow: st.slow, slowT: st.slowTime, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y,
         bounces: st.bounces || 0, bounceMult: st.bounceMult || 1, bounceR: (st.bounceRange || 0) * UNIT, freezeChance: st.freezeChance || 0, freeze: st.freeze || 0,
         hit: [], born: S.t, seed: rand(S) });
-    },
-    blob: (S, tw, st, cand, mx, my) => {                             // ком яда навесом: облако на месте падения; Кислота, Мор, Миазмы
+      return true;
+    } },
+    blob: { run: (S, tw, st, cand, mx, my) => {                             // ком яда навесом: облако на месте падения; Кислота, Мор, Миазмы
       const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + EN[e.type].speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
       S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id, dps: st.dmg, r: st.cloudR * UNIT, ct: st.cloudTime, linger: st.linger,
-        acid: st.shred ? { shred: st.shred, t: st.shredTime } : null, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime } : null });
-    },
-    beam: (S, tw, st, cand, mx, my) => {                             // луч мгновенно по самой живучей цели; Проклятие, Двойной луч
+        acid: st.shred ? { shred: st.shred, t: st.shredTime } : null, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
+      return true;
+    } },
+    beam: { run: (S, tw, st, cand, mx, my) => {                             // луч мгновенно по самой живучей цели; Проклятие, Двойной луч
       const byHp = cand.sort((a, b) => b.hp - a.hp || a.id - b.id), hits = byHp.slice(0, st.split ? 2 : 1);
       tw.aim = Math.atan2(hits[0].y - my, hits[0].x - mx);
       if (st.curse) { hits[0].curse = st.curse; hits[0].curseT = st.curseTime; }
       hits.forEach((e, i) => { const heavy = EN[e.type].heavy ? st.heavy || 1 : 1, mult = i ? st.split : 1;
         damage(S, e, st.dmg * heavy * mult, 'magic', tw, { ignoreMres: TW[tw.type].ignoreMres });
         S.beams.push({ x0: mx, y0: my, x1: e.x, y1: e.y - 14, t: S.t, tw: tw.id }); });
-    },
+      return true;
+    } },
   };
   const attackOf = (tw) => { const a = TW[tw.type].attack; return own(ATTACKS, a) ? ATTACKS[a] : null; };
+  // выстрел (или действие без целей): итоговые характеристики, если сработал (по ним перезарядка), иначе null
   const fire = (S, tw) => {
-    const atk = attackOf(tw); if (!atk) return false;
-    const st = towerStats(S, tw), cand = inRange(S, tw, st.rangePx); if (!cand.length) return false;
+    const atk = attackOf(tw); if (!atk) return null;
+    const st = towerStats(S, tw), cand = inRange(S, tw, st.rangePx); if (!cand.length && !atk.idle) return null;
     const [mx, my] = muzzle(S, tw);
-    atk(S, tw, st, cand, mx, my);
+    if (!atk.run(S, tw, st, cand, mx, my)) return null;
     tw.fireT = S.t; ev(S, 'fire', { cell: tw.cell, type: tw.type, x: mx, y: my });
-    return true;
+    return st;
   };
   // замедление: более сильное заменяет слабое; такое же продлевает; более слабое сильное не трогает (и не продлевает)
   const slowHit = (e, k, t) => { if (e.slowT <= 0 || k > e.slowK) { e.slowK = k; e.slowT = t; } else if (k === e.slowK) e.slowT = Math.max(e.slowT, t); };
@@ -415,7 +511,8 @@
     S.t += DT;
     if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
     S.stats.time += DT;
-    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0) startWave(S); }
+    // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
+    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < waveCount()) startWave(S); }
     if (S.phase === 'wave') {
       S.waveT += DT;
       while (S.qi < S.queue.length && S.queue[S.qi].at <= S.waveT) spawnEnemy(S, S.queue[S.qi++].e, 0);
@@ -454,7 +551,7 @@
     }
     S.clouds = S.clouds.filter((c) => c.t > 0);
     // башни
-    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { if (fire(S, tw)) tw.cd = towerStats(S, tw).rate; else tw.cd = 0.05; } }
+    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? st.rate : 0.05; } }
     stepShots(S);
     S.enemies = S.enemies.filter((e) => !e.dead);
     S.beams = S.beams.filter((b) => S.t - b.t < 0.35);
@@ -505,7 +602,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
-    canBuild, buildRangePx, buildStats, canUpgrade, canPerk, towerStats, rangePx, steps, look, loadable, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
+    canBuild, buildRangePx, buildStats, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
   };

@@ -2,17 +2,41 @@
 // Состояние партии живёт в симе (APP.play); здесь только выбор игрока (SCENE.ui) и показ. Команды уходят через APP.cmd().
 (function () {
   const C = SIM.CONFIG, T = C.TOWERS, EN = C.ENEMIES;
-  const SAVE_KEY = 'necropolis.save.v2', PREF_KEY = 'necropolis.prefs.v1';
+  // сейв лежит под одним ключом без номера версии: версию несёт само состояние (S.v), чужую версию отбрасывает SIM.loadable
+  const SAVE_KEY = 'necropolis.save', PREF_KEY = 'necropolis.prefs.v1', SAVE_EVERY = 1000;   // мс между автосохранениями забега
   const $ = (s, r = document) => r.querySelector(s);
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
-  // сейв продолжаем, только если логика признала состояние годным (версия, карта, поля); негодный выбрасываем
-  const saved = () => { const sv = store.get(SAVE_KEY); if (sv && sv.S && SIM.loadable(sv.S)) return sv; if (sv) store.del(SAVE_KEY); return null; };
+  // Сейв — { S, at, tab }: tab — метка страницы, которая его пишет, новая при каждой загрузке (дубликат вкладки получает свою:
+  // sessionStorage копируется вместе с вкладкой, поэтому метку там не храним). Страница стирает сейв только свой, а чужая
+  // запись в него отключает её автосохранение. Что остаётся неразрешённым:
+  //  - две вкладки стартуют забег одновременно: каждая видит запись другой, и отключаются обе — до следующего старта;
+  //  - отключённая вкладка молчит и после закрытия «владельца», пока сама не начнёт или не продолжит забег.
+  const TAB = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable).
+  // Негодный (битый JSON, старая версия, порча) молча выбрасываем. Ключи сейвов прежних сборок (necropolis.save.v1…) убираем.
+  // Вердикт помним по строке сейва: проверка с пробой не повторяется, пока сейв тот же (показ меню, затем «Продолжить»).
+  let checked = { raw: null, ok: false };
+  const saved = () => {
+    let raw = null, sv = null; try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+    if (raw === null) return null;
+    try { sv = JSON.parse(raw); } catch (e) {}
+    let ok = false;
+    if (raw === checked.raw) ok = checked.ok;
+    else try { ok = !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S)); }
+    catch (e) { console.error(e); return null; }     // сбой самой проверки (не создался образец) — ошибка разработки: меню без «Продолжить», сейв не трогаем
+    checked = { raw, ok };
+    if (ok) return sv;
+    store.del(SAVE_KEY); return null; };
+  const dropOldSaves = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith(SAVE_KEY + '.')) localStorage.removeItem(k); } catch (e) {} };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
   const SOUL = '<span class="soul-ico"></span>';
-  const PH = { bones: '#e6d9b8', spirits: '#6ff2e2', plague: '#8be04e', dark: '#c86bff' };
+  // картинка типа башни в DOM: спрайт основы вида (SIM.art: sprite, css-перекраска), без арта — заглушка цвета art.ui
+  const typePic = (type, lk, ph) => { const A = SIM.art(type), n = [3, 2, 1].map((l) => 'tw_' + A.sprite + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
+    const html = img(n || 'tw_' + A.sprite + '_' + lk, `<div class="ph" style="${ph || ''}background:${A.ui}"></div>`);
+    return A.css ? html.replace('<img ', `<img style="filter:${A.css}" `) : html; };
   const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд' };
   const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом' };
   const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡' };
@@ -33,7 +57,7 @@
     root.append(stats);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
     const cards = h('div', 'frame', ''); cards.id = 'cards';
-    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${img('tw_' + k + '_1', `<div class="ph" style="background:${PH[k]}"></div>`)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
+    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
     const panel = h('div', 'frame', ''); panel.id = 'panel'; root.append(panel);
@@ -50,17 +74,28 @@
       <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
     wire();
   };
+  // волна, на которой игрок продолжит: идущая, а в паузе — следующая
+  const waveOf = (S) => Math.min(SIM.waveCount(), Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
   const menuHTML = () => { const sv = saved();
     return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
-      <div class="col">${sv ? `<button class="btn green" id="m-cont">Продолжить · волна ${sv.S.wave + 1}</button>` : ''}
-      <button class="btn ${sv ? '' : 'green'}" id="m-new">Новая игра</button><button class="btn" id="m-help">Как играть</button></div>
+      <div class="col">${sv ? `<button class="btn green two" id="m-cont"><span class="l1">Продолжить</span><span class="l2">волна ${waveOf(sv.S)} · сид ${sv.S.seed}</span></button>` : ''}
+      <button class="btn ${sv ? '' : 'green'}" id="m-new" title="Новая карта по случайному сиду">Новая игра</button>
+      <div class="seedrow"><input id="m-seed" type="text" inputmode="numeric" maxlength="40" autocomplete="off" spellcheck="false" placeholder="сид карты" aria-label="Сид карты"><button class="btn" id="m-seedgo" disabled>По сиду</button></div>
+      <div class="seednote" id="m-seednote"></div>
+      <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи 25 волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
-      <b>Карта</b> каждый забег новая, её задаёт сид (он виден слева вверху).<br>
+      <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Прокачка:</b> нажми на башню и качай её ветки — урон (Q), дальность (W), скорость (E), по ${C.TRACK_MAX} ступеней. Когда в башню вложено ${C.PERK_AT} ступеней, выбери один из трёх перков.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
-      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Прогресс сохраняется между волнами.</div></div>`; };
+      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
+  // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
+  const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
+    big: `Сид не больше ${C.SEED.max}`, format: `Только цифры: целое от 0 до ${C.SEED.max}` };
+  const seedInput = () => { const r = SIM.parseSeed($('#m-seed').value), note = $('#m-seednote');
+    note.textContent = r.ok ? `Карта по сиду ${r.seed}` : SEED_NOTE[r.reason];
+    note.classList.toggle('bad', !r.ok && r.reason !== 'empty'); $('#m-seedgo').disabled = !r.ok; return r; };
 
   // ---------------------------------------------------------------- события ввода
   const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
@@ -113,11 +148,12 @@
     $('#b-menu').addEventListener('click', () => togglePause(true));
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', () => togglePause(false));
-    $('#p-restart').addEventListener('click', () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('pause', false); });
-    $('#p-menu').addEventListener('click', () => { showOverlay('pause', false); APP.toMenu(); showMenu(); });
+    $('#p-restart').addEventListener('click', () => { APP.newGame(); resetRun(); showOverlay('pause', false); persist(); });
+    $('#p-menu').addEventListener('click', () => { persist(); showOverlay('pause', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
-      if (!APP.play) { if (k === 'Enter') { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
+      // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
+      if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
@@ -135,7 +171,7 @@
   const TRACK_KEY = { dmg: 'Q', range: 'W', rate: 'E' };
   const trackName = (type, k) => (T[type].names && T[type].names[k]) || C.TRACK_NAMES[k];
   const num = (v) => String(v >= 100 ? Math.round(v) : Math.round(v * 10) / 10);
-  const trackValue = (type, k, st) => k === 'dmg' ? num(st.dmg) + ((T[type].units && T[type].units.dmg) || '') : k === 'range' ? `${SIM.rangeTiles(st.range).toFixed(1)} кл.` : `${(1 / st.rate).toFixed(2)}/с`;
+  const trackValue = (type, k, st) => SIM.trackText(type, k, st);      // формат — fmt типа или C.TRACK_FMT
   // [подпись, значение] — сначала ветки C.TRACKS, затем строки show типа
   const statLines = (type, st) => C.TRACKS.map((k) => [trackName(type, k), trackValue(type, k, st)])
     .concat((T[type].show || []).map(([label, tpl]) => [label, SIM.fill(tpl, st, T[type].extra || {})]));
@@ -144,7 +180,7 @@
     t.style.left = Math.max(10, Math.min(1590 - t.offsetWidth, x)) + 'px'; t.style.top = Math.max(58, Math.min(890 - t.offsetHeight, y - t.offsetHeight)) + 'px'; };
   const hideTip = () => $('#tip').classList.remove('show');
   const showCardTip = (c) => { const k = c.dataset.type, d = T[k], st = SIM.buildStats(APP.play, -1, k);
-    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType]}</div>`, c.offsetLeft + 10, 900 - 150); };
+    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType] || ''}</div>`, c.offsetLeft + 10, 900 - 150); };
 
   // ---------------------------------------------------------------- панель
   // Панель собрана из кусков, каждый — своя функция (тикеты правят свой кусок, не соседний):
@@ -165,8 +201,7 @@
     p.innerHTML = `${closeBtn}<div class="nm">Свободная клетка</div><div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
         <div class="note" style="margin-top:8px">Выберите башню на карточках слева внизу или клавишами 1–4.</div>`;
   };
-  const towerPic = (tw) => { const lk = SIM.look(tw), n = [3, 2, 1].map((l) => 'tw_' + tw.type + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
-    return img(n || 'tw_' + tw.type + '_' + lk, `<div class="ph" style="width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;background:${PH[tw.type] || '#aaa'}"></div>`); };
+  const towerPic = (tw) => { const lk = SIM.look(tw); return typePic(tw.type, lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
   const towerHead = (S, tw) => {
     const d = T[tw.type], st = SIM.towerStats(S, tw);
     return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
@@ -229,33 +264,44 @@
     const mv = p.querySelector('.move'); if (mv) mv.classList.toggle('off', !SIM.canMove(S, tw.cell).ok);
   };
 
-  // Место панели. Перебор позиций по всему полю шагом 16 px. Нельзя никогда: своя клетка с соседями (в режиме переноса —
-  // две клетки вокруг: ближние цели переноса), плашки интерфейса, вход и склеп с соседями, край экрана. Из допустимых —
-  // меньше всего дороги (в режиме переноса — клеток-целей), затем чужих башен, затем ближе к своей башне.
-  // Результат кэшируется, пока не сменились клетка, размер панели, режим, застройка и раскладка плашек.
-  const PANEL_BUSY = '#stats, #seedbox, #wavebtn, #cards, #title';
+  // Место окна у точки — общее для панели и подсказок обучения. Перебор позиций по всему полю шагом 16 px.
+  //  Нельзя никогда: o.keep (у панели — своя клетка с соседями, в режиме переноса — две клетки вокруг), o.avoid (у подсказки —
+  //  открытая панель), плашки интерфейса (кнопка вызова волны — и тогда, когда её сейчас нет: она вернётся после волны),
+  //  вход и склеп с соседними клетками, край экрана.
+  //  Из допустимых — меньше всего o.soft (дорога; в режиме переноса — клетки-цели; одна клетка стоит ~400 px расстояния),
+  //  затем меньше чужих башен, затем ближе к точке; o.maxDist — мягкий предел расстояния (если задан). Жёсткого предела
+  //  расстояния нет: в углах поля он выталкивает панель на дорогу (сид 77, правый нижний угол: в 600 px — 5 клеток дороги).
+  //  Результат кэшируется в o.cache, пока не сменились входные данные.
+  const PLATES = '#stats, #seedbox, #cards, #title';
+  let WAVEBTN = [14, 150, 196, 64];                                   // кнопка вызова волны: последнее место, где она была видна
   const rectsOf = (sel) => [...document.querySelectorAll(sel)].filter((e) => e.offsetParent && getComputedStyle(e).visibility !== 'hidden').map((e) => [e.offsetLeft, e.offsetTop, e.offsetWidth, e.offsetHeight]);
   const overlap = (a, b) => Math.max(0, Math.min(a[0] + a[2], b[0] + b[2]) - Math.max(a[0], b[0])) * Math.max(0, Math.min(a[1] + a[3], b[1] + b[3]) - Math.max(a[1], b[1]));
-  let spot = { key: '', r: null };
-  const panelSpot = (S, cell, w, h, moving) => {
-    const busy = rectsOf(PANEL_BUSY), key = [S.seed, cell, w, h, moving, S.towers.map((t) => (t ? 1 : 0)).join(''), JSON.stringify(busy)].join('|');
-    if (spot.key === key) return spot.r;
-    const cols = S.map.cols, tile = C.GRID.tile, at = (i) => [(i % cols) * tile, Math.floor(i / cols) * tile, tile, tile];
-    const around = (i, n) => { const [x, y] = at(i); return [x - n * tile, y - n * tile, (2 * n + 1) * tile, (2 * n + 1) * tile]; };
-    const road = S.map.road, hard = [around(cell, moving ? 2 : 1), around(road[0], 1), around(road[road.length - 1], 1)].concat(busy.map(([x, y, bw, bh]) => [x - 6, y - 6, bw + 12, bh + 12]));
-    const soft = (moving ? SIM.moveCells(S, cell) : road).map(at), towers = S.towers.map((t, i) => (t && i !== cell ? at(i) : null)).filter(Boolean);
-    const [cx, cy] = SIM.cellXY(S, cell);
+  const cellRect = (S, i, n = 0) => { const T = C.GRID.tile, x = (i % S.map.cols) * T, y = Math.floor(i / S.map.cols) * T; return [x - n * T, y - n * T, (2 * n + 1) * T, (2 * n + 1) * T]; };
+  const spotNear = (S, o) => {
+    const wb = $('#wavebtn'); if (wb && wb.offsetParent) WAVEBTN = [wb.offsetLeft, wb.offsetTop, wb.offsetWidth, wb.offsetHeight];
+    const plates = rectsOf(PLATES).concat([WAVEBTN]), soft = o.soft || [], road = S.map.road;
+    const key = [S.seed, o.x, o.y, o.w, o.h, o.keep, o.avoid, soft.length, o.maxDist, S.towers.map((t) => (t ? 1 : 0)).join(''), JSON.stringify(plates)].join('|');
+    if (o.cache.key === key) return o.cache.r;
+    const hard = [o.keep, around(S, road[0]), around(S, road[road.length - 1])].concat(o.avoid ? [o.avoid] : [], plates.map(([x, y, w, h]) => [x - 6, y - 6, w + 12, h + 12]));
+    const towers = S.towers.map((t, i) => (t ? cellRect(S, i) : null)).filter(Boolean);
     let best = null, bestCost = Infinity;
-    for (let y = 58; y <= 892 - h; y += 16) for (let x = 8; x <= 1592 - w; x += 16) {
-      const r = [x, y, w, h];
-      let cost = hard.some((q) => overlap(r, q) > 0) ? 1e12 : 0;
+    for (let y = 58; y <= 892 - o.h; y += 16) for (let x = 8; x <= 1592 - o.w; x += 16) {
+      const r = [x, y, o.w, o.h];
+      if (hard.some((q) => overlap(r, q) > 0)) continue;
+      const dist = Math.hypot(Math.max(x - o.x, 0, o.x - x - o.w), Math.max(y - o.y, 0, o.y - y - o.h));
+      let cost = (o.maxDist && dist > o.maxDist ? 100 * (dist - o.maxDist) : 0) + 100 * dist;
       for (const q of soft) cost += 10 * overlap(r, q);
       for (const q of towers) cost += 2 * overlap(r, q);
-      cost += 100 * Math.hypot(Math.max(x - cx, 0, cx - x - w), Math.max(y - cy, 0, cy - y - h));
       if (cost < bestCost) { bestCost = cost; best = r; } }
-    spot = { key, r: best }; return best;
+    o.cache.key = key; o.cache.r = best || [8, 58, o.w, o.h]; return o.cache.r;
   };
-  const placePanel = (S, p) => { const [l, t] = panelSpot(S, ui.sel, p.offsetWidth, p.offsetHeight, ui.move === ui.sel); p.style.left = l + 'px'; p.style.top = t + 'px'; };
+  const around = (S, i) => cellRect(S, i, 1);
+  const PANEL_MAX = 0, COACH_MAX = 400;                                // мягкий предел расстояния (0 — нет); см. spotNear
+  const panelCache = {}, coachCache = {};
+  const placePanel = (S, p) => { const moving = ui.move === ui.sel, [x, y] = SIM.cellXY(S, ui.sel);
+    const [l, t] = spotNear(S, { x, y, w: p.offsetWidth, h: p.offsetHeight, keep: cellRect(S, ui.sel, moving ? 2 : 1), maxDist: PANEL_MAX, cache: panelCache,
+      soft: (moving ? SIM.moveCells(S, ui.sel) : S.map.road).map((i) => cellRect(S, i)) });
+    p.style.left = l + 'px'; p.style.top = t + 'px'; };
 
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
@@ -263,7 +309,8 @@
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
     if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
     const tw = S.towers[ui.sel], moving = ui.move === ui.sel;
-    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested], moving, ended()]);
+    // в ключе и сами итоговые характеристики: они меняются и извне (алтарь рядом, Гримуар, клетка) — панель покажет новые
+    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw)], moving, ended()]);
     if (key === panelKey || (pressed && !force)) { if (tw && !moving) refreshPanel(p, S, tw); return; }
     panelKey = key; hideTip();                                         // подсказка висела над кнопкой, которой больше нет
     p.classList.add('show'); p.classList.toggle('moving', moving);
@@ -297,20 +344,10 @@
     { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
       text: `В башню вложено ${C.PERK_AT} ступеней — выбери один из трёх перков. Выбор навсегда, читай подсказки.` },
   ];
-  // где поставить подсказку w×h рядом с точкой (x, y): перебираем места вокруг цели (сеткой до ~400 px) и берём то, что
-  // не закрывает дорогу, интерфейс и саму цель, а из таких — ближайшее. Результат кэшируется, пока не сменились цель и раскладка.
-  let placed = { key: '', r: null };
-  const placeNear = (S, x, y, w, h) => {
-    const busy = rectsOf('#stats, #seedbox, #wavebtn, #cards, #panel.show, #title'), key = [S.seed, x, y, w, h, JSON.stringify(busy)].join('|');
-    if (placed.key === key) return placed.r;
-    const tile = C.GRID.tile, road = S.map.road.map((i) => [(i % S.map.cols) * tile, Math.floor(i / S.map.cols) * tile, tile, tile]), target = [x - 40, y - 40, 80, 80];
-    let best = null, bestCost = Infinity;
-    for (let oy = -400; oy <= 400; oy += 24) for (let ox = -480; ox <= 480; ox += 24) {
-      const r = [Math.max(10, Math.min(1590 - w, x + ox - w / 2)), Math.max(58, Math.min(890 - h, y + oy - h / 2)), w, h];
-      let cost = 0; for (const q of road) cost += overlap(r, q); for (const q of busy) cost += 4 * overlap(r, q); cost += 8 * overlap(r, target);
-      cost += 3 * Math.hypot(r[0] + w / 2 - x, r[1] + h / 2 - y);
-      if (cost < bestCost) { bestCost = cost; best = r; } }
-    placed = { key, r: best }; return best; };
+  // подсказка обучения — тем же размещением, что и панель: не закрывает цель, панель, плашки, вход и склеп, мимо дороги
+  const placeNear = (S, x, y, w, h) => { const pn = $('#panel.show');
+    return spotNear(S, { x, y, w, h, keep: [x - 40, y - 40, 80, 80], avoid: pn ? [pn.offsetLeft - 6, pn.offsetTop - 6, pn.offsetWidth + 12, pn.offsetHeight + 12] : null,
+      maxDist: COACH_MAX, cache: coachCache, soft: S.map.road.map((i) => cellRect(S, i)) }); };
   let best = { key: '', cell: -1 };                                 // лучшая клетка карты для подсказки (считается раз на карту)
   const bestCell = (S) => { const key = S.seed + ':' + S.map.road.length; if (best.key !== key) best = { key, cell: SIM.rankCells(S, 3.4)[0] }; return best.cell; };
   const coach = (S) => { const el = $('#coach'), c = COACH.find((q) => !prefs.tips[q.id] && q.when(S));
@@ -323,9 +360,18 @@
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
-  const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
-    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S)) { resetRun(); showOverlay('menu', false); } };
-    $('#m-new').onclick = () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); };
+  // меню перерисовывается и когда сейв поменяла другая вкладка (onStorage): введённый сид и фокус поля сохраняются
+  const showMenu = () => { const m = $('#menu'), old = $('#m-seed'), typed = old ? old.value : '', focused = !!old && document.activeElement === old;
+    m.innerHTML = menuHTML(); showOverlay('menu', true);
+    if (typed) $('#m-seed').value = typed; if (focused) $('#m-seed').focus();
+    // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
+    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
+    const start = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+    $('#m-new').onclick = () => start();
+    const inp = $('#m-seed'); inp.oninput = seedInput; seedInput();
+    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); start(r.seed); } else AUDIO.ui('deny'); };
+    // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
+    inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
   const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
@@ -333,13 +379,32 @@
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
       <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
-    showOverlay('end', true); store.del(SAVE_KEY);
+    showOverlay('end', true);
     $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
-  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; seenEv.clear(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
+  const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
+  const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
+  const resetRun = () => { detached = false; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
-  const save = (S) => { if (S.phase === 'prep' && !S.demo) store.set(SAVE_KEY, { S, at: Date.now() }); };
+  // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
+  // и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег стирает сейв один раз (dropOwn).
+  // Вкладка, чей сейв перезаписала другая вкладка (detached), больше не пишет, пока не начнёт или не продолжит забег сама.
+  let savedAt = 0, detached = false, writeFailed = false;
+  const persist = () => { const S = APP.play; savedAt = performance.now();
+    if (!S || S.demo || detached || S.phase === 'won' || S.phase === 'lost') return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ S, at: Date.now(), tab: TAB })); }
+    catch (e) {                                       // не записалось: старый сейв вернул бы игрока далеко назад — убираем его
+      store.del(SAVE_KEY);
+      if (!writeFailed) { writeFailed = true; toast('Забег не сохраняется<small>Хранилище браузера недоступно или переполнено</small>', '', 5000); } } };
+  // свой забег закончился: стираем сейв, только если в хранилище лежит именно он
+  const dropOwn = () => { try { const sv = JSON.parse(localStorage.getItem(SAVE_KEY)); if (sv && sv.tab === TAB) localStorage.removeItem(SAVE_KEY); } catch (e) {} };
+  const onStorage = (e) => { if (e.key !== SAVE_KEY) return;
+    if (!APP.play) { if ($('#menu').classList.contains('show')) showMenu(); return; }   // подпись «Продолжить» — по свежему сейву
+    if (e.newValue === null || detached) return;
+    let tab = null; try { tab = JSON.parse(e.newValue).tab; } catch (x) {}
+    if (tab !== TAB) { detached = true; toast('Забег сохраняет другая вкладка<small>Здесь прогресс больше не сохраняется</small>', '', 5000); } };
 
   // ---------------------------------------------------------------- кадр
   let lastSouls = -1, lastHp = -1, wasEnded = false;
@@ -358,24 +423,27 @@
       $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + (S.prepT > 0 ? `сама через ${Math.ceil(S.prepT)} с · Enter` : 'Enter');
       wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean)); }
     // события → звук, тосты, новые враги, сейв
-    for (const e of S.ev) { const key = e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1); if (seenEv.has(key)) continue; seenEv.add(key);
+    for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
-      if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); save(S); }
+      if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
-      if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move') && S.phase === 'prep') save(S);
+      if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'wave') savedAt = 0;
     }
-    if (seenEv.size > 3000) { seenEv.clear(); for (const e of S.ev) seenEv.add(e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1)); }
+    if (seenEv.size > 3000) markSeen();
+    if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
-    if (isEnded && !wasEnded) { select(-1); setTimeout(() => showEnd(APP.play), 900); }
+    if (isEnded && !wasEnded) { select(-1); dropOwn(); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     renderPanel(false); coach(S);
   };
 
   UI.init = (A, canvas) => {
-    APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol);
+    APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol); dropOldSaves(); markSeen();
+    addEventListener('pagehide', persist); addEventListener('beforeunload', persist); addEventListener('storage', onStorage);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
     if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
   };
 })();

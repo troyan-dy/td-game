@@ -23,13 +23,14 @@ const nextUp = (S, t, perk) => {
 // Игрок по плану: строит на клетках с лучшим покрытием дороги типы из mix по кругу, качает ветки и берёт перки.
 // Новую башню ставит, пока их меньше 7 или пока она дороже ступени не больше чем в BUILD_VS_STEP раз.
 const BUILD_VS_STEP = 3;
-const planned = (mix) => (S, mem) => {
+// perks — какой перк берёт каждый тип (по умолчанию PERK)
+export const planned = (mix, perks = PERK) => (S, mem) => {
   const cells = plan(S, mem, 18), built = S.towers.filter(Boolean).length;
   const k = cells.findIndex((c) => !S.towers[c]), next = k >= 0 ? [cells[k], mix[k % mix.length]] : null;
   const nextCost = next ? SIM.canBuild(S, next[0], next[1]).cost : Infinity;
   let up = null, upW = Infinity;
   for (const t of S.towers) if (t) {
-    const u = nextUp(S, t, PERK[t.type]); if (!u) continue;
+    const u = nextUp(S, t, perks[t.type]); if (!u) continue;
     const w = u.cost * (1 + SIM.steps(t) / 4);                       // предпочитаем поднять самых слабых
     if (w < upW) { upW = w; up = u; }
   }

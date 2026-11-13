@@ -12,6 +12,11 @@
     UNIT: 48,
     DT: 1 / 120,                   // шаг симуляции по умолчанию; забег может задать свой (create(seed, { dt }))
     DT_MAX: 0.1,                   // самый крупный шаг, с которым сохранённый забег считается годным (SIM.loadable)
+    DT_MIN: 1 / 1000,              // самый мелкий шаг, с которым сохранённый забег считается годным: проба сейва не длиннее SAVE_TRIAL / DT_MIN шагов
+    SAVE_NUM_MAX: 1e10,            // любое число в сохранённом забеге по модулю не больше (сид и состояние случайности — 32 бита)
+    SAVE_TRIAL: 2,                 // секунд игры, которые SIM.loadable проживает на копии сейва: годен, только если логика не споткнулась
+    SEED: { max: 4294967295,       // сид забега — целое 0..max (32 бита): столько вводится на титульном экране
+      random: 999999 },            // новый забег без введённого сида получает случайный сид 1..random
     START_SOULS: 250,
     CRYPT_HP: 20,
     SELL_REFUND: 0.7,
@@ -62,12 +67,20 @@
     //   attack   — вид атаки, обработчик в live/sim.js (ATTACKS): 'bolt' | 'ghost' | 'blob' | 'beam'; нет поля — башня не стреляет
     //   extra    — дополнительные характеристики типа (скорость снаряда, замедление, облако…): попадают в SIM.towerStats
     //   muzzle   — высота точки выстрела над центром клетки, px (у вида 1; каждый следующий вид — на LOOK_MUZZLE выше)
-    //   names    — подписи веток, если не как в TRACK_NAMES; show — строки панели для extra: [подпись, шаблон SIM.fill]
+    //   names    — подписи веток, если не как в TRACK_NAMES; fmt — формат значения ветки (шаблон SIM.fill), если не как в
+    //              TRACK_FMT; show — строки панели для extra: [подпись, шаблон SIM.fill]
+    //   art      — внешний вид (недостающее — из ART): sprite — чей набор спрайтов tw_<sprite>_<вид> брать, tint — перекраска
+    //              [r, g, b, сила] на холсте, css — то же в DOM (CSS filter), color — цвет свечения и круга радиуса (линейный
+    //              0..1), ui — цвет заглушки в DOM, fx — живые детали сцены (orbs | fumes | crown), sound — звук выстрела,
+    //              flip — поворачивать спрайт к цели. Новый тип — перекраска существующего: { sprite: 'dark', tint: [...] }
     //   perks    — id (уникальны среди всех типов: гибрид хранит перки обоих типов) → { name, cost, desc (шаблон SIM.fill),
-    //              set | add | mul — что перк делает с характеристиками башни (ставит, прибавляет, умножает) }
+    //              set | add | mul — что перк делает с характеристиками башни (ставит, прибавляет, умножает) }.
+    //              Правило: характеристику, которая растёт от веток (dmg, range, rate и всё, что в also), перк меняет только
+    //              через add или mul — set затёр бы рост от ступеней. set — для своих параметров перка (pen, bolts, …).
     TOWERS: {
       bones: {
         name: 'КОСТИ', short: 'БАЛЛИСТА', title: 'Костяная баллиста', dmgType: 'phys', attack: 'bolt', muzzle: 58,
+        art: { sprite: 'bones', color: [0.90, 0.85, 0.72], ui: '#e6d9b8', sound: 'bones', flip: true },
         base: { cost: 100, dmg: 24, rate: 1.0, range: 3.6 },
         tracks: { dmg: track(45, 0.35), range: track(35, 0.08), rate: track(40, 0.12) },
         extra: { speed: 900 },
@@ -80,6 +93,7 @@
       },
       spirits: {
         name: 'ДУХИ', short: 'ФОНАРЬ', title: 'Фонарь призраков', dmgType: 'magic', attack: 'ghost', muzzle: 70,
+        art: { sprite: 'spirits', color: [0.30, 0.95, 0.88], ui: '#6ff2e2', fx: 'orbs', sound: 'spirits' },
         base: { cost: 110, dmg: 10, rate: 0.8, range: 3.2 },
         tracks: { dmg: track(45, 0.35, { slow: 0.03 }), range: track(35, 0.08), rate: track(40, 0.12) },
         extra: { speed: 380, slow: 0.30, slowTime: 1.5 },
@@ -93,10 +107,11 @@
       },
       plague: {
         name: 'ЧУМА', short: 'КОТЁЛ', title: 'Чумной котёл', dmgType: 'poison', attack: 'blob', muzzle: 44,
+        art: { sprite: 'plague', color: [0.45, 0.90, 0.25], ui: '#8be04e', fx: 'fumes', sound: 'plague' },
         base: { cost: 130, dmg: 12, rate: 2.2, range: 3.0 },
         tracks: { dmg: track(50, 0.35), range: track(35, 0.08), rate: track(45, 0.12) },
         extra: { cloudR: 0.9, cloudTime: 3, linger: 1.0, flight: 0.6 },
-        names: { dmg: 'Яд' }, units: { dmg: '/с' },
+        names: { dmg: 'Яд' }, fmt: { dmg: '{dmg}/с' },
         show: [['Облако', '{cloudR кл} · {cloudTime} с']],
         desc: 'Ядовитое облако травит всех внутри. Яд не замечает брони.',
         perks: {
@@ -107,6 +122,7 @@
       },
       dark: {
         name: 'ТЬМА', short: 'ОБЕЛИСК', title: 'Обелиск тьмы', dmgType: 'magic', ignoreMres: true, attack: 'beam', muzzle: 92,
+        art: { sprite: 'dark', color: [0.80, 0.38, 1.0], ui: '#c86bff', fx: 'crown', sound: 'dark' },
         base: { cost: 150, dmg: 20, rate: 1.3, range: 3.2 },
         tracks: { dmg: track(55, 0.35), range: track(40, 0.08), rate: track(50, 0.12) },
         extra: { heavy: 2 },
@@ -120,6 +136,8 @@
       },
     },
     TRACK_NAMES: { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' },
+    TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
+    ART: { sprite: 'bones', tint: null, css: '', color: [0.8, 0.8, 0.8], ui: '#bbbbbb', fx: null, sound: null, flip: false },   // вид башни по умолчанию
     LOOK_MUZZLE: 4,
     TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark'],
 
