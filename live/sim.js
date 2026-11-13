@@ -131,7 +131,39 @@
       for (const [key, v] of Object.entries(b.add || {})) o[key] = (o[key] || 0) + v;
       if (b.haste) o.rate /= 1 + b.haste; }
     const g = grimBonus(S, tw.type); o.dmg *= 1 + g.dmg; o.range *= 1 + g.range; o.rate /= 1 + g.rate;   // Гримуар — после клетки и реликвий
+    if (hasAura(tw.type)) auraGrim(S, tw.type, o);                                                // Алтарь: сила ауры с Гримуаром
+    const au = auraOn(S, tw); if (au) { o.dmg *= 1 + au.dmg; o.rate /= 1 + au.rate; o.range += au.range; o.altar = au; }   // Алтарь крови
     o.rangePx = o.range * UNIT; return o; };
+  // ---- аура Алтаря крови (#8). Тип с аурой — с auraR в extra. Аура действует на башни с видом атаки на клетках не дальше
+  // auraR по сетке и берётся от СВОИХ характеристик алтаря (ownStats): алтари рядом не зацикливаются, алтарь ауру не получает.
+  // Несколько алтарей не складываются: по каждой прибавке (урон, скорость, дальность) — сильнейший.
+  const hasAura = (type) => own(TW, type) && !!TW[type].extra && own(TW[type].extra, 'auraR');
+  // Гримуар у алтаря усиливает ауру: прибавка ветки dmg | range | rate — к auraDmg | auraRange | auraRate (меняет o на месте)
+  const AURA_OF = { dmg: 'auraDmg', range: 'auraRange', rate: 'auraRate' };
+  const auraGrim = (S, type, o) => { const g = grimBonus(S, type); for (const k of C.TRACKS) o[AURA_OF[k]] *= 1 + g[k]; return o; };
+  // характеристики, от которых алтарь a даёт ауру: свои плюс Гримуар (без ауры соседей — рекурсии нет)
+  const auraStats = (S, a) => auraGrim(S, a.type, ownStats(S, a));
+  const gridDist = (S, a, b) => { const n = S.map.cols; return Math.max(Math.abs(a % n - b % n), Math.abs(Math.floor(a / n) - Math.floor(b / n))); };
+  // { dmg, rate, range } — что башня tw получает от алтарей вокруг, или null
+  const auraOn = (S, tw) => {
+    if (!(tw.cell >= 0) || !attackOf(tw)) return null; let out = null;
+    for (const a of S.towers) if (a && a !== tw && a.cell !== tw.cell && hasAura(a.type)) { const st = auraStats(S, a);
+      if (gridDist(S, a.cell, tw.cell) > st.auraR) continue;
+      out = out || { dmg: 0, rate: 0, range: 0 };
+      out.dmg = Math.max(out.dmg, st.auraDmg); out.rate = Math.max(out.rate, st.auraRate); out.range = Math.max(out.range, st.auraRange); }
+    return out; };
+  // алтарь на клетке cell: будущий типа type (превью постройки) или стоящий там (type не задан); null — там не алтарь
+  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && hasAura(tw.type) ? tw : null; };
+  // клетки башен, которые усилит алтарь на клетке cell (превью постройки, подсветка на карте); [] — не алтарь или некого
+  const auraTargets = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
+    const r = ownStats(S, tw).auraR;
+    for (const t of S.towers) if (t && t !== tw && t.cell !== cell && attackOf(t) && gridDist(S, t.cell, cell) <= r) out.push(t.cell);
+    return out; };
+  // клетки поля, которые накрывает аура алтаря на клетке cell (рамка ауры на карте), с самой клеткой; [] — не алтарь
+  const auraCells = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
+    const r = ownStats(S, tw).auraR;
+    for (let i = 0; i < cellCount(S); i++) if (gridDist(S, i, cell) <= r) out.push(i);
+    return out; };
   const towerStats = (S, tw, plus) => externalBonus(S, tw, ownStats(S, tw, plus));
   const rangePx = (S, tw) => towerStats(S, tw).rangePx;
   // итоговые характеристики будущей башни типа type на клетке cell (подсказка карточки, меню постройки); cell -1 — без клетки
@@ -771,6 +803,7 @@
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
     hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
+    hasAura, auraTargets, auraCells,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;

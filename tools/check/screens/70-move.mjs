@@ -21,7 +21,11 @@ export async function steps(ctx, g) {
   return {
     move_mode: async () => {
       await g.newGame(ctx); await ctx.eval(() => { APP.play.souls = 5000; });
-      const spots = await g.spots(ctx); from = spots[0]; other = spots[1];
+      // башня — на лучшей клетке хотя бы с двумя свободными соседями (вторая башня может занять одного, а шагу move_near
+      // нужна ближняя цель; сид новой игры случайный)
+      const spots = await g.spots(ctx), roomy = await ctx.eval((ids) => { const S = APP.play, n = S.map.cols;
+        return ids.find((c) => [-n - 1, -n, -n + 1, -1, 1, n - 1, n, n + 1].filter((d) => { const i = c + d; return Math.abs((i % n) - (c % n)) <= 1 && SIM.canBuild(S, i, 'bones').ok; }).length >= 2); }, spots);
+      from = roomy === undefined ? spots[0] : roomy; other = spots.find((c) => c !== from);
       await g.build(ctx, from, 'dark'); await g.build(ctx, other, 'bones'); await g.toPerk(ctx, from);
       id = await ctx.eval((c) => APP.play.towers[c].id, from);
       const inv = await ctx.eval((c) => [APP.play.towers[c].invested, SIM.CONFIG.TOWERS.dark.base.cost], from);   // прокачка правда применилась

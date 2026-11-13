@@ -308,6 +308,29 @@
       rich: { name: 'Богатая', desc: 'Враги несут добычу: живучее, но щедрее.', bounty: 1.75, hp: 1.15 },
     },
   };
+
+  // ---------------------------------------------------------------- Алтарь крови (#8)
+  // Не стреляет (нет attack): башни с видом атаки на клетках не дальше auraR по сетке (auraR 1 — восемь соседей) бьют сильнее
+  // и чаще. Тип с аурой — тот, у кого в extra есть auraR (SIM.hasAura). Ветки — прибавки ауры, а не свои dmg/range/rate
+  // (у тех k = 0): урон — auraDmg (доля к урону соседа), дальность — auraRange (единицы UNIT к радиусу соседа),
+  // скорость — auraRate (интервал соседа делится на 1 + auraRate). Несколько алтарей не складываются: по каждой прибавке
+  // берётся сильнейший. Вид — перекрашенный Фонарь.
+  C.TOWERS.altar = {
+    name: 'АЛТАРЬ', short: 'АЛТАРЬ', title: 'Алтарь крови', dmgType: 'aura', muzzle: 60,
+    art: { sprite: 'spirits', tint: [1.9, 0.32, 0.38, 0.85], css: 'sepia(1) saturate(4) hue-rotate(-40deg) brightness(0.9)', color: [1.0, 0.26, 0.30], ui: '#ff4d5e', fx: 'orbs' },
+    base: { cost: 120, dmg: 0, rate: 1, range: 0 },
+    tracks: { dmg: track(50, 0, { auraDmg: 0.03 }), range: track(40, 0, { auraRange: 0.15 }), rate: track(45, 0, { auraRate: 0.03 }) },
+    extra: { auraR: 1, auraDmg: 0.15, auraRate: 0.10, auraRange: 0 },
+    fmt: { dmg: '+{auraDmg%}', range: '+{auraRange кл}', rate: '+{auraRate%}' },
+    show: [['Охват', '{auraR} кл. вокруг']],
+    desc: 'Не стреляет. Башни на восьми соседних клетках бьют сильнее и чаще; ветки качают бонус соседям. Алтари не складываются — берётся сильнейший.',
+    perks: {
+      offering: { name: 'Кровавое подношение', cost: 180, add: { auraDmg: 0.12 }, desc: 'Урон соседних башен растёт ещё на {auraDmg п} пунктов.' },
+      frenzy: { name: 'Исступление', cost: 180, add: { auraRate: 0.12 }, desc: 'Соседние башни стреляют чаще ещё на {auraRate п} пунктов.' },
+      circle: { name: 'Кровавый круг', cost: 180, set: { auraR: 2 }, desc: 'Аура достаёт башни до {auraR} клеток вокруг алтаря, а не только соседей.' },
+    },
+  };
+  C.TOWER_ORDER.push('altar');
   if (typeof module !== 'undefined') module.exports = C;
   if (typeof window !== 'undefined') window.CONFIG = C;
 })();
