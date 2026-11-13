@@ -50,7 +50,7 @@ test('три ветки качаются каждая отдельно до св
   for (const tr of C.TRACKS) assert.equal(tw.tracks[tr], 0);
   assert.equal(tw.cap, C.TRACK_MAX);
   const costs = T.bones.tracks.dmg.cost;
-  assert.equal(costs.length, C.TRACK_MAX);
+  assert.ok(costs.length >= C.TRACK_MAX, 'цен меньше, чем ступеней обычной башни');
   for (let i = 1; i < costs.length; i++) assert.ok(costs[i] > costs[i - 1], 'цена ступени не растёт: ' + costs);
   // ступени урона одна за другой: каждая списывает свою цену, другие ветки не трогаются
   for (let i = 0; i < C.TRACK_MAX; i++) {
@@ -63,13 +63,18 @@ test('три ветки качаются каждая отдельно до св
   assert.deepEqual(SIM.canUpgrade(S, cell, 'dmg'), { ok: false, reason: 'max', cost: null });
   const before = S.souls; SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: 'dmg' }] });
   assert.equal(S.souls, before); assert.equal(tw.tracks.dmg, C.TRACK_MAX);
-  // потолок — свойство башни (гибрид качается дальше): цены дальше конфига нет — ступень недоступна, а не бесплатна
+  // потолок — свойство башни: поднятый потолок (гибрид) открывает следующие ступени по ценам из конфига
   tw.cap = C.TRACK_MAX + 1;
-  assert.equal(SIM.canUpgrade(S, cell, 'dmg').ok, costs.length > C.TRACK_MAX);
+  assert.deepEqual(SIM.canUpgrade(S, cell, 'dmg'), { ok: true, reason: null, cost: costs[C.TRACK_MAX] });
+  // потолок выше списка цен: ступень недоступна со своей причиной, а не «максимум» и не бесплатно
+  tw.cap = costs.length + 1; tw.tracks.dmg = costs.length;
+  assert.deepEqual(SIM.canUpgrade(S, cell, 'dmg'), { ok: false, reason: 'price', cost: null });
+  const was = S.souls; SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: 'dmg' }] }); assert.equal(S.souls, was); assert.equal(tw.tracks.dmg, costs.length);
+  tw.cap = C.TRACK_MAX; tw.tracks.dmg = C.TRACK_MAX;
   // другая ветка — свои цены
   assert.equal(SIM.canUpgrade(S, cell, 'range').cost, T.bones.tracks.range.cost[0]);
   // отказы: нет ветки, нет башни, нет душ
-  assert.equal(SIM.canUpgrade(S, cell, 'hp').reason, 'track');
+  for (const junk of ['hp', 'constructor', '__proto__', 'toString', ['dmg'], null, 1]) assert.equal(SIM.canUpgrade(S, cell, junk).reason, 'track', String(junk));
   assert.equal(SIM.canUpgrade(S, S.map.road[0], 'dmg').reason, 'none');
   S.souls = T.bones.tracks.rate.cost[0] - 1;
   assert.deepEqual(SIM.canUpgrade(S, cell, 'rate'), { ok: false, reason: 'souls', cost: T.bones.tracks.rate.cost[0] });
@@ -92,7 +97,7 @@ test('перк недоступен до шести суммарных ступ�
   for (let i = 0; i < C.PERK_AT - 1; i++) {
     const cp = SIM.canPerk(S, cell, p1);
     assert.equal(cp.ok, false); assert.equal(cp.reason, 'steps'); assert.equal(cp.need, C.PERK_AT - i);
-    SIM.step(S, { cmds: [{ k: 'perk', cell, p: p1 }] }); assert.equal(tw.perk, null);
+    SIM.step(S, { cmds: [{ k: 'perk', cell, p: p1 }] }); assert.deepEqual(SIM.perksOf(tw), []);
     up(C.TRACKS[i % C.TRACKS.length]);
   }
   assert.equal(SIM.canPerk(S, cell, p1).need, 1);
@@ -102,15 +107,49 @@ test('перк недоступен до шести суммарных ступ�
   assert.equal(SIM.canPerk(S, cell, 'nope').reason, 'perk');
   const before = S.souls, inv = tw.invested;
   SIM.step(S, { cmds: [{ k: 'perk', cell, p: p1 }] });
-  assert.equal(tw.perk, p1); assert.equal(before - S.souls, T.spirits.perks[p1].cost); assert.equal(tw.invested, inv + T.spirits.perks[p1].cost);
+  assert.deepEqual(SIM.perksOf(tw), [p1]); assert.ok(SIM.hasPerk(tw, p1)); assert.equal(SIM.freeSlots(tw), 0);
+  assert.equal(before - S.souls, T.spirits.perks[p1].cost); assert.equal(tw.invested, inv + T.spirits.perks[p1].cost);
   // второй перк не берётся ни тот же, ни другой
   assert.equal(SIM.canPerk(S, cell, p1).reason, 'chosen'); assert.equal(SIM.canPerk(S, cell, p2).reason, 'taken');
   SIM.step(S, { cmds: [{ k: 'perk', cell, p: p2 }, { k: 'perk', cell, p: p1 }] });
-  assert.equal(tw.perk, p1); assert.equal(before - S.souls, T.spirits.perks[p1].cost);
+  assert.deepEqual(SIM.perksOf(tw), [p1]); assert.equal(before - S.souls, T.spirits.perks[p1].cost);
   // без душ — отказ с причиной
   const S2 = SIM.create(6); S2.souls = 1e6; SIM.step(S2, { cmds: [{ k: 'build', cell, type: 'dark' }] });
   for (let i = 0; i < C.PERK_AT; i++) SIM.step(S2, { cmds: [{ k: 'upgrade', cell, track: C.TRACKS[i % 2] }] });
   S2.souls = 0; assert.equal(SIM.canPerk(S2, cell, 'curse').reason, 'souls');
+  // перк чужого типа не берётся
+  S2.souls = 1e6; assert.equal(SIM.canPerk(S2, cell, p1).reason, 'perk');
+});
+
+test('имя перка или ветки из команды — только строка и собственный ключ данных: мусор не портит забег', () => {
+  const S = SIM.create(6), cell = freeCell(S), tw = tower(S, cell, 'bones', C.TRACKS.concat(C.TRACKS)), souls = S.souls, inv = tw.invested;
+  assert.equal(SIM.steps(tw), C.PERK_AT);
+  const junk = ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf', ['pierce'], { p: 1 }, null, undefined, 3];
+  for (const p of junk) assert.equal(SIM.canPerk(S, cell, p).reason, 'perk', String(p));
+  for (const track of junk) assert.equal(SIM.canUpgrade(S, cell, track).reason, 'track', String(track));
+  for (const type of junk) assert.equal(SIM.canBuild(S, SIM.rankCells(S, 3)[0], type).reason, 'type', String(type));
+  SIM.step(S, { cmds: [...junk.map((p) => ({ k: 'perk', cell, p })), ...junk.map((track) => ({ k: 'upgrade', cell, track })),
+    ...junk.map((type) => ({ k: 'build', cell: SIM.rankCells(S, 3)[0], type }))] });
+  assert.equal(S.souls, souls); assert.equal(tw.invested, inv); assert.deepEqual(SIM.perksOf(tw), []);
+  assert.equal(S.towers.filter(Boolean).length, 1);
+  assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))), 'после мусорных команд сейв негоден');
+});
+
+test('перки — список со слотами: у обычной башни один слот, башня с двумя слотами держит два перка', () => {
+  const S = SIM.create(6), cell = freeCell(S), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const tw = tower(S, cell, 'dark', ups), [a, b, c] = Object.keys(T.dark.perks);
+  assert.equal(tw.slots, C.PERK_SLOTS); assert.equal(SIM.freeSlots(tw), 1);
+  tw.slots = 2;                                                     // так гибрид получит второй слот
+  SIM.step(S, { cmds: [{ k: 'perk', cell, p: a }, { k: 'perk', cell, p: b }, { k: 'perk', cell, p: c }] });
+  assert.deepEqual(SIM.perksOf(tw), [a, b]); assert.equal(SIM.freeSlots(tw), 0);
+  assert.equal(SIM.canPerk(S, cell, c).reason, 'taken'); assert.equal(SIM.canPerk(S, cell, a).reason, 'chosen');
+  // оба перка работают: их параметры — в итоговых характеристиках
+  const st = SIM.towerStats(S, tw); assert.equal(st.harvest, T.dark.perks.harvest.set.harvest); assert.equal(st.curse, T.dark.perks.curse.set.curse);
+  assert.ok(SIM.loadable(JSON.parse(JSON.stringify(S))));
+  // сейв с перком сверх слотов или неизвестным перком негоден
+  const bad = JSON.parse(JSON.stringify(S)); bad.towers[cell].perks.push(c); assert.equal(SIM.loadable(bad), false);
+  const bad2 = JSON.parse(JSON.stringify(S)); bad2.towers[cell].perks = ['constructor']; assert.equal(SIM.loadable(bad2), false);
+  const bad3 = JSON.parse(JSON.stringify(S)); bad3.towers[cell].type = '__proto__'; assert.equal(SIM.loadable(bad3), false);
 });
 
 // башня type на лучшей клетке и враги-манекены (заморожены, очень живучие) на дороге на расстоянии dist px от неё
@@ -155,7 +194,7 @@ test('новые перки: Бронебой, Могильный холод, М
   // Бронебой: болт по рыцарю теряет от брони вдвое меньше
   const plain = perkFight('bones', null, 'knight'), crush = perkFight('bones', 'crush', 'knight'), armor = C.ENEMIES.knight.armor;
   const ratio = hurt(crush.es[0]) / hurt(plain.es[0]);
-  assert.ok(Math.abs(ratio - (1 - armor * (1 - T.bones.perks.crush.pen)) / (1 - armor)) < 0.02, 'бронебой: отношение урона ' + ratio.toFixed(3));
+  assert.ok(Math.abs(ratio - (1 - armor * (1 - T.bones.perks.crush.set.pen)) / (1 - armor)) < 0.02, 'бронебой: отношение урона ' + ratio.toFixed(3));
   // Могильный холод: замедление сильнее и дольше, и это видно в итоговых характеристиках
   const sp = perkFight('spirits', 'pack', 'militia'), ch = perkFight('spirits', 'chill', 'militia');
   assert.ok(ch.st.slow > sp.st.slow && ch.st.slowTime > sp.st.slowTime);
@@ -171,7 +210,7 @@ test('новые перки: Бронебой, Могильный холод, М
   assert.ok(hurt(sl.es[0]) > 0 && hurt(sl.es[1]) > 0, 'луч не задел вторую цель');
   assert.equal(hurt(cu.es[1]), 0);
   const [a, b] = sl.es.map(hurt).sort((x, y) => y - x);
-  assert.ok(Math.abs(b / a - T.dark.perks.split.mult) < 0.01, 'вторая цель: ' + (b / a).toFixed(3));
+  assert.ok(Math.abs(b / a - T.dark.perks.split.set.split) < 0.01, 'вторая цель: ' + (b / a).toFixed(3));
 });
 
 test('вид башни растёт с суммой ступеней, точка выстрела поднимается вместе с ним и не уходит под HUD', () => {
@@ -190,6 +229,65 @@ test('вид башни растёт с суммой ступеней, точк�
   assert.ok(SIM.muzzle(top, top.towers[c1])[1] >= C.VIEW_TOP);
 });
 
+test('замедление: более слабое не продлевает более сильное', () => {
+  // Фонарь с «Могильным холодом» и обычный Фонарь бьют одного врага; сильный снимаем — его замедление кончается в свой срок,
+  // хотя обычный продолжает попадать, и дальше на враге остаётся слабое
+  const S = SIM.create(2), [a, b] = SIM.rankCells(S, 3.4), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const cold = tower(S, a, 'spirits', ups); SIM.step(S, { cmds: [{ k: 'perk', cell: a, p: 'chill' }] });
+  const plain = tower(S, b, 'spirits', ups); const strong = SIM.towerStats(S, cold), weak = SIM.towerStats(S, plain);
+  assert.ok(strong.slow > weak.slow && strong.slowTime > weak.slowTime);
+  const r = Math.min(strong.rangePx, weak.rangePx), [ax, ay] = SIM.cellXY(S, a), [bx, by] = SIM.cellXY(S, b);
+  SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = [];
+  let best = -1; for (let d = 0; d < SIM.pathLen(S); d++) { const p = SIM.posAt(S, d); if (Math.hypot(p.x - ax, p.y - ay) < r * 0.8 && Math.hypot(p.x - bx, p.y - by) < r * 0.8) { best = d; break; } }
+  assert.ok(best >= 0, 'нет точки дороги в радиусе обоих');
+  S.queue.push({ at: 0, e: 'militia' }); SIM.step(S, null); const e = S.enemies[0]; e.d = best; e.lane = 0; e.freezeT = 1e9; e.hp = e.max = 1e9;
+  for (let i = 0; i < 4 / S.dt && e.slowK < strong.slow - 1e-9; i++) SIM.step(S, null);
+  assert.ok(Math.abs(e.slowK - strong.slow) < 1e-9, 'сильное замедление не легло');
+  SIM.step(S, { cmds: [{ k: 'sell', cell: a }] }); S.shots = S.shots.filter((s) => s.tw !== cold.id);
+  const t0 = S.t; let gone = -1;
+  for (let i = 0; i < (strong.slowTime + 2) / S.dt; i++) { SIM.step(S, null); if (gone < 0 && Math.abs(e.slowK - strong.slow) > 1e-9) gone = S.t - t0; }
+  assert.ok(gone > 0 && gone <= strong.slowTime + S.dt * 2, `сильное замедление продлилось слабыми попаданиями: ${gone.toFixed(2)} с при сроке ${strong.slowTime} с`);
+  assert.ok(Math.abs(e.slowK - weak.slow) < 1e-9, 'после сильного осталось слабое замедление');
+});
+
+test('снаряд запоминает параметры перка в момент выстрела: проданная башня не отменяет отскоки Стаи', () => {
+  const S = SIM.create(2), cell = freeCell(S), ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
+  const tw = tower(S, cell, 'spirits', ups); SIM.step(S, { cmds: [{ k: 'perk', cell, p: 'pack' }] });
+  const st = SIM.towerStats(S, tw), r = st.rangePx * 0.9, es = dummies(S, cell, 'militia', [r, r + 8, r + 16]);
+  for (let i = 0; i < 2 / S.dt && !S.shots.some((s) => s.k === 'ghost'); i++) SIM.step(S, null);
+  const g = S.shots.find((s) => s.k === 'ghost'); assert.ok(g, 'Фонарь не выстрелил');
+  assert.equal(g.bounces, st.bounces); assert.equal(g.bounceMult, st.bounceMult);
+  SIM.step(S, { cmds: [{ k: 'sell', cell }] });
+  for (let i = 0; i < 3 / S.dt && S.shots.length; i++) SIM.step(S, null);
+  assert.ok(es.filter((e) => e.max - e.hp > 0).length >= 2, 'после продажи башни призрак не отскочил');
+});
+
+test('описания перков собираются из данных: чисел нет в тексте руками, правка конфига меняет описание', () => {
+  for (const type of C.TOWER_ORDER) for (const id of Object.keys(T[type].perks)) {
+    const txt = SIM.perkText(id); assert.ok(!/[{}]/.test(txt) && txt.length > 10, `${id}: ${txt}`);
+    assert.ok(!/\d/.test(T[type].perks[id].desc.replace(/\{[^}]*\}/g, '')), `${id}: число вписано в описание руками`);
+  }
+  const ch = T.spirits.perks.chill, was = ch.set.slowTime; ch.set.slowTime = 4.5;
+  try { assert.match(SIM.perkText('chill'), /4\.5 с вместо 1\.5 с/); } finally { ch.set.slowTime = was; }
+  assert.match(SIM.perkText('chill'), new RegExp(`${was} с вместо`));
+});
+
+test('новый тип башни добавляется данными: с видом атаки стреляет, без вида атаки не стреляет', () => {
+  const base = { cost: 50, dmg: 7, rate: 0.5, range: 3 }, tracks = T.bones.tracks;
+  T.zz_beam = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', attack: 'beam', muzzle: 40, base, tracks, extra: { heavy: 1 }, perks: {} };
+  T.zz_none = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', muzzle: 40, base, tracks, extra: { aura: 0.2 }, perks: {} };
+  try {
+    const S = SIM.create(2), [a, b] = SIM.rankCells(S, 3.4); S.souls = 1e4;
+    SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'zz_beam' }, { k: 'build', cell: b, type: 'zz_none' }, { k: 'upgrade', cell: b, track: 'dmg' }] });
+    assert.ok(S.towers[a] && S.towers[b], 'тип из данных не построился');
+    assert.equal(SIM.towerStats(S, S.towers[b]).aura, 0.2); assert.equal(S.towers[b].tracks.dmg, 1);
+    assert.equal(SIM.muzzle(S, S.towers[a])[1], SIM.cellXY(S, a)[1] - 40);
+    SIM.step(S, { cmds: [{ k: 'call' }] }); const fired = { zz_beam: 0, zz_none: 0 };
+    for (let i = 0; i < 40 / S.dt; i++) { SIM.step(S, null); for (const e of S.ev) if (e.k === 'fire' && e.t === S.t) fired[e.type]++; }
+    assert.ok(fired.zz_beam > 0 && S.towers[a].dmg > 0, 'тип с атакой не стрелял'); assert.equal(fired.zz_none, 0); assert.equal(S.towers[b].fireT, -9);
+  } finally { delete T.zz_beam; delete T.zz_none; }
+});
+
 test('продажа возвращает 70% всего вложенного (постройка, ступени веток, перк) и освобождает клетку', () => {
   const S = SIM.create(3), cell = freeCell(S); S.souls = 1e5;
   const ups = []; for (let i = 0; i < C.PERK_AT; i++) ups.push(C.TRACKS[i % C.TRACKS.length]);
@@ -198,7 +296,7 @@ test('продажа возвращает 70% всего вложенного (�
   const tw = S.towers[cell], n = C.PERK_AT / C.TRACKS.length;
   let invested = T.dark.base.cost + T.dark.perks[p].cost;
   for (const tr of C.TRACKS) for (let i = 0; i < n; i++) invested += T.dark.tracks[tr].cost[i];
-  assert.equal(tw.perk, p); assert.equal(tw.invested, invested); assert.equal(1e5 - S.souls, invested);
+  assert.deepEqual(SIM.perksOf(tw), [p]); assert.equal(tw.invested, invested); assert.equal(1e5 - S.souls, invested);
   const before = S.souls;
   SIM.step(S, { cmds: [{ k: 'sell', cell }] });
   assert.equal(S.souls - before, Math.floor(invested * C.SELL_REFUND)); assert.equal(C.SELL_REFUND, 0.7);
@@ -254,7 +352,7 @@ test('башня, убранная из состояния между шагам
 const pierceHits = (dt, off, startDx) => {
   const S = SIM.create(1, { dt }); SIM.step(S, { cmds: [{ k: 'call' }] });
   S.queue = []; S.qi = 0; const e = S.enemies[0]; e.d = 600; e.freezeT = 1e9; e.hp = e.max = 1e6; SIM.step(S, null);
-  S.shots.push({ k: 'bolt', x: e.x + startDx, y: e.y - 14 + off, dx: 1, dy: 0, left: 1000, dmg: 10, sp: T.bones.boltSpeed, tw: -1, pierce: 4, hit: [] });
+  S.shots.push({ k: 'bolt', x: e.x + startDx, y: e.y - 14 + off, dx: 1, dy: 0, left: 1000, dmg: 10, pen: 0, sp: T.bones.extra.speed, tw: -1, pierce: 4, falloff: T.bones.perks.pierce.set.pierceFalloff, hit: [] });
   run(S, 0.5);
   return e.hp < e.max;
 };
@@ -327,4 +425,110 @@ test('титульное демо: на большей части петли п�
   for (let t = 0.25; t < 2 * SIM.L; t += 0.5) { const S = SIM.at(t); n++; if (S.enemies.length >= 3) busy++;
     assert.ok(S.map.road.length >= 45 && S.demo); }
   assert.ok(busy / n >= 0.85, `враги в кадре только в ${busy} из ${n} моментов`);
+});
+
+// ---------------------------------------------------------------- перенос башни между волнами
+// постройка и ступени по кругу веток до порога перка, затем перк: команды для клетки
+const grownCmds = (cell, type, perk) => [{ k: 'build', cell, type }, ...Array.from({ length: C.PERK_AT }, (_, i) => ({ k: 'upgrade', cell, track: C.TRACKS[i % C.TRACKS.length] })), { k: 'perk', cell, p: perk }];
+const isGrown = (t, type, perk) => assert.ok(t && SIM.hasPerk(t, perk) && SIM.steps(t) === C.PERK_AT && t.invested > T[type].base.cost, `прокачка не применилась: ${JSON.stringify(t)}`);
+// забег с башней type на лучшей клетке, прокачанной до порога перка с перком, после первой волны (есть убийства и урон)
+const veteran = (seed, type, perk) => {
+  const S = SIM.create(seed); S.souls = 1e5; const cell = SIM.rankCells(S, 3.4)[0];
+  SIM.step(S, { cmds: [...grownCmds(cell, type, perk), { k: 'call' }] });
+  const tw = S.towers[cell];                                        // подготовка сработала: иначе тесты «сохраняет прокачку» проверят пустую башню
+  isGrown(tw, type, perk);
+  for (let i = 0; i < 120 * 300 && S.phase === 'wave'; i++) SIM.step(S, null);
+  return { S, cell };
+};
+test('перенос в паузе между волнами: бесплатно, мгновенно, башня та же — уровень, перк, вложения и счётчики', () => {
+  const { S, cell } = veteran(5, 'bones', 'volley');
+  assert.equal(S.phase, 'prep'); assert.equal(S.wave, 1);
+  const tw = S.towers[cell]; assert.ok(tw.kills > 0 && tw.dmg > 0, 'башня не воевала');
+  const R = JSON.parse(JSON.stringify(S)), souls = S.souls, spent = S.stats.spent;   // контроль: тот же шаг без переноса
+  const to = SIM.rankCells(S, 3.4).find((c) => c !== cell);
+  assert.deepEqual(SIM.canMove(S, cell), { ok: true, reason: null });
+  assert.deepEqual(SIM.canMove(S, cell, to), { ok: true, reason: null });
+  SIM.step(S, { cmds: [{ k: 'move', cell, to }] }); SIM.step(R, null);
+  assert.equal(S.towers[cell], null);
+  assert.equal(S.towers[to], tw, 'перенесён тот же объект башни');
+  assert.deepEqual(JSON.parse(JSON.stringify(tw)), Object.assign(R.towers[cell], { cell: to }), 'у башни поменялась только клетка');
+  assert.equal(S.souls, souls); assert.equal(S.stats.spent, spent);
+  assert.ok(S.ev.some((e) => e.k === 'move' && e.from === cell && e.cell === to), 'нет события move');
+  assert.equal(SIM.canBuild(S, cell, 'bones').ok, true, 'старая клетка не освободилась');
+});
+test('перенос отклоняется: во время волны, на дорогу, на занятую клетку, под интерфейс, за поле, на ту же клетку, с пустой клетки, после конца', () => {
+  const S = SIM.create(7); S.souls = 1e5; const [a, b, c] = SIM.rankCells(S, 3.4), road = S.map.road[12], hud = 0;
+  SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'dark' }, { k: 'build', cell: b, type: 'bones' }] });
+  const tried = (to, reason) => { assert.equal(SIM.canMove(S, a, to).reason, reason, `на ${to}`);
+    const snap = JSON.stringify(S.towers); SIM.step(S, { cmds: [{ k: 'move', cell: a, to }] });
+    assert.equal(JSON.stringify(S.towers.map((t) => t && t.cell)), JSON.stringify(JSON.parse(snap).map((t) => t && t.cell)), `перенос на ${to} прошёл`); };
+  tried(road, 'road'); tried(b, 'occupied'); tried(hud, 'hud'); tried(-1, 'bounds'); tried(S.map.cols * S.map.rows, 'bounds'); tried(a, 'same');
+  assert.equal(SIM.canMove(S, c).reason, 'none'); assert.deepEqual(SIM.moveCells(S, c), []);
+  SIM.step(S, { cmds: [{ k: 'move', cell: c, to: SIM.rankCells(S, 3.4)[0] }] }); assert.equal(S.towers.filter(Boolean).length, 2);
+  SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.phase, 'wave');
+  assert.equal(SIM.canMove(S, a).reason, 'phase'); assert.deepEqual(SIM.moveCells(S, a), []);
+  tried(c, 'phase');
+  S.phase = 'lost'; assert.equal(SIM.canMove(S, a).reason, 'ended');
+});
+test('перенос разрешён ровно там, где этот тип можно построить, — при любых душах (правила клетки общие с постройкой)', () => {
+  for (const seed of [1, 2, 3]) {
+    const S = SIM.create(seed); S.souls = 1e5; const [a, b] = SIM.rankCells(S, 3.4);
+    SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'plague' }, { k: 'build', cell: b, type: 'spirits' }] });
+    for (const souls of [1e9, 0]) {
+      S.souls = souls; const want = [];
+      for (let i = 0; i < S.map.cols * S.map.rows; i++) { S.souls = 1e9; const ok = i !== a && SIM.canBuild(S, i, 'plague').ok; S.souls = souls;
+        assert.equal(SIM.canMove(S, a, i).ok, ok, `сид ${seed}, клетка ${i}, души ${souls}`); if (ok) want.push(i); }
+      assert.deepEqual(SIM.moveCells(S, a), want);
+    }
+  }
+});
+test('перенос переживает облака, снаряды и яд: они числятся за башней по id, она стреляет уже с новой клетки', () => {
+  const S = SIM.create(4); S.souls = 1e5; const [a, b] = SIM.rankCells(S, 3.4);
+  SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'plague' }, { k: 'build', cell: b, type: 'bones' }, { k: 'call' }] });
+  const tw = S.towers[a], id = tw.id;
+  while (S.phase === 'wave') SIM.step(S, null);
+  const cloud = S.clouds.find((c) => c.tw === id && c.t > 1); assert.ok(cloud, 'после волны не осталось облака котла (сид 4)');
+  const to = SIM.moveCells(S, a).find((c) => SIM.coverage(S, c, 3) > 300 && Math.hypot(...SIM.cellXY(S, c).map((v, k) => v - SIM.cellXY(S, a)[k])) > 200);
+  const t0 = cloud.t; SIM.step(S, { cmds: [{ k: 'move', cell: a, to }, { k: 'build', cell: a, type: 'dark' }] });
+  assert.equal(S.towers[to], tw); assert.equal(S.towers[a].type, 'dark');
+  assert.ok(S.clouds.includes(cloud) && Math.abs(cloud.t - (t0 - S.dt)) < 1e-9, `облако перенесённой башни погасло: ${cloud.t}`);
+  const dmg0 = tw.dmg, [mx, my] = SIM.muzzle(S, tw); let fired = 0, poisoned = 0;
+  SIM.step(S, { cmds: [{ k: 'call' }] });
+  while (S.phase === 'wave') { SIM.step(S, null);
+    for (const e of S.ev) if (e.k === 'fire' && e.type === 'plague' && e.t === S.t) { fired++; assert.deepEqual([e.x, e.y, e.cell], [mx, my, to]); }
+    for (const s of S.shots) if (s.k === 'blob') assert.equal(s.tw, id);
+    for (const e of S.enemies) for (const p of Object.values(e.poison)) { assert.equal(p.tw, id); poisoned++; } }
+  assert.ok(fired > 0 && poisoned > 0, `котёл с новой клетки не воевал: выстрелов ${fired}, отравлений ${poisoned}`);
+  assert.ok(tw.dmg > dmg0, 'урон после переноса не идёт в счёт башни');
+});
+test('перенесённая башня — как построенная на новой клетке, на любой допустимой клетке; перенос не стоит душ', () => {
+  // особые клетки (курган, источник, проклятая земля) берутся от клетки башни: башня не хранит ничего клеточного, кроме самой клетки,
+  // а перенос не списывает души — поэтому бонус новой клетки приходит сам, а наценка постройки не взимается.
+  // Обход всех клеток moveCells: после появления особых клеток тест сам покрывает и их.
+  // own — поля башни без тех, что у построенной и перенесённой законно разные (id, таймеры, вложено: наценка клетки)
+  const own = (t) => { const o = Object.assign({}, t); for (const k of ['id', 'cd', 'fireT', 'built', 'invested']) delete o[k]; return o; };
+  for (const type of C.TOWER_ORDER) {
+    const A = SIM.create(6); A.souls = 1e5; const x = SIM.rankCells(A, 3.4)[0], B = JSON.parse(JSON.stringify(A));
+    const perk = Object.keys(T[type].perks)[0], grow = (cell) => grownCmds(cell, type, perk), grown = (t) => isGrown(t, type, perk);
+    SIM.step(A, { cmds: grow(x) }); const tw = A.towers[x]; grown(tw);
+    const invested = tw.invested, cells = SIM.moveCells(A, x); let cur = x;
+    assert.ok(cells.length > 100, 'мало клеток для переноса: ' + cells.length);
+    for (const c of cells) {
+      SIM.step(B, { cmds: grow(c) }); const tb = B.towers[c]; grown(tb);     // эталон: такая же башня, построенная прямо на c
+      const souls = A.souls, preview = SIM.moveRangePx(A, cur, c);
+      SIM.step(A, { cmds: [{ k: 'move', cell: cur, to: c }] }); cur = c;
+      assert.equal(A.towers[c], tw, `${type}: перенос на ${c} не прошёл`);
+      assert.equal(A.souls, souls, `${type}: перенос на ${c} стоил душ`); assert.equal(tw.invested, invested, `${type}: перенос на ${c} изменил вложенное`);
+      assert.equal(preview, SIM.rangePx(B, tb), `${type}: превью радиуса на ${c} не равно радиусу построенной там башни`);
+      assert.deepEqual(SIM.towerStats(A, tw), SIM.towerStats(B, tb), `${type}: характеристики на ${c}`); assert.deepEqual(SIM.muzzle(A, tw), SIM.muzzle(B, tb));
+      assert.deepEqual(own(tw), own(tb), `${type}: на ${c} перенесённая башня отличается от построенной`);
+      SIM.step(B, { cmds: [{ k: 'sell', cell: c }] });
+    }
+  }
+});
+test('состояние после переноса сериализуется без потерь', () => {
+  const { S, cell } = veteran(3, 'plague', 'acid'), to = SIM.moveCells(S, cell)[5];
+  SIM.step(S, { cmds: [{ k: 'move', cell, to }, { k: 'call' }] });
+  const R = JSON.parse(JSON.stringify(S)); for (let i = 0; i < 120 * 20; i++) { SIM.step(S, null); SIM.step(R, null); }
+  assert.deepEqual(R, S); assert.equal(R.towers[to].cell, to);
 });

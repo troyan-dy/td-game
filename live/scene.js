@@ -7,7 +7,7 @@
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const SZ = (n, def) => (window.SIZES && window.SIZES[n]) || def;
   S.REPEAT = [];
-  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones' };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток
+  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones', move: -1 };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток; move — клетка переносимой башни (-1 — не переносим)
   S.programs = () => { L.init(W, H); L.glyphs(); L.SUN = [W * 0.15, -300]; };
   S.LIGHTS = [];
   // фон перестраивается, когда в кадре другая карта (новый забег, титульное демо)
@@ -44,36 +44,49 @@
   // вид башни 1..3 растёт с суммой ступеней веток (SIM.look); спрайта этого вида нет — берётся младший, крупнее
   const towerName = (tw, lk) => { for (let l = lk; l >= 1; l--) if (has(`tw_${tw.type}_${l}`)) return `tw_${tw.type}_${l}`; return `tw_${tw.type}_${lk}`; };
   const TRACK_COL = { dmg: [1, 0.42, 0.34], range: [0.45, 0.78, 1], rate: [1, 0.85, 0.35] };   // метки веток под башней
+  // Метки ступеней рисуются отдельным проходом поверх всех башен (иначе башни нижнего ряда закрывают метки верхнего):
+  // у каждой башни по одной полосе на ветку (длина — доля от потолка), у выбранной и наведённой — подробные ступени с пустыми.
+  let MARKS = [];
+  const drawMarks = () => {
+    for (const [tw, x, y, sel] of MARKS) C.TRACKS.forEach((k, r) => { const got = tw.tracks[k], yy = y + 15 + r * 5;
+      if (sel) { const w = Math.min(7, Math.floor(56 / tw.cap)), x0 = x - (tw.cap * w - 2) / 2;
+        for (let i = 0; i < tw.cap; i++) L.solid(x0 + i * w, yy, w - 2, 3, i < got ? TRACK_COL[k] : [0.2, 0.17, 0.28], 0, 0, 0, i < got ? 0.95 : 0.8); }
+      else if (got) { const w = 34 * got / tw.cap; L.solid(x - 17, yy, w, 3, TRACK_COL[k], 0, 0, 0, 0.9); } });
+    MARKS = [];
+  };
   const drawTower = (ST, tw, GT, t, sel) => {
     const [x, y] = SIM.cellXY(ST, tw.cell), lk = SIM.look(tw), room = y + 10 - C.VIEW_TOP;   // выше VIEW_TOP — плашки HUD
+    const top = C.VIEW_TOP + 6, inBand = (yy) => yy >= top;                                    // эффекты не залезают в полосу HUD
     const age = GT - tw.built, pop = age < 0.45 ? 1 + 0.18 * Math.sin(age / 0.45 * Math.PI) * (1 - age / 0.45) : 1;   // squash при постройке
     const kick = Math.max(0, 1 - (GT - tw.fireT) / 0.18);                                                          // отдача
-    const n = towerName(tw, lk);
-    let w = 0, h = Math.min(TOWER_H[lk - 1], room);
+    const n = towerName(tw, lk), col = TCOL[tw.type] || [0.8, 0.8, 0.8];
+    let w = 0, h = Math.min(TOWER_H[lk - 1], room), fit = 1;
     if (has(n)) {
       let sh; [w, sh] = SZ(n, [L.hsz(n, TOWER_H[lk - 1]), TOWER_H[lk - 1]]); const miss = lk - +n.slice(-1);
       if (miss > 0) { w *= 1 + 0.2 * miss; sh *= 1 + 0.2 * miss; }
-      const fit = Math.min(1, room / sh); w *= fit; h = sh * fit;                                       // верхний ряд: башня ужимается под HUD
+      fit = Math.min(1, room / sh); h = sh * fit;
+      // верхний ряд: башня ужимается под HUD по высоте, а вид читается по ширине (шире с каждым видом) и свечению
+      w *= fit < 1 ? fit * (1 + 0.14 * (lk - 1)) : 1;
     }
     L.shadow(x, y + 4, 40, 13, 0.55);
-    if (sel) L.glow(x, y - h * 0.45, h * 0.7, TCOL[tw.type], 0.30, 3.2);
+    if (lk > 1) L.glow(x, y - h * 0.3, 26 + 10 * lk, col, (fit < 1 ? 0.16 : 0.08) * (lk - 1), 3.2);              // вид 2–3: свечение основания
+    if (sel) L.glow(x, y - h * 0.45, h * 0.7, col, 0.30, 3.2);
     if (has(n)) {
       const face = tw.type === 'bones' && Math.cos(tw.aim) < 0 ? -1 : 1;                                       // баллиста смотрит в сторону цели
-      L.sprite(n, 0, 0, { m: M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick))), w, h, pivot: [w / 2, h] });
+      L.sprite(n, 0, 0, { m: M.of(M.t(x, y + 10), M.s(face / Math.sqrt(pop), pop * (1 - 0.04 * kick))), w, h, pivot: [w / 2, h],
+        u: { tint: lk === 3 ? [col[0] * 1.3, col[1] * 1.3, col[2] * 1.3, fit < 1 ? 0.22 : 0.1] : [1, 1, 1, 0] } });
     } else placeholderTower(tw, x, y, h * pop, kick, t, lk);
-    // живые детали поверх спрайта
+    // живые детали поверх спрайта (в полосе HUD не рисуются)
     if (tw.type === 'spirits') for (let i = 0; i < 1 + lk; i++) { const a = t * 1.3 + i * 6.283 / (1 + lk), r = 24 + 4 * lk;
       const gx = x + Math.cos(a) * r, gy = y - h * 0.62 + Math.sin(a) * r * 0.45 + 4 * Math.sin(t * 3 + i);
-      L.glow(gx, gy, 16, COL.soul, 0.55); L.star(gx, gy, 5, COL.soul, 0.8); }
-    if (tw.type === 'plague') for (let i = 0; i < 3; i++) { const k = (t * 0.6 + i / 3) % 1;
-      L.puff(x + 8 * Math.sin(i * 2 + t), y - h * 0.62 - 50 * k, 9 + 14 * k, COL.poison, 0.35 * (1 - k), i + Math.floor(t * 0.6 + i / 3) * 3); }
-    if (tw.type === 'dark') { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + tw.cell); L.glow(x, y - h * 0.78, 34 + 8 * lk, COL.dark, 0.25 + 0.25 * p + 0.5 * kick); }
+      if (inBand(gy - 8)) { L.glow(gx, gy, 16, COL.soul, 0.55); L.star(gx, gy, 5, COL.soul, 0.8); } }
+    if (tw.type === 'plague') for (let i = 0; i < 3; i++) { const k = (t * 0.6 + i / 3) % 1, py = y - h * 0.62 - 50 * k, pr = 9 + 14 * k;
+      if (inBand(py - pr)) L.puff(x + 8 * Math.sin(i * 2 + t), py, pr, COL.poison, 0.35 * (1 - k), i + Math.floor(t * 0.6 + i / 3) * 3); }
+    if (tw.type === 'dark') { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + tw.cell); L.glow(x, Math.max(top + 20, y - h * 0.78), 34 + 8 * lk, COL.dark, 0.25 + 0.25 * p + 0.5 * kick); }
     if (tw.type === 'spirits') L.glow(x, y - h * 0.58, 30, COL.soul, 0.35 + 0.3 * kick);
-    if (tw.perk) L.glow(x, y - 8, 30, TCOL[tw.type], 0.25 + 0.1 * Math.sin(t * 3));
-    // ступени веток: строка меток на ветку под основанием; у выбранной и наведённой видны и пустые до потолка
-    C.TRACKS.forEach((k, r) => { const got = tw.tracks[k], all = sel ? tw.cap : got, x0 = x - (all * 7 - 2) / 2, yy = y + 15 + r * 5;
-      for (let i = 0; i < all; i++) L.solid(x0 + i * 7, yy, 5, 3, i < got ? TRACK_COL[k] : [0.2, 0.17, 0.28], 0, 0, 0, i < got ? 0.95 : 0.8); });
-    const [mx, my] = SIM.muzzle(ST, tw), off = SIM.MUZZLE[tw.type] + (lk - 1) * 4, fitH = Math.min(1, room / (off + 10));
+    if (SIM.perksOf(tw).length) L.glow(x, y - 8, 30, col, 0.25 + 0.1 * Math.sin(t * 3));
+    MARKS.push([tw, x, y, sel]);
+    const [mx, my] = SIM.muzzle(ST, tw), off = SIM.muzzleH(tw), fitH = Math.min(1, room / (off + 10));
     L.anchor('muzzle_' + tw.type, [mx, my], [x, y + 10 - (off + 10) * fitH], 2);
   };
   const placeholderTower = (tw, x, y, h, kick, t, lk) => {
@@ -132,6 +145,21 @@
     L.solid(x, y, TILE, b, col, 0, 0, 0, a); L.solid(x, y + TILE - b, TILE, b, col, 0, 0, 0, a);
     L.solid(x, y + b, b, TILE - 2 * b, col, 0, 0, 0, a); L.solid(x + TILE - b, y + b, b, TILE - 2 * b, col, 0, 0, 0, a);
   };
+  // сетка игровых клеток (не дорога, не интерфейс): линии между клетками, слитые в отрезки — десятки квадов, а не сотни
+  let gridKey = '', gridSegs = [];
+  const gridOf = (ST) => { const m = ST.map, key = m.seed + ':' + m.road.join(','); if (key === gridKey) return gridSegs;
+    const road = new Set(m.road), play = (x, y) => x >= 0 && y >= 0 && x < m.cols && y < m.rows && !road.has(y * m.cols + x) && !SIM.MAPGEN.hud(m, y * m.cols + x), out = [];
+    for (let r = 0; r <= m.rows; r++) for (let x = 0; x < m.cols;) { if (!(play(x, r - 1) || play(x, r))) { x++; continue; }
+      const x0 = x; while (x < m.cols && (play(x, r - 1) || play(x, r))) x++; out.push([x0 * TILE, r * TILE - 1, (x - x0) * TILE, 2]); }
+    for (let c = 0; c <= m.cols; c++) for (let y = 0; y < m.rows;) { if (!(play(c - 1, y) || play(c, y))) { y++; continue; }
+      const y0 = y; while (y < m.rows && (play(c - 1, y) || play(c, y))) y++; out.push([c * TILE - 1, y0 * TILE, 2, (y - y0) * TILE]); }
+    gridKey = key; gridSegs = out; return out; };
+  const drawGrid = (ST, a) => { for (const [x, y, w, h] of gridOf(ST)) L.solid(x, y, w, h, [0.78, 0.74, 0.95], 0, 0, 0, a); };
+  // клетки списка cells залить цветом col: подряд идущие в строке — одной полосой
+  const fillCells = (ST, cells, col, a) => { const n = ST.map.cols; let run = null;
+    const flush = () => { if (run) L.solid((run[0] % n) * TILE + 3, Math.floor(run[0] / n) * TILE + 3, run[1] * TILE - 6, TILE - 6, col, 0, 0, 0, a); run = null; };
+    for (const c of cells) { if (run && c === run[0] + run[1] && Math.floor(c / n) === Math.floor(run[0] / n)) run[1]++; else { flush(); run = [c, 1]; } }
+    flush(); };
   const drawRange = (x, y, r, col, t, a = 1) => {                // пунктирный круг дальности (как на референсе)
     L.ring(x, y, r, r * 0.92, col, 0.35 * a, 0.012);
     const n = Math.round(r / 7);
@@ -160,8 +188,24 @@
     S.LIGHTS.forEach(([lx, ly, kind], i) => { const [c, r, a] = LIGHT[kind], fl = kind === 'water' || kind === 'crypt' ? Math.sin(t * 0.9 + i) * 0.3 : Math.sin(t * 11 + i * 2.3) * Math.sin(t * 7.3 + i) * 0.35;
       L.glow(lx + ox, ly + oy, r, c, a * (1 + fl)); });
 
+    // сетка проявляется в паузе между волнами и при выбранной башне; при переносе ярче, допустимые клетки подсвечены
+    const moving = !ST.demo && ui.move >= 0 && !!ST.towers[ui.move];
+    if (!ST.demo && (moving || ST.phase === 'prep' || (ui.sel >= 0 && ST.towers[ui.sel]))) drawGrid(ST, moving ? 0.26 : 0.12);
+    if (moving) {
+      const mt = ST.towers[ui.move], col = TCOL[mt.type], cells = SIM.moveCells(ST, ui.move), ok = ui.hover >= 0 && cells.includes(ui.hover);
+      fillCells(ST, cells, [0.86, 0.94, 1.0], 0.17 + 0.05 * Math.sin(t * 4));        // светлая заливка: бирюза сливается с травой фона
+      drawCell(ST, ui.move, 'sel', t);
+      if (ui.hover >= 0 && ui.hover !== ui.move) drawCell(ST, ui.hover, ok ? 'ok' : 'no', t);
+      if (ok) { const [x, y] = SIM.cellXY(ST, ui.hover), [fx, fy] = SIM.cellXY(ST, ui.move), d = Math.hypot(x - fx, y - fy), ang = Math.atan2(y - fy, x - fx);
+        const lc = col.map((v) => v + (1 - v) * 0.45);                   // цвет башни, разбавленный белым: тёмные башни видно на тёмном фоне
+        for (let k = 18; k < d - 18; k += 22) L.solid(fx + Math.cos(ang) * k, fy + Math.sin(ang) * k, 12, 4, lc, ang, 6, 2, 0.9);   // пунктир «откуда — куда»
+        // превью радиуса на новой клетке: мягкая кайма и линия ровно по радиусу (кольцо L.ring лежит на 0.85 своего квада),
+        // пунктир круга — не ярче пунктира «откуда — куда»
+        const r = SIM.moveRangePx(ST, ui.move, ui.hover), R = r / 0.85;
+        L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); }
+    }
     // клетки: выбранная и под курсором; круг дальности выбранной башни или будущей башни (на выбранной клетке или под курсором)
-    if (!ST.demo) {
+    if (!ST.demo && !moving) {
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, SIM.canBuild(ST, ui.hover, pType).reason === 'road' ? 'no' : 'ok', t);
@@ -183,6 +227,7 @@
     ST.towers.forEach((tw) => { if (tw) Y.push([SIM.cellXY(ST, tw.cell)[1], 0, tw.id, () => drawTower(ST, tw, GT, t, ui.sel === tw.cell || ui.hover === tw.cell)]); });
     for (const e of ST.enemies) Y.push([e.y, 1, e.id, () => drawEnemy(ST, e, GT, t)]);
     Y.sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]).forEach((d) => d[3]());
+    drawMarks();
 
     // снаряды
     for (const s of ST.shots) {
@@ -214,7 +259,11 @@
       if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk') && a < 0.7) { const q = a / 0.7, c = e.k === 'build' ? [0.85, 0.8, 0.95] : [1, 0.85, 0.45];
         L.ring(e.x, e.y, 30 + 50 * q, (30 + 50 * q) * 0.5, c, 0.9 * (1 - q), 0.15);
         for (let j = 0; j < 6; j++) L.puff(e.x + (j - 2.5) * 12 * (1 + q), e.y - 4 - 14 * q, 7 + 8 * q, [0.5, 0.45, 0.6], 0.4 * (1 - q), j + e.t);
-        if (e.k !== 'build') for (let j = 0; j < 7; j++) { const an = j * 0.9 + e.t, rr = 20 + 50 * q; L.star(e.x + Math.cos(an) * rr, e.y - 50 - 40 * q + Math.sin(an) * rr * 0.5, 9, c, 1 - q); } }
+        if (e.k !== 'build') for (let j = 0; j < 7; j++) { const an = j * 0.9 + e.t, rr = 20 + 50 * q, sy = e.y - 50 - 40 * q + Math.sin(an) * rr * 0.5;
+          if (sy > C.VIEW_TOP + 6) L.star(e.x + Math.cos(an) * rr, sy, 9, c, 1 - q); } }          // звёзды прокачки не залезают в полосу HUD
+      if (e.k === 'move' && a < 0.6) { const q = a / 0.6;                // перенос: пыль на старой клетке, кольцо на новой
+        for (let j = 0; j < 6; j++) L.puff(e.fx + (j - 2.5) * 10, e.fy - 8 - 24 * q, 9 + 9 * q, [0.5, 0.45, 0.6], 0.45 * (1 - q), j + 3);
+        L.ring(e.x, e.y, 26 + 40 * q, (26 + 40 * q) * 0.5, COL.soul, 0.8 * (1 - q), 0.15); }
       if (e.k === 'sell' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 8; j++) L.puff(e.x + (j - 3.5) * 9, e.y - 10 - 30 * q, 10 + 10 * q, [0.5, 0.45, 0.6], 0.5 * (1 - q), j); }
       if (e.k === 'heal' && e.any && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y - 14, 20 + 50 * q, (20 + 50 * q) * 0.55, COL.heal, 0.7 * (1 - q), 0.12); }
       if (e.k === 'freeze' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 4; j++) L.star(e.x + (j - 1.5) * 8, e.y - 20 - 10 * q, 8, COL.frost, 1 - q); }

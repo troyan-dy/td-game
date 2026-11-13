@@ -13,7 +13,7 @@ const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, 3.4).slice(
 // чем дальность. { cmd, cost } или null, если качать некуда. Цены и запреты — из ответов логики (canPerk, canUpgrade).
 const WEIGHT = { dmg: 1, rate: 1.2, range: 1.8 };
 const nextUp = (S, t, perk) => {
-  if (!t.perk) { const cp = SIM.canPerk(S, t.cell, perk); if (cp.ok || cp.reason === 'souls') return { cmd: { k: 'perk', cell: t.cell, p: perk }, cost: cp.cost }; }
+  if (SIM.freeSlots(t)) { const cp = SIM.canPerk(S, t.cell, perk); if (cp.ok || cp.reason === 'souls') return { cmd: { k: 'perk', cell: t.cell, p: perk }, cost: cp.cost }; }
   let best = null;
   for (const track of C.TRACKS) { const cu = SIM.canUpgrade(S, t.cell, track); if (cu.cost === null) continue;
     const w = (t.tracks[track] + 1) * WEIGHT[track]; if (!best || w < best.w) best = { w, cmd: { k: 'upgrade', cell: t.cell, track }, cost: cu.cost }; }
@@ -57,5 +57,5 @@ export const play = (bot, seed = 1, maxT = 5400, dt) => {
     if (S.wave !== w) waveLog.push({ wave: w, t: +S.t.toFixed(0), hp: S.hp, souls: S.souls });
   }
   return { phase: S.phase, wave: S.wave, hp: S.hp, t: Math.round(S.t), kills: S.stats.kills, souls: S.souls,
-    towers: S.towers.filter(Boolean).map((t) => t.type[0] + SIM.steps(t) + (t.perk ? '*' : '')).join(' '), waveLog };
+    towers: S.towers.filter(Boolean).map((t) => t.type[0] + SIM.steps(t) + '*'.repeat(SIM.perksOf(t).length)).join(' '), waveLog };
 };
