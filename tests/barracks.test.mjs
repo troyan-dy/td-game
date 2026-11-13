@@ -152,3 +152,15 @@ test('состояние со скелетами в бою сериализуе�
   const R = json(S); run(S, 10); run(R, 10);
   assert.deepEqual(json(R), json(S));
 });
+
+test('перенос Казармы посреди боя (Беспокойные мёртвые): удержанный враг отпущен, бесхозных скелетов нет', () => {
+  const { S, tw, sk, e } = duel(2, 'militia', 1e6);
+  for (let i = 0; i < 4 / S.dt && !sk.foe; i++) SIM.step(S, null);
+  assert.equal(sk.foe, e.id);
+  S.relics.push('restless'); const to = SIM.moveCells(S, tw.cell).find((c) => SIM.skelCells(S, Object.assign({}, tw, { cell: c })).length);
+  assert.ok(to >= 0, 'перенос посреди боя не разрешён');
+  SIM.step(S, { cmds: [{ k: 'move', cell: tw.cell, to }] });
+  assert.equal(S.towers[to], tw); assert.equal(mine(S, tw).length, 0, 'скелеты остались у старой клетки');
+  const d = e.d; run(S, 0.5); assert.ok(e.d > d, 'враг остался стоять');
+  assert.ok(S.skels.every((s) => SIM.skelCells(S, tw).includes(s.cell)), 'скелет не у новой клетки');
+});

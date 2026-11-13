@@ -189,8 +189,36 @@ const BAD = {
   'противник скелета не число': (S) => { S.skels[0].foe = 'x'; },
   'карта короче нормы': (S) => { S.map.road = S.map.road.slice(0, 10); },
   'нет карты': (S) => { delete S.map; },
+  'неизвестная реликвия': (S) => { S.relics = ['nope']; },
+  'реликвия-свойство объекта': (S) => { S.relics = ['constructor']; },
+  'реликвии — не список': (S) => { S.relics = 'deal'; },
+  'реликвий больше, чем было выборов': (S) => { S.relics = ['deal', 'toll']; },
+  'предложение реликвий вне фазы выбора': (S) => { S.offer = SIM.drawRelics(S.seed, 5, [], null); },
+  'перенос посреди боя в будущей волне': (S) => { S.waveMoved = S.wave + 1; },
+  'дробная волна переноса посреди боя': (S) => { S.waveMoved = 1.5; },
   'число вне JSON (1e999)': (S) => JSON.parse(JSON.stringify(S).replace(/"souls":\d+/, '"souls":1e999')),
 };
+// забег на выборе реликвии после 5-й волны (волны отбиты сразу: враги убраны)
+const relicPick = () => { const S = SIM.create(3);
+  while (S.phase !== 'relic') { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); }
+  return json(S); };
+const PICK = relicPick();
+test('сейв: забег на выборе реликвии годен', () => { assert.equal(SIM.loadable(json(PICK)), true); assert.equal(PICK.phase, 'relic'); });
+const BAD_PICK = {
+  'выбор без предложения': (S) => { S.offer = null; },
+  'пустое предложение': (S) => { S.offer = []; },
+  'предложение не то, что даёт сид': (S) => { S.offer = Object.keys(C.RELICS).filter((id) => !S.offer.includes(id)).slice(0, C.RELIC_OFFER); },
+  'предложение в другом порядке': (S) => { S.offer.reverse(); },
+  'в предложении закрытая реликвия': (S) => { S.unlocked = C.TOWER_ORDER.concat(S.offer.slice(1)); },
+  'в предложении уже взятая реликвия': (S) => { S.relics = [S.offer[0]]; },
+  'выбор после волны без реликвии': (S) => { S.wave = 6; S.offer = SIM.drawRelics(S.seed, 6, [], null); },
+  'выбор после последней волны': (S) => { S.wave = SIM.waveCount(); S.offer = SIM.drawRelics(S.seed, S.wave, [], null); },
+  'выбор с таймером паузы длиннее паузы': (S) => { S.prepT = C.PREP_TIME * 3; },
+};
+for (const [name, spoil] of Object.entries(BAD_PICK)) test(`сейв выбора реликвии отвергается: ${name}`, () => {
+  const S = json(PICK); spoil(S); assert.equal(SIM.loadable(S), false);
+});
+
 for (const [name, spoil] of Object.entries(BAD)) test(`сейв отвергается: ${name}`, () => {
   let S = fresh(); S = spoil(S) || S;
   assert.equal(SIM.loadable(S), false);

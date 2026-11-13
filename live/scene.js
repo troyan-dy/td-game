@@ -22,6 +22,7 @@
     soul: [0.30, 0.95, 0.88], dark: [0.80, 0.38, 1.0], poison: [0.45, 0.90, 0.25], torch: [1.0, 0.62, 0.25],
     bone: [0.90, 0.85, 0.72], ink: [0.07, 0.05, 0.14], road: [0.66, 0.57, 0.78], ground: [0.12, 0.11, 0.20],
     hpOk: [0.40, 0.85, 0.35], hpLow: [0.95, 0.30, 0.25], frost: [0.70, 0.95, 1.0], heal: [1.0, 0.85, 0.45],
+    stun: [1.0, 0.92, 0.45],
     ward: [0.65, 1.0, 0.55], haste: [1.0, 0.42, 0.25],
   };
   // вид типа башни — из конфига (SIM.art: основа спрайта, перекраска, цвет, детали); у неизвестного — общий вид C.ART
@@ -121,7 +122,7 @@
       rig = window.RIGS.knight; if (tint[3] === 0) tint.splice(0, 4, 1.25, 1.05, 0.55, 0.38);
       L.glow(x, y - h * 0.5, h * 0.9, [1, 0.8, 0.4], 0.22 + 0.06 * Math.sin(t * 3)); }
     if (rig && rig.parts.every((p) => has(p.tex))) {
-      const k = h / rig.H, moving = !frozen, rph = e.walk / rig.stride * Math.PI, bob = moving ? Math.abs(Math.cos(rph)) * h * 0.025 : 0;
+      const k = h / rig.H, moving = !frozen && !(e.stunT > 0), rph = e.walk / rig.stride * Math.PI, bob = moving ? Math.abs(Math.cos(rph)) * h * 0.025 : 0;
       for (const p of rig.parts) {
         const a = p.kind === 'wheel' ? e.walk / (p.r * k) : p.rest + (moving ? p.swing * Math.sin(rph + p.phase) : 0);
         const tw = window.ASSETS[p.tex], s = k * p.sc, w = tw.w * s, hh = tw.h * s, lift = p.kind === 'body' ? bob : 0;
@@ -148,6 +149,7 @@
     if (e.ward > 0) L.glow(x, y - h * 0.5, h * 0.65, COL.ward, 0.22 + 0.08 * Math.sin(t * 8 + e.id));   // щит разведчика: первое попадание пройдёт мимо
     if (slowed && !frozen) L.glow(x, y - h * 0.4, h * 0.6, COL.soul, 0.18);
     if (e.curseT > 0) L.glow(x, y - h * 0.6, h * 0.55, COL.dark, 0.25);
+    if (e.stunT > 0) L.glow(x, y - h * 0.8, h * 0.6, COL.stun, 0.3);                 // оглушён (Колокол); звёзды — над полоской здоровья
     if (Object.keys(e.poison).length) L.puff(x, y - h * 0.4, h * 0.45, COL.poison, 0.22, e.id + Math.floor(t * 4));
   };
 
@@ -171,7 +173,7 @@
     } else { const w = h * 0.45; L.solid(x - w / 2, y - h, w, h * 0.75, COL.bone); L.solid(x - w * 0.3, y - h * 1.1, w * 0.6, h * 0.3, [0.95, 0.93, 0.85]); }
     L.glow(x + s.face * 3, y - h * 0.86, 8, COL.soul, 0.75);                                   // глаза-души
     if (fight) { const e = ST.enemies.find((o) => o.id === s.foe); if (e) {
-      const mx = (x + e.x) / 2, my = Math.min(y, e.y) - h - 6, pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
+      const mx = (x + e.x) / 2, my = Math.min(y - h - 14, e.y - (EH[e.type] || SKEL_H) - 24),   // над полоской HP врага pulse = 0.75 + 0.25 * Math.sin(t * 10 + s.id);
       L.glow(mx, my, 16, [1, 0.9, 0.7], 0.25 * pulse);
       L.solid(mx, my, 18, 3, COL.bone, 0.75, 9, 1.5, pulse); L.solid(mx, my, 18, 3, COL.bone, -0.75, 9, 1.5, pulse); } }
   };
@@ -333,6 +335,11 @@
         L.ring(e.x, e.y, 26 + 40 * q, (26 + 40 * q) * 0.5, COL.soul, 0.8 * (1 - q), 0.15); }
       if (e.k === 'sell' && a < 0.6) { const q = a / 0.6; for (let j = 0; j < 8; j++) L.puff(e.x + (j - 3.5) * 9, e.y - 10 - 30 * q, 10 + 10 * q, [0.5, 0.45, 0.6], 0.5 * (1 - q), j); }
       if (e.k === 'heal' && e.any && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y - 14, 20 + 50 * q, (20 + 50 * q) * 0.55, COL.heal, 0.7 * (1 - q), 0.12); }
+      // удар колокола: две волны от основания башни расходятся ровно до радиуса удара (кольцо L.ring лежит на 0.85 квада)
+      if (e.k === 'pulse' && a < 0.45) { const q = a / 0.45, col = tcol(e.type);
+        for (const [lag, al] of [[0, 0.9], [0.12, 0.5]]) { const u = Math.max(0, Math.min(1, (a - lag) / 0.33)); if (a < lag) continue;
+          const R = e.r * (0.25 + 0.75 * u) / 0.85; L.ring(e.x, e.y, R, R * 0.92, col, al * (1 - u * u), 0.08); }
+        L.glow(e.x, e.y - 30, 50, col, 0.5 * (1 - q)); }
       if (e.k === 'miss' && a < 0.4) { const q = a / 0.4; L.ring(e.x, e.y, 18 + 26 * q, (18 + 26 * q) * 0.9, COL.ward, 0.8 * (1 - q), 0.15); }
       if (e.k === 'summon' && a < 0.6) { const q = a / 0.6; L.ring(e.x, e.y, 14 + 26 * q, (14 + 26 * q) * 0.45, COL.soul, 0.8 * (1 - q), 0.15);   // скелет встаёт из земли
         for (let j = 0; j < 4; j++) L.puff(e.x + (j - 1.5) * 8, e.y - 4 - 16 * q, 6 + 6 * q, [0.5, 0.45, 0.6], 0.4 * (1 - q), j + e.t); }
@@ -365,14 +372,17 @@
     for (const e of ST.enemies) { const h = EH[e.type], k = Math.max(0, e.hp / e.max), w = e.type === 'paladin' ? 44 : e.type === 'cart' ? 40 : 24;
       const x = Math.round(e.x - w / 2), y = Math.round(e.y - h - 10);
       L.solid(x - 1, y - 1, w + 2, 6, [0.05, 0.03, 0.08]); L.solid(x, y, w, 4, [0.35, 0.08, 0.1]);
-      L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow); }
+      L.solid(x, y, Math.round(w * k), 4, k > 0.5 ? COL.hpOk : k > 0.25 ? [0.95, 0.75, 0.25] : COL.hpLow);
+      // оглушение (Колокол): три звезды кружат над полоской, пока враг стоит (после грейда — чёткие, не тонут в полоске)
+      if (e.stunT > 0) for (let j = 0; j < 3; j++) { const an = t * 6 + j * 2.094 + e.id;
+        L.star(e.x + Math.cos(an) * (w / 2 + 2), y - 9 + Math.sin(an) * 4, 10, COL.stun, 1); } }
     // полоски HP скелетов — бирюзовые, тоньше вражеских
     for (const s of ST.skels || []) { const k = Math.max(0, s.hp / s.max), x = Math.round(s.x - 10), y = Math.round(s.y - SKEL_H - 9);
       L.solid(x - 1, y - 1, 22, 5, [0.05, 0.03, 0.08]); L.solid(x, y, 20, 3, [0.12, 0.2, 0.3]); L.solid(x, y, Math.round(20 * k), 3, COL.soul); }
     // всплывающие души
     let fi = 0;
     for (const e of ST.ev) { const a = GT - e.t; if (a < 0 || a > 1.1) continue;
-      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
+      if ((e.k === 'die' || e.k === 'harvest' || e.k === 'well' || e.k === 'toll') && e.souls) { const q = a / 1.1; L.label('f' + (fi++ % 40), '+' + e.souls, e.x, e.y - 40 - 30 * q, { size: 18, col: '#7ff5e6', out: '#0b2a2c', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'miss') { const q = a / 1.1; L.label('f' + (fi++ % 40), 'ПРОМАХ', e.x, e.y - 34 - 30 * q, { size: 17, col: '#c8ff9e', out: '#132a0b', a: 1 - q * q, al: 0.5 }); }
       if (e.k === 'leak') { const q = a / 1.1; L.label('f' + (fi++ % 40), '−' + e.dmg, e.x, e.y - 90 - 30 * q, { size: 26, col: '#ff6b6b', out: '#2a0b0b', a: 1 - q * q, al: 0.5 }); } }
   };

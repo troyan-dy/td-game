@@ -38,6 +38,7 @@
         if (snd === 'spirits' && ok('f_s', 0.09)) tone('sine', 900, 1500, 0.18, 0.035);
         if (snd === 'plague' && ok('f_p', 0.12)) { tone('sine', 140, 300, 0.14, 0.08); noise(0.1, 0.03, 600, 3); }
         if (snd === 'dark' && ok('f_d', 0.09)) { tone('sawtooth', 120, 60, 0.22, 0.05); tone('sine', 520, 260, 0.2, 0.04); }
+        if (snd === 'bell' && ok('f_bell', 0.15)) { tone('sine', 196, 194, 1.1, 0.09); tone('sine', 466, 462, 0.8, 0.04); tone('triangle', 784, 780, 0.4, 0.025); noise(0.06, 0.05, 900, 2); }
         break; }
       case 'hit': if (ok('hit', 0.05)) noise(0.04, 0.05, e.kind === 'ghost' ? 3000 : 1200, 3); break;
       case 'cloud': if (ok('cloud', 0.12)) { noise(0.35, 0.06, 500, 1, 'lowpass'); tone('sine', 90, 60, 0.3, 0.05); } break;

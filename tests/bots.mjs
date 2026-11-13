@@ -5,7 +5,7 @@ export const SIM = require('../live/sim.js');
 const C = SIM.CONFIG;
 
 const MIX = ['bones', 'spirits', 'plague', 'dark'];
-const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse',
+const PERK = { bones: 'volley', spirits: 'pack', plague: 'acid', dark: 'curse', bell: 'drone',
   barracks: 'grip' };
 // лучшие клетки под оборону: по покрытию дороги (запоминаются на партию)
 const plan = (S, mem, n) => mem.plan || (mem.plan = SIM.rankCells(S, C.TYPICAL_RANGE).slice(0, n));
@@ -25,7 +25,10 @@ const nextUp = (S, t, perk) => {
 // Новую башню ставит, пока их меньше 7 или пока она дороже ступени не больше чем в BUILD_VS_STEP раз.
 const BUILD_VS_STEP = 3;
 // perks — какой перк берёт каждый тип (по умолчанию PERK)
+// на экране выбора реликвии любой бот берёт первую предложенную (иначе забег стоит)
+const RELIC = [{ k: 'relic', i: 0 }];
 export const planned = (mix, perks = PERK) => (S, mem) => {
+  if (S.phase === 'relic') return RELIC;
   const cells = plan(S, mem, 18), built = S.towers.filter(Boolean).length;
   const k = cells.findIndex((c) => !S.towers[c]), next = k >= 0 ? [cells[k], mix[k % mix.length]] : null;
   const nextCost = next ? SIM.canBuild(S, next[0], next[1]).cost : Infinity;
@@ -44,7 +47,7 @@ export const planned = (mix, perks = PERK) => (S, mem) => {
 export const smart = planned(MIX);
 // Одна башня спамом: та же стратегия, но только Кости.
 export const spamBones = planned(['bones']);
-export const idle = () => null;
+export const idle = (S) => (S.phase === 'relic' ? RELIC : null);
 
 // Партия: первая волна по кнопке, дальше по таймеру (бот не вызывает раньше). dt — шаг времени забега.
 export const play = (bot, seed = 1, maxT = 5400, dt) => {
