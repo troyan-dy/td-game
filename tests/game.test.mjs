@@ -74,11 +74,13 @@ test('радиусы башен в прежних единицах по 48 px; �
 
 // ---- препятствия и особые клетки
 const specialCell = (S, kind) => S.map.specials.find((s) => s.kind === kind).cell;
-// башня type на клетке cell один раз бьёт неподвижного врага с огромным HP (hp — его HP); очередь волны держится непустой,
-// чтобы волна не закончилась. Возвращает { tw, e, S }
-const strike = (seed, cell, type, hp = 1e6) => {
+// башня type, построенная на клетке cell (а если задано moveTo — перенесённая туда командой move до волны), один раз бьёт
+// неподвижного врага с HP hp; очередь волны держится непустой, чтобы волна не закончилась. Возвращает { tw, e, S }
+const strike = (seed, cell, type, hp = 1e6, moveTo) => {
   const S = SIM.create(seed); S.souls = 1e4;
-  SIM.step(S, { cmds: [{ k: 'build', cell, type }, { k: 'call' }] }); SIM.step(S, null);
+  SIM.step(S, { cmds: [{ k: 'build', cell, type }] });
+  if (moveTo !== undefined) { SIM.step(S, { cmds: [{ k: 'move', cell, to: moveTo }] }); assert.ok(S.towers[moveTo], 'перенос не прошёл'); cell = moveTo; }
+  SIM.step(S, { cmds: [{ k: 'call' }] }); SIM.step(S, null);
   S.queue = [{ at: 1e9, e: 'militia' }]; S.qi = 0;
   const tw = S.towers[cell], e = S.enemies[0], [x, y] = SIM.cellXY(S, cell);
   const far = (d) => Math.hypot(SIM.posAt(S, d).x - x, SIM.posAt(S, d).y - y);   // враг — в ближайшей к башне точке дороги
@@ -131,12 +133,24 @@ test('источник душ: +1 душа за каждое убийство б
   assert.equal(gain(plain), 0);
 });
 
-test('бонус особой клетки берётся от клетки, где башня стоит сейчас (перенос)', () => {
-  const S = SIM.create(5), mound = specialCell(S, 'mound'), plain = freeCell(S); S.souls = 1e4;
-  SIM.step(S, { cmds: [{ k: 'build', cell: plain, type: 'bones' }] });
-  const tw = S.towers[plain]; assert.equal(SIM.rangePx(S, tw), 3.6 * 48);
-  S.towers[plain] = null; S.towers[mound] = tw; tw.cell = mound;          // так башню переставит перенос — мимо doCmd
-  assert.equal(SIM.rangePx(S, tw), (3.6 + 1) * 48);
+test('перенос и особые клетки: на препятствие нельзя, бонус берётся от новой клетки, наценка не взимается', () => {
+  const S = SIM.create(5), mound = specialCell(S, 'mound'), cursed = specialCell(S, 'cursed'), well = specialCell(S, 'well'), plain = freeCell(S); S.souls = 1e4;
+  SIM.step(S, { cmds: [{ k: 'build', cell: mound, type: 'bones' }] });
+  const tw = S.towers[mound]; assert.equal(SIM.rangePx(S, tw), (3.6 + 1) * 48);
+  // на препятствие перенос отклонён
+  const ob = S.map.obstacles.find((o) => o.kind !== 'arch').cell;
+  assert.equal(SIM.canMove(S, mound, ob).reason, 'obstacle');
+  SIM.step(S, { cmds: [{ k: 'move', cell: mound, to: ob }] }); assert.equal(S.towers[ob], null); assert.equal(S.towers[mound], tw);
+  // с кургана на обычную клетку: +1 к дальности снимается
+  SIM.step(S, { cmds: [{ k: 'move', cell: mound, to: plain }] }); assert.equal(S.towers[plain], tw);
+  assert.equal(SIM.rangePx(S, tw), 3.6 * 48);
+  // на проклятую землю: бесплатно, вложения прежние
+  const souls = S.souls, invested = tw.invested;
+  SIM.step(S, { cmds: [{ k: 'move', cell: plain, to: cursed }] }); assert.equal(S.towers[cursed], tw);
+  assert.equal(S.souls, souls); assert.equal(tw.invested, invested);
+  // перенесённая на проклятую землю Тьма бьёт на 25% сильнее (20 → 25), на источнике душ башня начинает давать +1 душу
+  assert.equal(strike(5, plain, 'dark', 1e6, cursed).tw.dmg, 25);
+  const r = strike(5, plain, 'bones', 1, well); assert.equal(r.e.dead, true); assert.equal(r.S.stats.earned - r.e.bounty, 1);
 });
 
 test('снаряды и облака помнят свою башню, а не клетку: продажа и новая башня на той же клетке', () => {
