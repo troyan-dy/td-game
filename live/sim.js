@@ -4,6 +4,8 @@
 // Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
+// Слияние: {k:'merge',cell,other} — башня с клетки other становится примесью башни на cell, только в паузе между волнами
+// (SIM.canMerge, SIM.mergeTargets, превью SIM.mergeInfo; описание стоящего гибрида — SIM.hybridInfo). Счётчик — S.stats.merges.
 // Гримуар: {k:'grim',line} — ступень линии общей прокачки в любой фазе (SIM.grimLines, SIM.canGrim); ступени — в S.grim.
 // Конец забега: победа на последней волне (C.RUN_WAVES) — фаза 'won'; {k:'endless'} после неё (SIM.canEndless) продолжает забег
 // в бесконечном режиме (S.endless): волны идут дальше без предела (SIM.lastWave), забег кончается только поражением.
@@ -55,6 +57,8 @@
     if (own(PERKS, id)) throw new Error(`перк ${id} есть у ${PERKS[id].type} и у ${type}: id перков должны быть уникальны`);
     PERKS[id] = { type, def: TW[type].perks[id] }; }
   const perkDef = (id) => (own(PERKS, id) ? PERKS[id].def : null);
+  // действует ли перк id на башне: перк с needs — только при этом виде атаки (у гибрида — атака первой башни), остальные — всегда
+  const perkOn = (tw, id) => { const pd = perkDef(id); return !!pd && (!pd.needs || pd.needs === TW[tw.type].attack); };
   // реликвии: id из конфига (в его порядке — от него зависит выбор по сиду); открытое — общий список с башнями
   const RL = C.RELICS, RELIC_IDS = Object.keys(RL);
   for (const id of RELIC_IDS) if (own(TW, id)) throw new Error(`реликвия ${id} совпадает по id с башней: список открытого общий`);
@@ -80,15 +84,19 @@
 
   // ---------------------------------------------------------------- башня
   // Поля башни: type, cell; tracks {dmg, range, rate} — ступени веток; cap — потолок ступеней этой башни;
-  // perks — взятые перки (id), slots — сколько перков башня может держать (обычная — C.PERK_SLOTS, гибрид — больше);
-  // после постройки ещё id, invested (всё вложенное: постройка, ступени, перки), kills, dmg (нанесённый урон) и служебные
-  // cd, fireT, aim, built. Перки читаются только через hasPerk / freeSlots / perksOf.
-  const fresh = (cell, type) => ({ cell, type, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, 0])), cap: C.TRACK_MAX, perks: [], slots: C.PERK_SLOTS });
+  // perks — взятые перки (id), slots — сколько перков башня может держать (обычная — C.PERK_SLOTS, гибрид — C.MERGE.slots);
+  // mix — тип второй башни у гибрида (её примесь), у обычной башни null: гибрид — башня с mix, повторно не сливается;
+  // после постройки ещё id, invested (всё вложенное: постройка, ступени, перки, у гибрида — обе башни и слияние), kills,
+  // dmg (нанесённый урон) и служебные cd, fireT, aim, built. Перки читаются только через hasPerk / freeSlots / perksOf.
+  const fresh = (cell, type) => ({ cell, type, tracks: Object.fromEntries(C.TRACKS.map((k) => [k, 0])), cap: C.TRACK_MAX, perks: [], slots: C.PERK_SLOTS, mix: null });
   const steps = (tw) => C.TRACKS.reduce((n, k) => n + tw.tracks[k], 0);
   const look = (tw) => 1 + C.LOOK_AT.filter((n) => steps(tw) >= n).length;
   const perksOf = (tw) => tw.perks.slice();
   const hasPerk = (tw, p) => tw.perks.includes(p);
   const freeSlots = (tw) => Math.max(0, tw.slots - tw.perks.length);
+  const isHybrid = (tw) => !!tw && tw.mix !== null && tw.mix !== undefined;
+  // перки, из которых башня выбирает: группы { type, ids } — у обычной и у гибрида одинаковых типов одна, у гибрида разных — две
+  const perkGroups = (tw) => (isHybrid(tw) && tw.mix !== tw.type ? [tw.type, tw.mix] : [tw.type]).map((type) => ({ type, ids: Object.keys(TW[type].perks) }));
   // Гримуар: линии из C.GRIMOIRE — общие по веткам (id = ветка) и по одной на тип (id = тип). Ступень линии — S.grim[id],
   // ступеней — сколько цен. { id, group: 'all' | 'type', type, track — какую ветку усиливает, k — доля за ступень, cost }
   const GRIM = C.TRACKS.map((id) => Object.assign({ id, group: 'all', type: null, track: id }, C.GRIMOIRE.all[id]))
@@ -101,7 +109,8 @@
     for (const l of GRIM) if (l.group === 'all' || l.type === type) b[l.track] += l.k * grimStep(S, l.id);
     return b; };
   // Характеристики башни считаются только здесь, в два явных этапа; стрельба, снаряды, панель и подсказки читают результат.
-  //  ownStats   — СВОИ: база типа → ветки (основные dmg/range/rate и прибавки also к extra) → перки башни (set, затем mul, затем add).
+  //  ownStats   — СВОИ: база типа → ветки (основные dmg/range/rate и прибавки also к extra) → примесь гибрида (add её типа)
+  //               → действующие перки башни (set — из двух установок одной характеристики большая, затем mul, затем add).
   //               От них считаются эффекты, которые башня даёт другим (аура Алтаря берёт свои характеристики соседа, а не
   //               итоговые — иначе два алтаря рядом зациклились бы).
   //  towerStats — ИТОГОВЫЕ: свои плюс внешние бонусы (externalBonus: клетка, аура соседей, Гримуар, реликвии).
@@ -111,8 +120,10 @@
     const d = TW[tw.type], b = d.base, g = d.tracks, n = (k) => tw.tracks[k] + (plus === k ? 1 : 0);
     const o = Object.assign({}, d.extra || {}, { dmg: b.dmg * (1 + g.dmg.k * n('dmg')), range: b.range * (1 + g.range.k * n('range')), rate: b.rate / (1 + g.rate.k * n('rate')) });
     for (const k of C.TRACKS) if (g[k].also) for (const [key, v] of Object.entries(g[k].also)) o[key] = (o[key] || 0) + v * n(k);
-    const pds = tw.perks.map(perkDef);
-    for (const pd of pds) Object.assign(o, pd.set || {});
+    if (isHybrid(tw)) for (const [key, v] of Object.entries(TW[tw.mix].mix.add)) o[key] = (o[key] || 0) + v;
+    const pds = tw.perks.filter((p) => perkOn(tw, p)).map(perkDef), set = {};
+    for (const pd of pds) for (const [key, v] of Object.entries(pd.set || {})) set[key] = own(set, key) ? Math.max(set[key], v) : v;
+    Object.assign(o, set);
     for (const pd of pds) for (const [key, v] of Object.entries(pd.mul || {})) o[key] = (o[key] || 0) * v;
     for (const pd of pds) for (const [key, v] of Object.entries(pd.add || {})) o[key] = (o[key] || 0) + v;
     o.rangePx = o.range * UNIT;
@@ -131,29 +142,31 @@
       for (const [key, v] of Object.entries(b.add || {})) o[key] = (o[key] || 0) + v;
       if (b.haste) o.rate /= 1 + b.haste; }
     const g = grimBonus(S, tw.type); o.dmg *= 1 + g.dmg; o.range *= 1 + g.range; o.rate /= 1 + g.rate;   // Гримуар — после клетки и реликвий
-    if (hasAura(tw.type)) auraGrim(S, tw.type, o);                                                // Алтарь: сила ауры с Гримуаром
+    const at = auraType(tw); if (at) auraGrim(S, at, o);                                          // Алтарь (и примесь Алтаря): сила ауры с Гримуаром
     const au = auraOn(S, tw); if (au) { o.dmg *= 1 + au.dmg; o.rate /= 1 + au.rate; o.range += au.range; o.altar = au; }   // Алтарь крови
     o.rangePx = o.range * UNIT; return o; };
   // ---- аура Алтаря крови (#8). Тип с аурой — с auraR в extra. Аура действует на башни с видом атаки на клетках не дальше
   // auraR по сетке и берётся от СВОИХ характеристик алтаря (ownStats): алтари рядом не зацикливаются, алтарь ауру не получает.
   // Несколько алтарей не складываются: по каждой прибавке (урон, скорость, дальность) — сильнейший.
   const hasAura = (type) => own(TW, type) && !!TW[type].extra && own(TW[type].extra, 'auraR');
+  // чья аура у башни: тип с аурой — свой (Алтарь) или примеси (гибрид с Алтарём второй башней); null — ауры нет
+  const auraType = (tw) => (hasAura(tw.type) ? tw.type : isHybrid(tw) && hasAura(tw.mix) ? tw.mix : null);
   // Гримуар у алтаря усиливает ауру: прибавка ветки dmg | range | rate — к auraDmg | auraRange | auraRate (меняет o на месте)
   const AURA_OF = { dmg: 'auraDmg', range: 'auraRange', rate: 'auraRate' };
   const auraGrim = (S, type, o) => { const g = grimBonus(S, type); for (const k of C.TRACKS) o[AURA_OF[k]] *= 1 + g[k]; return o; };
   // характеристики, от которых алтарь a даёт ауру: свои плюс Гримуар (без ауры соседей — рекурсии нет)
-  const auraStats = (S, a) => auraGrim(S, a.type, ownStats(S, a));
+  const auraStats = (S, a) => auraGrim(S, auraType(a), ownStats(S, a));
   const gridDist = (S, a, b) => { const n = S.map.cols; return Math.max(Math.abs(a % n - b % n), Math.abs(Math.floor(a / n) - Math.floor(b / n))); };
   // { dmg, rate, range } — что башня tw получает от алтарей вокруг, или null
   const auraOn = (S, tw) => {
     if (!(tw.cell >= 0) || !attackOf(tw)) return null; let out = null;
-    for (const a of S.towers) if (a && a !== tw && a.cell !== tw.cell && hasAura(a.type)) { const st = auraStats(S, a);
+    for (const a of S.towers) if (a && a !== tw && a.cell !== tw.cell && auraType(a)) { const st = auraStats(S, a);
       if (gridDist(S, a.cell, tw.cell) > st.auraR) continue;
       out = out || { dmg: 0, rate: 0, range: 0 };
       out.dmg = Math.max(out.dmg, st.auraDmg); out.rate = Math.max(out.rate, st.auraRate); out.range = Math.max(out.range, st.auraRange); }
     return out; };
   // алтарь на клетке cell: будущий типа type (превью постройки) или стоящий там (type не задан); null — там не алтарь
-  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && hasAura(tw.type) ? tw : null; };
+  const altarAt = (S, cell, type) => { if (!(cell >= 0 && cell < cellCount(S))) return null; const tw = type === undefined ? towerAt(S, cell) : own(TW, type) ? fresh(cell, type) : null; return tw && auraType(tw) ? tw : null; };
   // клетки башен, которые усилит алтарь на клетке cell (превью постройки, подсветка на карте); [] — не алтарь или некого
   const auraTargets = (S, cell, type) => { const tw = altarAt(S, cell, type), out = []; if (!tw) return out;
     const r = ownStats(S, tw).auraR;
@@ -180,10 +193,20 @@
   // описание перка с числами из его же данных (set, add, mul) и extra его типа
   // внешний вид типа: art типа поверх C.ART (сцена, интерфейс и звук берут вид только отсюда)
   const art = (type) => Object.assign({}, C.ART, (own(TW, type) && TW[type].art) || {});
+  // вид стоящей башни: у гибрида — спрайт первой башни в цвете второй (её перекраска или цвет), свечение и значок примеси
+  // (hybrid, icon, mixColor, mixUi, own — цвет первой); у обычной — вид типа
+  const towerArt = (tw) => { const a = art(tw.type); if (!isHybrid(tw)) return a;
+    const m = art(tw.mix), [k, s] = C.MERGE.tint, tint = m.tint || [m.color[0] * k, m.color[1] * k, m.color[2] * k, s];
+    return Object.assign(a, { tint, css: `${a.css || ''} drop-shadow(0 0 4px ${m.ui}) drop-shadow(0 0 2px ${m.ui})`.trim(), own: a.color, color: m.color,
+      hybrid: true, icon: TW[tw.mix].mix.icon, mixColor: m.color, mixUi: m.ui }); };
   // значение ветки track башни для панели — по шаблону fmt типа (или C.TRACK_FMT) из характеристик st
   const trackText = (type, track, st) => fill(((own(TW, type) && TW[type].fmt) || {})[track] || C.TRACK_FMT[track], st, (TW[type] && TW[type].extra) || {});
   const perkText = (id) => { const P = PERKS[id], pd = P.def, base = TW[P.type].extra || {};
     return fill(pd.desc, Object.assign({}, base, pd.mul || {}, pd.add || {}, pd.set || {}), base); };
+  // описание примеси типа (второй башни гибрида) с числами из её данных
+  const mixText = (type) => { const m = TW[type].mix; return fill(m.desc, m.add, TW[type].extra || {}); };
+  // действует ли примесь гибрида на его атаке (skip — виды урона, на которых ей нечего делать)
+  const mixOn = (tw) => !isHybrid(tw) || !(TW[tw.mix].mix.skip || []).includes(TW[tw.type].dmgType);
   // точка, откуда башня стреляет (одна функция для сима и сцены): над основанием, на высоте «ствола» типа (muzzle в конфиге);
   // выше с каждым видом, но не выше линии HUD (C.VIEW_TOP), под которую сцена ужимает высокие башни верхнего ряда
   const muzzleH = (tw) => TW[tw.type].muzzle + (look(tw) - 1) * C.LOOK_MUZZLE;
@@ -214,7 +237,7 @@
       t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1,
-      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
+      stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0, merges: 0 }, seen: {}, waveStats: null,
       relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
       grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
     };
@@ -263,6 +286,54 @@
     return out; };
   // радиус башни с клетки from, если перенести её на to, px (круг превью переноса)
   const moveRangePx = (S, from, to) => towerStats(S, Object.assign({}, S.towers[from], { cell: to })).rangePx;
+  // ---- слияние (#9). Можно ли слить башню с клетки cell (первую — её атака) с башней на other (вторую — её примесь):
+  // { ok, reason, cost }. Без other — можно ли сливать эту башню вообще (кнопка в панели): reason null | 'none' | 'hybrid'
+  // (уже гибрид) | 'first' (без вида атаки — Алтарь — бывает только второй) | 'tracks' (не все ветки на потолке обычной башни) |
+  // 'ended' | 'phase' (не пауза между волнами). С other — ещё 'same' | 'empty' (там нет башни) | 'far' (не сосед по восьми
+  // направлениям) | 'mixed' (вторая — уже гибрид) | 'unready' (у второй не все ветки на потолке) | 'souls'. cost — C.MERGE.cost
+  const ready = (tw) => C.TRACKS.every((k) => tw.tracks[k] >= C.TRACK_MAX);
+  const canMerge = (S, cell, other) => {
+    const tw = Number.isInteger(cell) ? towerAt(S, cell) : null, cost = C.MERGE.cost, no = (reason) => ({ ok: false, reason, cost });
+    if (!tw) return no('none');
+    if (isHybrid(tw)) return no('hybrid');
+    if (!attackOf(tw)) return no('first');
+    if (!ready(tw)) return no('tracks');
+    if (ended(S)) return no('ended');
+    if (S.phase !== 'prep') return no('phase');
+    if (other === undefined) return { ok: true, reason: null, cost };
+    if (other === cell) return no('same');
+    const o = Number.isInteger(other) ? towerAt(S, other) : null;
+    if (!o) return no('empty');
+    if (gridDist(S, cell, other) > 1) return no('far');
+    if (isHybrid(o)) return no('mixed');
+    if (!ready(o)) return no('unready');
+    if (S.souls < cost) return no('souls');
+    return { ok: true, reason: null, cost };
+  };
+  // соседи башни на cell, с которыми её можно слить (подсветка в интерфейсе); нехватка душ соседа из списка не убирает
+  const mergeTargets = (S, cell) => { const out = []; if (!canMerge(S, cell).ok) return out;
+    const n = S.map.cols, x = cell % n, y = Math.floor(cell / n);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy, i = Y * n + X;
+      if ((dx || dy) && X >= 0 && Y >= 0 && X < n && Y < S.map.rows && [null, 'souls'].includes(canMerge(S, cell, i).reason)) out.push(i); }
+    return out.sort((p, q) => p - q); };
+  // гибрид из башни a (первая) и b (вторая) — новый объект на клетке a; он же и превью, и результат команды merge
+  const hybridOf = (a, b) => Object.assign({}, a, { mix: b.type, cap: C.MERGE.cap, slots: C.MERGE.slots, tracks: Object.assign({}, a.tracks),
+    perks: a.perks.concat(b.perks.filter((p) => !a.perks.includes(p))), invested: a.invested + b.invested + C.MERGE.cost, kills: a.kills + b.kills, dmg: a.dmg + b.dmg });
+  // описание гибрида для интерфейса (панель и превью): { type, mix, name, title, icon, mixName, mixText, mixOn (примесь
+  // действует на этой атаке), stats (итоговые), cap, slots, invested, perks: [{ id, type, name, on, text }] }; не гибрид — null
+  const hybridInfo = (S, hw) => { if (!isHybrid(hw)) return null; const m = TW[hw.mix].mix;
+    return { type: hw.type, mix: hw.mix, name: `${TW[hw.type].name} + ${TW[hw.mix].name}`, title: TW[hw.type].title, icon: m.icon, mixName: m.name,
+      mixText: mixText(hw.mix), mixOn: mixOn(hw), stats: towerStats(S, hw), cap: hw.cap, slots: hw.slots, invested: hw.invested,
+      perks: hw.perks.map((id) => ({ id, type: PERKS[id].type, name: PERKS[id].def.name, on: perkOn(hw, id), text: perkText(id) })) }; };
+  // превью слияния башни на cell с соседом other: описание будущего гибрида (характеристики — уже без второй башни: её аура,
+  // если это алтарь, уйдёт вместе с ней) плюс { ok, reason, cost, frees — клетка, которая освободится }; нет двух башен — null
+  const mergeInfo = (S, cell, other) => {
+    const a = Number.isInteger(cell) ? towerAt(S, cell) : null, b = Number.isInteger(other) ? towerAt(S, other) : null;
+    if (!a || !b || a === b) return null;
+    const cm = canMerge(S, cell, other), hw = hybridOf(a, b); let info;
+    S.towers[other] = null; dropIndex();
+    try { info = hybridInfo(S, hw); } finally { S.towers[other] = b; dropIndex(); }
+    return Object.assign(info, { ok: cm.ok, reason: cm.reason, cost: cm.cost, frees: other }); };
   // радиус будущей башни типа type на клетке cell, px (круг превью постройки)
   const buildRangePx = (S, cell, type) => buildStats(S, cell, type).rangePx;
   // можно ли поднять ветку track башни на клетке: { ok, reason, cost }. reason: null | 'none' (нет башни) | 'track' (нет такой
@@ -279,16 +350,20 @@
     if (S.souls < cost) return no('souls', cost);
     return { ok: true, reason: null, cost };
   };
-  // можно ли взять перк p: { ok, reason, cost, need }. reason: null | 'none' | 'perk' (у типа башни нет такого перка) |
-  // 'chosen' (этот перк уже взят) | 'taken' (слоты заняты другими) | 'steps' (мало ступеней) | 'ended' | 'souls';
+  // можно ли взять перк p: { ok, reason, cost, need }. reason: null | 'none' | 'perk' (у типов башни нет такого перка) |
+  // 'chosen' (этот перк уже взят) | 'taken' (слоты заняты другими; у гибрида разных типов — перк этого типа уже взят) |
+  // 'dead' (перк не действует на атаке этого гибрида) | 'steps' (мало ступеней) | 'ended' | 'souls';
   // need — сколько ступеней ещё вложить до выбора перка
   const canPerk = (S, cell, p) => {
-    const tw = towerAt(S, cell), pd = tw && own(TW[tw.type].perks, p) ? TW[tw.type].perks[p] : null, cost = pd ? pd.cost : null;
+    const tw = towerAt(S, cell), P = tw && own(PERKS, p) && (PERKS[p].type === tw.type || (isHybrid(tw) && PERKS[p].type === tw.mix)) ? PERKS[p] : null;
+    const pd = P ? P.def : null, cost = pd ? pd.cost : null;
     const need = tw ? Math.max(0, perkAt(S) - steps(tw)) : perkAt(S), no = (reason) => ({ ok: false, reason, cost, need });
     if (!tw) return no('none');
     if (!pd) return no('perk');
     if (hasPerk(tw, p)) return no('chosen');
     if (!freeSlots(tw)) return no('taken');
+    if (isHybrid(tw) && tw.mix !== tw.type && tw.perks.some((q) => PERKS[q].type === P.type)) return no('taken');
+    if (!perkOn(tw, p)) return no('dead');
     if (need > 0) return no('steps');
     if (ended(S)) return no('ended');
     if (S.souls < cost) return no('souls');
@@ -365,11 +440,17 @@
   // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
   const mapOfSeed = (seed) => { if (MAPC.seed !== seed) MAPC = { seed, json: JSON.stringify(MAPGEN.generate(seed)) }; return MAPC.json; };
   // башня по смыслу своей модели: ступень каждой ветки — целое 0..cap; cap — целый, от потолка обычной башни до числа
-  // заданных цен; слотов перков не меньше, чем у обычной башни; перки — без повторов, не больше слотов, все — перки её типа
+  // заданных цен; слотов перков не меньше, чем у обычной башни; перки — без повторов, не больше слотов, все — перки её типа.
+  // Гибрид (mix — тип из конфига): первая башня — с видом атаки, потолок и слоты — ровно гибрида (C.MERGE), ветки не ниже
+  // потолка обычной башни (сливаются только прокачанные), перки — его типа или примеси, у разных типов — не больше одного на тип
   const towerOk = (tw, def) => {
-    const prices = Math.min(...C.TRACKS.map((k) => def.tracks[k].cost.length));
+    const prices = Math.min(...C.TRACKS.map((k) => def.tracks[k].cost.length)), hy = tw.mix !== null;
+    if (hy && !(typeof tw.mix === 'string' && own(TW, tw.mix) && own(ATTACKS, def.attack) && tw.cap === C.MERGE.cap && tw.slots === C.MERGE.slots
+      && C.TRACKS.every((k) => tw.tracks[k] >= C.TRACK_MAX))) return false;
+    const from = (p) => (own(def.perks, p) ? tw.type : hy && own(TW[tw.mix].perks, p) ? tw.mix : null);
     return int(tw.cap, C.TRACK_MAX, prices) && C.TRACKS.every((k) => int(tw.tracks[k], 0, tw.cap)) && int(tw.slots, C.PERK_SLOTS, C.SAVE_NUM_MAX)
-      && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && new Set(tw.perks).size === tw.perks.length && tw.perks.every((p) => own(def.perks, p));
+      && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && new Set(tw.perks).size === tw.perks.length && tw.perks.every((p) => typeof p === 'string' && from(p))
+      && (!hy || tw.mix === tw.type || new Set(tw.perks.map(from)).size === tw.perks.length);
   };
   // фаза согласована с номером волны, режимом и таймером паузы. Обычный забег: волны 1..RUN_WAVES, пауз после последней нет,
   // победа — на последней. Бесконечный режим начинается паузой после победы (волна RUN_WAVES): дальше волны без предела, победы нет.
@@ -474,6 +555,10 @@
       if (!canMove(S, c.cell, c.to).ok || c.to === undefined) return; const [x, y] = cellXY(S, c.to);
       S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; if (S.phase === 'wave') S.waveMoved = S.wave;
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
+    } else if (c.k === 'merge') {                                     // { k: 'merge', cell, other } — other становится примесью башни на cell
+      if (!canMerge(S, c.cell, c.other).ok) return; const o = S.towers[c.other], [fx, fy] = cellXY(S, c.other);
+      pay(S, C.MERGE.cost); Object.assign(tw, hybridOf(tw, o), { built: S.t }); S.towers[c.other] = null; S.stats.merges++;
+      ev(S, 'merge', { cell: c.cell, other: c.other, type: tw.type, mix: tw.mix, x: at[0], y: at[1], fx, fy });
     } else if (c.k === 'grim') {                                      // { k: 'grim', line } — ступень линии Гримуара
       const cg = canGrim(S, c.line); if (!cg.ok) return;
       pay(S, cg.cost); S.grim[c.line]++;
@@ -519,12 +604,13 @@
   };
 
   // ---------------------------------------------------------------- урон и смерть
+  // opt — параметры удара (fx снаряда): pen / mpen — доля брони / магической защиты, которую удар не замечает
   const damage = (S, e, amt, type, tw, opt) => {
     if (e.dead || amt <= 0) return 0;
     if (e.ward > 0) { e.ward--; ev(S, 'miss', { x: e.x, y: e.y - 14 }); return 0; }   // разведчик: первое попадание любого урона — мимо
     // броня и защита — с врага (свойство волны их меняет); бонус клетки уже в уроне снаряда (towerStats при выстреле)
-    if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, e.armor + e.aura - e.shred) * (1 - (opt && opt.pen || 0)));   // pen — доля брони, которую удар не замечает
-    else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - e.mres;
+    if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, e.armor + e.aura - e.shred) * (1 - Math.min(1, (opt && opt.pen) || 0)));
+    else if (type === 'magic') amt *= 1 - e.mres * (1 - Math.min(1, (opt && opt.mpen) || 0));
     if (e.curseT > 0) amt *= 1 + e.curse;
     e.hp -= amt; if (type !== 'poison') e.hitT = S.t;
     if (tw) tw.dmg += amt;
@@ -544,69 +630,113 @@
     }
     // Мор: яд, полученный из облака башни с этим перком, при смерти оставляет малое облако (без цепной реакции)
     for (const key in e.poison) { const p = e.poison[key];
-      if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, linger: p.pest.linger, tw: p.tw, pest: null, acid: null });
+      if (p.pest) { S.clouds.push({ x: e.x, y: e.y, r: p.pest.r, t: p.pest.t, T: p.pest.t, dps: p.dps, linger: p.pest.linger, tw: p.tw, pest: null, fx: null, hit: [] });
         ev(S, 'cloud', { x: e.x, y: e.y, small: true }); break; } }
     if (def.spawnOnDeath) for (let i = 0; i < def.spawnOnDeath.n; i++) { const m = spawnEnemy(S, def.spawnOnDeath.type, Math.max(0, e.d - 12 - 16 * i), true); m.lane = (i ? 1 : -1) * 9; placeEnemy(S, m, 0); }
   };
+
+  // ---------------------------------------------------------------- эффекты попадания
+  // Единый слой: всё, что попадание делает с врагом, кроме урона, — из параметров удара fx. fx снимается с итоговых
+  // характеристик в момент выстрела (fxOf) и едет в снаряде, облаке или ударе: проданная или прокачанная башня его не меняет.
+  // Его вызывают все точки попадания (strike: болт, призрак и его отскоки, луч, удар колокола; облако — при касании), поэтому
+  // перк или примесь второй башни гибрида действуют на чужой атаке. Новый эффект — ключ в FX и строка в effects.
+  //   kind — вид урона; pen, mpen — пробой брони и защиты (в damage); slow, slowTime — замедление (не выше C.SLOW_MAX);
+  //   freezeChance, freeze — шанс сковать; curse, curseTime — проклятие; shred, shredTime — снижение брони; venom, venomTime —
+  //   яд при попадании (доля урона в секунду); pest — облако Мора при смерти отравленного; stunChance, stunMini — мини-оглушение;
+  //   drag, dragTime — замедление после оглушения (Гул); pierceN, pierceK, pierceR — пронзание: ещё враги рядом с целью.
+  const FX = ['pen', 'mpen', 'slow', 'slowTime', 'freezeChance', 'freeze', 'curse', 'curseTime', 'shred', 'shredTime', 'venom', 'venomTime',
+    'stunChance', 'stunMini', 'drag', 'dragTime', 'pierceN', 'pierceK', 'pierceR'];
+  const fxOf = (tw, st) => { const d = TW[tw.type], fx = { kind: d.dmgType };
+    for (const k of FX) if (st[k]) fx[k] = st[k];
+    if (d.ignoreMres) fx.mpen = 1;                                     // Тьма не замечает магической защиты
+    if (st.pestR) fx.pest = { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger || st.venomTime || 1 };
+    return fx; };
+  // эффекты удара по врагу e (amt — урон удара до брони, src — id башни). first — первое касание: шансы срабатывают только
+  // на нём (облако обновляет эффекты каждый шаг, пока враг внутри, а шансы и пронзание — один раз)
+  const effects = (S, e, amt, fx, src, first) => {
+    if (!fx || typeof fx !== 'object' || e.dead) return;
+    const boss = !!EN[e.type].boss;
+    if (fx.slow > 0) slowHit(e, Math.min(C.SLOW_MAX, fx.slow), fx.slowTime);
+    if (first && fx.freezeChance > 0 && rand(S) < fx.freezeChance && !boss) { e.freezeT = fx.freeze; ev(S, 'freeze', { x: e.x, y: e.y }); }
+    if (fx.curse > 0) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, fx.curse); e.curseT = Math.max(e.curseT, fx.curseTime); }
+    if (fx.shred > 0) { e.shred = Math.max(e.shredT > 0 ? e.shred : 0, fx.shred); e.shredT = Math.max(e.shredT, fx.shredTime); }
+    if (fx.venom > 0 && amt > 0) { const key = 'v' + src, old = e.poison[key];
+      e.poison[key] = { dps: Math.max(fx.venom * amt, old ? old.dps : 0), t: fx.venomTime, tw: src, pest: fx.pest || null }; }
+    if (first && fx.stunChance > 0 && rand(S) < fx.stunChance && !boss) { e.stunT = Math.max(e.stunT, fx.stunMini); ev(S, 'stun', { x: e.x, y: e.y }); }
+    if (fx.drag > 0) slowHit(e, fx.drag, (e.stunT > 0 ? e.stunT : 0) + fx.dragTime);
+  };
+  // пронзание: до pierceN ближайших врагов в pierceR от цели получают долю pierceK урона удара (их эффекты — без шансов и без
+  // нового пронзания)
+  const pierce = (S, e, amt, fx, tw, src) => {
+    if (!(fx && fx.pierceN > 0)) return; const R = (fx.pierceR || 0) * UNIT;
+    const near = S.enemies.filter((o) => !o.dead && o !== e && Math.hypot(o.x - e.x, o.y - e.y) <= R)
+      .sort((p, q) => Math.hypot(p.x - e.x, p.y - e.y) - Math.hypot(q.x - e.x, q.y - e.y) || p.id - q.id).slice(0, fx.pierceN);
+    for (const o of near) { strike(S, o, amt * fx.pierceK, fx, tw, src, false); ev(S, 'pierce', { x: e.x, y: e.y - 14, x1: o.x, y1: o.y - 14 }); } };
+  // попадание: промах по щиту разведчика — без эффектов; иначе эффекты, урон, пронзание. Возвращает нанесённый урон
+  const strike = (S, e, amt, fx, tw, src, first = true) => {
+    if (e.dead) return 0;
+    const kind = fx && fx.kind;
+    if (e.ward > 0) return damage(S, e, amt, kind, tw, fx);
+    effects(S, e, amt, fx, src, first);
+    const got = damage(S, e, amt, kind, tw, fx);
+    if (first) pierce(S, e, amt, fx, tw, src);
+    return got; };
 
   // ---------------------------------------------------------------- башни
   const inRange = (S, tw, r) => { const [sx, sy] = cellXY(S, tw.cell), out = [];
     for (const e of S.enemies) if (!e.dead && Math.hypot(e.x - sx, e.y - sy) <= r) out.push(e); return out; };
   const firstOf = (list) => list.reduce((b, e) => (!b || e.d > b.d ? e : b), null);
-  // Виды атаки (поле attack типа в конфиге): { run(S, tw, st, cand, mx, my) → сработал ли (true — перезарядка st.rate),
+  // Виды атаки (поле attack типа в конфиге): { run(S, tw, st, cand, mx, my, fx) → сработал ли (true — перезарядка st.rate),
   //   idle — true, если вид действует и без целей в радиусе (выставить скелета заранее): тогда run зовётся и при пустом cand }.
-  // st — итоговые характеристики, cand — враги в радиусе, (mx, my) — точка выстрела. Снаряд запоминает все свои числа
-  // (урон, перки) в момент выстрела: проданная, прокачанная или перенесённая башня их не меняет. Тип без attack не действует.
+  // st — итоговые характеристики, cand — враги в радиусе, (mx, my) — точка выстрела, fx — параметры эффектов попадания
+  // (fxOf). Снаряд запоминает все свои числа (урон, fx) в момент выстрела: проданная, прокачанная или перенесённая башня их не
+  // меняет. Каждое попадание — через strike (эффекты, урон, пронзание). Тип без attack не действует.
   // Новый вид атаки — новая запись здесь и, если снаряд новый, ветка в stepShots и отрисовка в сцене.
   const ATTACKS = {
-    bolt: { run: (S, tw, st, cand, mx, my) => {                             // болт: первая по дороге цель; Залп, Пронзание, Бронебой
+    bolt: { run: (S, tw, st, cand, mx, my, fx) => {                         // болт: первая по дороге цель; Залп, Пронзающий болт
       if (st.bolts) {
         const ts = cand.sort((a, b) => b.d - a.d).slice(0, st.bolts);
-        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg * st.boltMult, pen: st.pen || 0, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
+        ts.forEach((e, i) => S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg * st.boltMult, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y, n: i }));
         tw.aim = Math.atan2(ts[0].y - my, ts[0].x - mx); return true;
       }
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
       if (st.pierce) {
         const fl = Math.hypot(e.x - mx, e.y - my) / st.speed, p = posAt(S, e.d + e.speed * fl);
         const a = Math.atan2(p.y - my, p.x - mx); tw.aim = a;
-        S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, pen: st.pen || 0, sp: st.speed, tw: tw.id,
+        S.shots.push({ k: 'bolt', x: mx, y: my, dx: Math.cos(a), dy: Math.sin(a), left: st.rangePx * 1.3, dmg: st.dmg, fx, sp: st.speed, tw: tw.id,
           pierce: st.pierce, falloff: st.pierceFalloff, hit: [] });
-      } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg, pen: st.pen || 0, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y });
+      } else S.shots.push({ k: 'bolt', x: mx, y: my, tid: e.id, dmg: st.dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y });
       return true;
     } },
-    ghost: { run: (S, tw, st, cand, mx, my) => {                            // призрак: урон и замедление; Стая, Ледяной ужас, Могильный холод
+    ghost: { run: (S, tw, st, cand, mx, my, fx) => {                        // призрак: урон и замедление (fx); Стая — отскоки
       const e = firstOf(cand); tw.aim = Math.atan2(e.y - my, e.x - mx);
-      S.shots.push({ k: 'ghost', x: mx, y: my, tid: e.id, dmg: st.dmg, slow: st.slow, slowT: st.slowTime, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y,
-        bounces: st.bounces || 0, bounceMult: st.bounceMult || 1, bounceR: (st.bounceRange || 0) * UNIT, freezeChance: st.freezeChance || 0, freeze: st.freeze || 0,
-        hit: [], born: S.t, seed: rand(S) });
+      S.shots.push({ k: 'ghost', x: mx, y: my, tid: e.id, dmg: st.dmg, fx, sp: st.speed, tw: tw.id, lx: e.x, ly: e.y,
+        bounces: st.bounces || 0, bounceMult: st.bounceMult || 1, bounceR: (st.bounceRange || 0) * UNIT, hit: [], born: S.t, seed: rand(S) });
       return true;
     } },
-    blob: { run: (S, tw, st, cand, mx, my) => {                             // ком яда навесом: облако на месте падения; Кислота, Мор, Миазмы
+    blob: { run: (S, tw, st, cand, mx, my, fx) => {                         // ком яда навесом: облако на месте падения; Мор, Миазмы
       const e = firstOf(cand), fl = st.flight, p = posAt(S, e.d + e.speed * (e.slowT > 0 ? 1 - e.slowK : 1) * fl * 0.85);
       S.shots.push({ k: 'blob', x0: mx, y0: my, x1: p.x, y1: p.y, x: mx, y: my, T: 0, dur: fl, tw: tw.id, dps: st.dmg, r: st.cloudR * UNIT, ct: st.cloudTime, linger: st.linger,
-        acid: st.shred ? { shred: st.shred, t: st.shredTime } : null, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
+        fx, pest: st.pestR ? { r: st.pestR * UNIT, t: st.pestTime, linger: st.linger } : null });
       return true;
     } },
-    beam: { run: (S, tw, st, cand, mx, my) => {                             // луч мгновенно по самой живучей цели; Проклятие, Двойной луч
+    beam: { run: (S, tw, st, cand, mx, my, fx) => {                         // луч мгновенно по самой живучей цели; Двойной луч
       const byHp = cand.sort((a, b) => b.hp - a.hp || a.id - b.id), hits = byHp.slice(0, st.split ? 2 : 1);
       tw.aim = Math.atan2(hits[0].y - my, hits[0].x - mx);
-      if (st.curse) { hits[0].curse = st.curse; hits[0].curseT = st.curseTime; }
       hits.forEach((e, i) => { const heavy = EN[e.type].heavy ? st.heavy || 1 : 1, mult = i ? st.split : 1;
-        damage(S, e, st.dmg * heavy * mult, 'magic', tw, { ignoreMres: TW[tw.type].ignoreMres });
+        strike(S, e, st.dmg * heavy * mult, fx, tw, tw.id);
         S.beams.push({ x0: mx, y0: my, x1: e.x, y1: e.y - 14, t: S.t, tw: tw.id }); });
       return true;
     } },
     // удар колокола: урон всем в радиусе разом, оглушение на st.stun всем, кроме боссов и невосприимчивых (stunG — оглушение
-    // плюс st.guard); Погребальный звон (curse) — проклятие всем задетым, Гул (drag) — замедление, начинающееся после оглушения
-    pulse: { run: (S, tw, st, cand) => {
+    // плюс st.guard); проклятие Погребального звона и замедление Гула — эффекты попадания (fx), Гул — после оглушения
+    pulse: { run: (S, tw, st, cand, mx, my, fx) => {
       const [x, y] = cellXY(S, tw.cell);
       for (const e of cand) {
-        if (e.ward > 0) { damage(S, e, st.dmg, TW[tw.type].dmgType, tw); continue; }   // разведчик: удар мимо — и без оглушения
+        if (e.ward > 0) { strike(S, e, st.dmg, fx, tw, tw.id); continue; }   // разведчик: удар мимо — и без оглушения
         const stun = !EN[e.type].boss && !(e.stunG > 0);
         if (stun) { e.stunT = st.stun; e.stunG = st.stun + st.guard; }
-        if (st.curse) { e.curse = Math.max(e.curseT > 0 ? e.curse : 0, st.curse); e.curseT = Math.max(e.curseT, st.curseTime); }
-        if (st.drag) slowHit(e, st.drag, (e.stunT > 0 ? e.stunT : 0) + st.dragTime);
-        damage(S, e, st.dmg, TW[tw.type].dmgType, tw);
+        strike(S, e, st.dmg, fx, tw, tw.id);
       }
       ev(S, 'pulse', { x, y, r: st.rangePx, cell: tw.cell, type: tw.type });
       return true;
@@ -618,7 +748,7 @@
     const atk = attackOf(tw); if (!atk) return null;
     const st = towerStats(S, tw), cand = inRange(S, tw, st.rangePx); if (!cand.length && !atk.idle) return null;
     const [mx, my] = muzzle(S, tw);
-    if (!atk.run(S, tw, st, cand, mx, my)) return null;
+    if (!atk.run(S, tw, st, cand, mx, my, fxOf(tw, st))) return null;
     tw.fireT = S.t; ev(S, 'fire', { cell: tw.cell, type: tw.type, x: mx, y: my });
     return st;
   };
@@ -626,6 +756,9 @@
   const slowHit = (e, k, t) => { if (e.slowT <= 0 || k > e.slowK) { e.slowK = k; e.slowT = t; } else if (k === e.slowK) e.slowT = Math.max(e.slowT, t); };
 
   const findEnemy = (S, id) => { for (const e of S.enemies) if (e.id === id) return e; return null; };
+  // параметры удара снаряда; снаряд без них (собранный руками) бьёт видом урона своего снаряда и без эффектов
+  const SHOT_FX = { bolt: { kind: 'phys' }, ghost: { kind: 'magic' } };
+  const shotFx = (s) => s.fx || SHOT_FX[s.k];
   const stepShots = (S) => {
     const keep = [], DT = S.dt;
     for (const s of S.shots) {
@@ -634,7 +767,7 @@
         s.T += DT; const u = Math.min(1, s.T / s.dur);
         s.x = s.x0 + (s.x1 - s.x0) * u; s.y = s.y0 + (s.y1 - s.y0) * u - Math.sin(Math.PI * u) * 70;
         if (u >= 1) {
-          S.clouds.push({ x: s.x1, y: s.y1, r: s.r, t: s.ct, T: s.ct, dps: s.dps, linger: s.linger, tw: s.tw, pest: s.pest, acid: s.acid });
+          S.clouds.push({ x: s.x1, y: s.y1, r: s.r, t: s.ct, T: s.ct, dps: s.dps, linger: s.linger, tw: s.tw, pest: s.pest, fx: s.fx, hit: [] });
           ev(S, 'cloud', { x: s.x1, y: s.y1 }); continue; }
         keep.push(s); continue;
       }
@@ -644,7 +777,7 @@
         for (let k = 0; k < n && s.hit.length < s.pierce; k++) {
           s.x += s.dx * sub; s.y += s.dy * sub; s.left -= sub;
           for (const e of S.enemies) if (!e.dead && s.hit.length < s.pierce && !s.hit.includes(e.id) && Math.hypot(e.x - s.x, e.y - 14 - s.y) < 18) {
-            damage(S, e, s.dmg * (1 - s.falloff * s.hit.length), 'phys', tw, { pen: s.pen }); s.hit.push(e.id); ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'bolt' }); }
+            strike(S, e, s.dmg * (1 - s.falloff * s.hit.length), shotFx(s), tw, s.tw); s.hit.push(e.id); ev(S, 'hit', { x: e.x, y: e.y - 14, kind: 'bolt' }); }
         }
         if (s.left > 0 && s.hit.length < s.pierce && s.x > -50 && s.x < W + 50 && s.y > -50 && s.y < H + 50) keep.push(s);
         continue;
@@ -654,11 +787,9 @@
       const dx = s.lx - s.x, dy = s.ly - s.y, d = Math.hypot(dx, dy), st = s.sp * DT;
       if (d <= st + 4) {
         if (e && !e.dead) {
-          if (s.k === 'bolt') { damage(S, e, s.dmg, 'phys', tw, { pen: s.pen }); ev(S, 'hit', { x: s.lx, y: s.ly, kind: 'bolt' }); }
-          else {                                                       // призрак: урон + замедление (+ перки — числа в снаряде)
-            damage(S, e, s.dmg, 'magic', tw);
-            slowHit(e, s.slow, s.slowT);
-            if (s.freezeChance && rand(S) < s.freezeChance && !EN[e.type].boss) { e.freezeT = s.freeze; ev(S, 'freeze', { x: e.x, y: e.y }); }
+          if (s.k === 'bolt') { strike(S, e, s.dmg, shotFx(s), tw, s.tw); ev(S, 'hit', { x: s.lx, y: s.ly, kind: 'bolt' }); }
+          else {                                                       // призрак: попадание (замедление и перки — в fx снаряда) и отскоки
+            strike(S, e, s.dmg, shotFx(s), tw, s.tw);
             ev(S, 'hit', { x: s.lx, y: s.ly, kind: 'ghost' });
             s.hit.push(e.id);
             if (s.bounces > 0) {
@@ -726,7 +857,12 @@
         const key = 'p' + c.tw, old = e.poison[key];
         e.poison[key] = { dps: Math.max(c.dps, old ? old.dps : 0), t: c.linger, tw: c.tw, pest: c.pest || (old ? old.pest : null) };
         if (!old && hasRelic(S, 'caustic')) damage(S, e, c.dps * RL.caustic.burst, 'poison', tw);   // Едкая плоть: урон сразу при заражении
-        if (c.acid) { e.shred = c.acid.shred; e.shredT = c.acid.t; }
+        // эффекты попадания облака (Кислота и примеси) — каждый шаг внутри; шансы и пронзание — при первом касании (c.hit).
+        // Удар облака — его яд за секунду. Щит разведчика гасит первое касание, как и любое попадание
+        if (e.dead || e.ward > 0) continue;
+        if (!Array.isArray(c.hit)) c.hit = [];
+        const first = !c.hit.includes(e.id); if (first) c.hit.push(e.id);
+        effects(S, e, c.dps, c.fx, c.tw, first); if (first) pierce(S, e, c.dps, c.fx, tw, c.tw);
       }
       if (!tw && c.t > 0.5) c.t = 0.5;
     }
@@ -803,7 +939,8 @@
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
     hasRelic, drawRelics, relicOffer, relicsOf, relicText, perkAt,
-    hasAura, auraTargets, auraCells,
+    hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
+    canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
   };
   if (typeof module !== 'undefined') module.exports = SIM;
   if (typeof window !== 'undefined') window.SIM = SIM;
