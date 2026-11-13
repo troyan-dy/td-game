@@ -18,7 +18,7 @@ const hudCells = (S) => { const out = []; for (let i = 0; i < S.map.cols * S.map
 test('забег создаётся от сида: карта генератора, сид и версия состояния', () => {
   const S = SIM.create(42);
   assert.equal(S.seed, 42);
-  assert.equal(S.v, 3);                                            // 3: в карте появились препятствия и особые клетки
+  assert.equal(S.v, C.VERSION);
   assert.deepEqual(S.map, MAPGEN.generate(42));
   assert.notDeepEqual(SIM.create(43).map.road, S.map.road);
 });
@@ -267,7 +267,7 @@ test('титульное демо: на большей части петли п�
 // ---------------------------------------------------------------- перенос башни между волнами
 // забег с башней type на лучшей клетке, прокачанной до 3-го уровня с перком, после первой волны (есть убийства и урон)
 const veteran = (seed, type, perk) => {
-  const S = SIM.create(seed); S.souls = 1e5; const cell = SIM.rankCells(S, 3.4)[0];
+  const S = SIM.create(seed); S.souls = 1e5; const cell = SIM.rankCells(S, C.TYPICAL_RANGE)[0];
   SIM.step(S, { cmds: [{ k: 'build', cell, type }, { k: 'upgrade', cell }, { k: 'upgrade', cell }, { k: 'perk', cell, p: perk }, { k: 'call' }] });
   const tw = S.towers[cell];                                        // подготовка сработала: иначе тесты «сохраняет прокачку» проверят пустую башню
   assert.ok(tw && tw.perk === perk && tw.invested > T[type].cost[0], `прокачка не применилась: ${JSON.stringify(tw)}`);
@@ -279,7 +279,7 @@ test('перенос в паузе между волнами: бесплатно
   assert.equal(S.phase, 'prep'); assert.equal(S.wave, 1);
   const tw = S.towers[cell]; assert.ok(tw.kills > 0 && tw.dmg > 0, 'башня не воевала');
   const R = JSON.parse(JSON.stringify(S)), souls = S.souls, spent = S.stats.spent;   // контроль: тот же шаг без переноса
-  const to = SIM.rankCells(S, 3.4).find((c) => c !== cell);
+  const to = SIM.rankCells(S, C.TYPICAL_RANGE).find((c) => c !== cell);
   assert.deepEqual(SIM.canMove(S, cell), { ok: true, reason: null });
   assert.deepEqual(SIM.canMove(S, cell, to), { ok: true, reason: null });
   SIM.step(S, { cmds: [{ k: 'move', cell, to }] }); SIM.step(R, null);
@@ -291,14 +291,14 @@ test('перенос в паузе между волнами: бесплатно
   assert.equal(SIM.canBuild(S, cell, 'bones').ok, true, 'старая клетка не освободилась');
 });
 test('перенос отклоняется: во время волны, на дорогу, на занятую клетку, под интерфейс, за поле, на ту же клетку, с пустой клетки, после конца', () => {
-  const S = SIM.create(7); S.souls = 1e5; const [a, b, c] = SIM.rankCells(S, 3.4), road = S.map.road[12], hud = 0;
+  const S = SIM.create(7); S.souls = 1e5; const [a, b, c] = SIM.rankCells(S, C.TYPICAL_RANGE), road = S.map.road[12], hud = 0;
   SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'dark' }, { k: 'build', cell: b, type: 'bones' }] });
   const tried = (to, reason) => { assert.equal(SIM.canMove(S, a, to).reason, reason, `на ${to}`);
     const snap = JSON.stringify(S.towers); SIM.step(S, { cmds: [{ k: 'move', cell: a, to }] });
     assert.equal(JSON.stringify(S.towers.map((t) => t && t.cell)), JSON.stringify(JSON.parse(snap).map((t) => t && t.cell)), `перенос на ${to} прошёл`); };
   tried(road, 'road'); tried(b, 'occupied'); tried(hud, 'hud'); tried(-1, 'bounds'); tried(S.map.cols * S.map.rows, 'bounds'); tried(a, 'same');
   assert.equal(SIM.canMove(S, c).reason, 'none'); assert.deepEqual(SIM.moveCells(S, c), []);
-  SIM.step(S, { cmds: [{ k: 'move', cell: c, to: SIM.rankCells(S, 3.4)[0] }] }); assert.equal(S.towers.filter(Boolean).length, 2);
+  SIM.step(S, { cmds: [{ k: 'move', cell: c, to: SIM.rankCells(S, C.TYPICAL_RANGE)[0] }] }); assert.equal(S.towers.filter(Boolean).length, 2);
   SIM.step(S, { cmds: [{ k: 'call' }] }); assert.equal(S.phase, 'wave');
   assert.equal(SIM.canMove(S, a).reason, 'phase'); assert.deepEqual(SIM.moveCells(S, a), []);
   tried(c, 'phase');
@@ -306,7 +306,7 @@ test('перенос отклоняется: во время волны, на д
 });
 test('перенос разрешён ровно там, где этот тип можно построить, — при любых душах (правила клетки общие с постройкой)', () => {
   for (const seed of [1, 2, 3]) {
-    const S = SIM.create(seed); S.souls = 1e5; const [a, b] = SIM.rankCells(S, 3.4);
+    const S = SIM.create(seed); S.souls = 1e5; const [a, b] = SIM.rankCells(S, C.TYPICAL_RANGE);
     SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'plague' }, { k: 'build', cell: b, type: 'spirits' }] });
     for (const souls of [1e9, 0]) {
       S.souls = souls; const want = [];
@@ -317,7 +317,7 @@ test('перенос разрешён ровно там, где этот тип 
   }
 });
 test('перенос переживает облака, снаряды и яд: они числятся за башней по id, она стреляет уже с новой клетки', () => {
-  const S = SIM.create(4); S.souls = 1e5; const [a, b] = SIM.rankCells(S, 3.4);
+  const S = SIM.create(4); S.souls = 1e5; const [a, b] = SIM.rankCells(S, C.TYPICAL_RANGE);
   SIM.step(S, { cmds: [{ k: 'build', cell: a, type: 'plague' }, { k: 'build', cell: b, type: 'bones' }, { k: 'call' }] });
   const tw = S.towers[a], id = tw.id;
   while (S.phase === 'wave') SIM.step(S, null);
@@ -342,7 +342,7 @@ test('перенесённая башня — как построенная на
   // own — поля башни без тех, что у построенной и перенесённой законно разные (id, таймеры, вложено: наценка клетки)
   const own = (t) => { const o = Object.assign({}, t); for (const k of ['id', 'cd', 'fireT', 'built', 'invested']) delete o[k]; return o; };
   for (const type of C.TOWER_ORDER) {
-    const A = SIM.create(6); A.souls = 1e5; const x = SIM.rankCells(A, 3.4)[0], B = JSON.parse(JSON.stringify(A));
+    const A = SIM.create(6); A.souls = 1e5; const x = SIM.rankCells(A, C.TYPICAL_RANGE)[0], B = JSON.parse(JSON.stringify(A));
     const perk = Object.keys(T[type].perks)[0], grow = (cell) => [{ k: 'build', cell, type }, { k: 'upgrade', cell }, { k: 'upgrade', cell }, { k: 'perk', cell, p: perk }];
     const grown = (t) => assert.ok(t && t.perk === perk && t.invested > T[type].cost[0], `прокачка не применилась: ${JSON.stringify(t)}`);
     SIM.step(A, { cmds: grow(x) }); const tw = A.towers[x]; grown(tw);

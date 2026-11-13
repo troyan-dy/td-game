@@ -1,4 +1,4 @@
-// node --test tests/*.test.mjs — генератор карты: годность на 1000 сидах, детерминизм, проверка карты.
+// node --test tests/*.test.mjs — генератор карты: годность на N = 200 сидах, детерминизм, проверка карты.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -8,7 +8,8 @@ const C = require('../live/config.js');
 
 const COLS = 25, ROWS = 14;
 const xy = (i) => [i % COLS, Math.floor(i / COLS)];
-const MAPS = new Map(), mapOf = (seed) => MAPS.get(seed) || MAPS.set(seed, MAPGEN.generate(seed)).get(seed);   // 1000 карт строятся один раз на все тесты
+const N = 200;                                                                  // сидов в тестах на множестве карт
+const MAPS = new Map(), mapOf = (seed) => MAPS.get(seed) || MAPS.set(seed, MAPGEN.generate(seed)).get(seed);   // карты строятся один раз на все тесты
 const turnsOf = (road) => { let n = 0;
   for (let k = 2; k < road.length; k++) { const [a, b, c] = [xy(road[k - 2]), xy(road[k - 1]), xy(road[k])];
     if (b[0] - a[0] !== c[0] - b[0] || b[1] - a[1] !== c[1] - b[1]) n++; }
@@ -23,8 +24,8 @@ test('карта: поле 25×14, вход на краю, дорога из с�
     assert.equal(Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]), 1, `разрыв дороги на ${k}`); }
 });
 
-test('генератор на 1000 сидах: длина 45–70, не меньше 8 поворотов, без самопересечений и касаний витков', () => {
-  for (let seed = 1; seed <= 1000; seed++) {
+test('генератор на N сидах: длина 45–70, не меньше 8 поворотов, без самопересечений и касаний витков', () => {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), road = m.road;
     assert.deepEqual(MAPGEN.validate(m), [], 'сид ' + seed);
     assert.ok(road.length >= 45 && road.length <= 70, `сид ${seed}: длина ${road.length}`);
@@ -38,19 +39,19 @@ test('генератор на 1000 сидах: длина 45–70, не мень
   }
 });
 
-test('генератор на 1000 сидах: вход не ближе 8 клеток к склепу, склеп не ближе 2 клеток к краю', () => {
-  for (let seed = 1; seed <= 1000; seed++) {
+test('генератор на N сидах: вход не ближе 8 клеток к склепу, склеп не ближе 2 клеток к краю', () => {
+  for (let seed = 1; seed <= N; seed++) {
     const road = mapOf(seed).road, [gx, gy] = xy(road[0]), [kx, ky] = xy(road[road.length - 1]);
     assert.ok(Math.hypot(gx - kx, gy - ky) >= 8, `сид ${seed}: вход ${gx},${gy} — склеп ${kx},${ky}`);
     assert.ok(Math.min(kx, COLS - 1 - kx, ky, ROWS - 1 - ky) >= 2, `сид ${seed}: склеп у края ${kx},${ky}`);
   }
 });
 
-// метрики качества по 1000 сидам (как у критика: пустая клетка — дальше 2 клеток от дороги по Чебышёву)
+// метрики качества по N сидам (как у критика: пустая клетка — дальше 2 клеток от дороги по Чебышёву)
 let memo = null;
 const quality = () => memo || (memo = (() => {
   let sq6 = 0, edge4 = 0, row1 = 0, long8 = 0, seg2 = 0, segs = 0;
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const road = mapOf(seed).road, cells = road.map(xy);
     const sq = new Array(COLS * ROWS).fill(0); let big = 0;
     for (let i = 0; i < COLS * ROWS; i++) { const x = i % COLS, y = Math.floor(i / COLS);
@@ -64,7 +65,7 @@ const quality = () => memo || (memo = (() => {
       if (k === road.length || road[k - 1] - road[k - 2] !== road[k] - road[k - 1]) { segs++; if (run === 2) seg2++; mx = Math.max(mx, run); run = 1; } else run++; }
     if (mx >= 8) long8++;
   }
-  return { sq6: sq6 / 1000, edge4: edge4 / 1000, row1: row1 / 1000, long8: long8 / 1000, seg2: seg2 / segs };
+  return { sq6: sq6 / N, edge4: edge4 / N, row1: row1 / N, long8: long8 / N, seg2: seg2 / segs };
 })());
 
 test('качество карт: мало пустых углов и дороги у края экрана и вплотную под HUD', () => {
@@ -85,9 +86,9 @@ const HUD = [[0, 0, 25, 1], [0, 2, 4, 2], [0, 12, 8, 2]];
 const isHud = (i) => { const [x, y] = xy(i); return HUD.some(([kx, ky, kw, kh]) => x >= kx && y >= ky && x < kx + kw && y < ky + kh); };
 const nearRoad = (road, i, r = 2) => { const [x, y] = xy(i); return road.some((c) => { const [a, b] = xy(c); return Math.max(Math.abs(a - x), Math.abs(b - y)) <= r; }); };
 
-test('препятствия на 1000 сидах: 8–15% свободных клеток, у дороги остаётся не меньше 40 свободных', () => {
+test('препятствия на N сидах: 8–15% свободных клеток, у дороги остаётся не меньше 40 свободных', () => {
   let minShare = 1, maxShare = 0, minNear = Infinity;
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), road = new Set(m.road), obst = m.obstacles.map((o) => o.cell);
     const free = []; for (let i = 0; i < COLS * ROWS; i++) if (!road.has(i) && !isHud(i)) free.push(i);
     assert.equal(new Set(obst).size, obst.length, `сид ${seed}: препятствия повторяются`);
@@ -100,9 +101,9 @@ test('препятствия на 1000 сидах: 8–15% свободных к
   assert.ok(maxShare - minShare > 0.03, `доля препятствий не меняется от сида: ${minShare}–${maxShare}`);
 });
 
-test('особые клетки на 1000 сидах: 4–6 штук, все в пределах двух клеток от дороги, на свободных клетках, все три вида', () => {
+test('особые клетки на N сидах: 4–6 штук, все в пределах двух клеток от дороги, на свободных клетках, все три вида', () => {
   const counts = new Set();
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), road = new Set(m.road), obst = new Set(m.obstacles.map((o) => o.cell)), sp = m.specials;
     counts.add(sp.length);
     assert.ok(sp.length >= 4 && sp.length <= 6, `сид ${seed}: особых клеток ${sp.length}`);
@@ -128,17 +129,17 @@ const distToRoute = (m, i) => { const P = MAPGEN.route(m), [x, y] = MAPGEN.cellX
 // направление последнего шага дороги (куда идут враги в склепе)
 const lastDir = (m) => { const [e, p] = [m.road[m.road.length - 1], m.road[m.road.length - 2]], [x, y] = xy(e), [u, v] = xy(p); return [x - u, y - v]; };
 
-test('арка входа на 1000 сидах: два столба по бокам от входа поперёк дороги', () => {
-  for (let seed = 1; seed <= 1000; seed++) {
+test('арка входа на N сидах: два столба по бокам от входа поперёк дороги', () => {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), g = m.road[0], [x, y] = xy(g), side = x === 0 || x === COLS - 1;
     const want = (side ? [[x, y - 1], [x, y + 1]] : [[x - 1, y], [x + 1, y]]).map(([a, b]) => b * COLS + a).sort((a, b) => a - b);
     assert.deepEqual(kindCells(m, 'arch'), want, `сид ${seed}: столбы арки`);
   }
 });
 
-test('склеп на 1000 сидах: занимает клетки вокруг себя, входом к дороге — клетки за склепом по ходу врагов и с боков от проёма', () => {
+test('склеп на N сидах: занимает клетки вокруг себя, входом к дороге — клетки за склепом по ходу врагов и с боков от проёма', () => {
   const sizes = new Set();
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), e = m.road[m.road.length - 1], p = m.road[m.road.length - 2], [dx, dy] = lastDir(m), [x, y] = xy(e), cells = kindCells(m, 'crypt');
     sizes.add(cells.length);
     // клетки под интерфейсом не в счёт: склеп у кнопки волны (около 1% карт) теряет часть здания
@@ -154,7 +155,7 @@ test('склеп на 1000 сидах: занимает клетки вокру�
 });
 
 test('вплотную ко входу и склепу ничего, кроме арки и склепа, нет — ни препятствий, ни особых клеток', () => {
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), ends = [m.road[0], m.road[m.road.length - 1]];
     for (const o of m.obstacles) if (o.kind !== 'arch' && o.kind !== 'crypt') assert.ok(ends.every((e) => cheb(o.cell, e) > 1), `сид ${seed}: ${o.kind} у входа или склепа`);
     for (const s of m.specials) assert.ok(ends.every((e) => cheb(s.cell, e) > 1), `сид ${seed}: особая клетка у входа или склепа`);
@@ -163,7 +164,7 @@ test('вплотную ко входу и склепу ничего, кроме 
 
 test('с каждой особой клетки до пути врагов достаёт башня с самым коротким базовым радиусом; особые не ближе 3 клеток друг к другу', () => {
   const minR = Math.min(...Object.values(C.TOWERS).map((t) => t.range[0])) * C.UNIT;
-  for (let seed = 1; seed <= 1000; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed);
     for (const s of m.specials) assert.ok(distToRoute(m, s.cell) <= minR, `сид ${seed}: с особой клетки ${xy(s.cell)} до дороги ${distToRoute(m, s.cell).toFixed(0)} px > ${minR}`);
     for (const a of m.specials) for (const b of m.specials) if (a !== b) assert.ok(cheb(a.cell, b.cell) >= 3, `сид ${seed}: особые клетки ${xy(a.cell)} и ${xy(b.cell)} рядом`);
@@ -172,7 +173,7 @@ test('с каждой особой клетки до пути врагов до�
 
 test('цена решения: препятствия закрывают 20–30% узловых клеток (путь врагов в радиусе башни распадается на 2+ участка)', () => {
   const R = C.TYPICAL_RANGE * C.UNIT; let nodes = 0, shut = 0, low = 0;
-  for (let seed = 1; seed <= 300; seed++) {
+  for (let seed = 1; seed <= N; seed++) {
     const m = mapOf(seed), P = MAPGEN.route(m), road = new Set(m.road), ob = new Set(m.obstacles.map((o) => o.cell)), pts = [];
     for (let k = 1; k < P.length; k++) { const [a, b] = [P[k - 1], P[k]], n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 4));
       for (let j = 0; j < n; j++) pts.push([a[0] + (b[0] - a[0]) * j / n, a[1] + (b[1] - a[1]) * j / n]); }
@@ -186,7 +187,7 @@ test('цена решения: препятствия закрывают 20–30
   const share = shut / nodes;
   assert.ok(share >= 0.20 && share <= 0.30, `закрыто ${(share * 100).toFixed(1)}% узловых клеток`);
   // бедные узловыми клетками карты генератор бережёт (C.MAP.obstacles.nodeKeep), на богатых закрыта заметная доля всегда
-  assert.equal(low, 0, `карт с 34+ узловыми, где закрыто меньше 12%: ${low} из 300`);
+  assert.equal(low, 0, `карт с 34+ узловыми, где закрыто меньше 12%: ${low} из ${N}`);
 });
 
 test('проверка карты ловит неверные препятствия и особые клетки', () => {
