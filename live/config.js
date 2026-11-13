@@ -161,12 +161,32 @@
           split: { name: 'Двойной луч', cost: 180, set: { split: 0.5 }, desc: 'Луч задевает и вторую по живучести цель в радиусе — {split%} урона.' },
         },
       },
+      // Казарма: не стреляет, а ставит скелетов (вид атаки summon) на ближайшую клетку дороги в радиусе. Ветки значат своё:
+      //   dmg — удар скелета (dmg) и его HP (hp, прибавка also), rate — секунд между призывами, range — радиус выбора клетки.
+      //   extra: hp — HP скелета, limit — скелетов на башню сразу, hit — секунд между ударами скелета,
+      //   reach — на каком расстоянии от себя скелет хватает врага, ед. Ближний урон врагов по скелету — melee в ENEMIES.
+      barracks: {
+        name: 'КАЗАРМА', short: 'КАЗАРМА', title: 'Костяная казарма', dmgType: 'phys', attack: 'summon', muzzle: 40,
+        art: { sprite: 'bones', tint: [0.62, 0.80, 1.35, 0.65], css: 'sepia(1) hue-rotate(175deg) saturate(1.7) brightness(0.95)', color: [0.55, 0.72, 1.0], ui: '#8cb8ff', sound: null },
+        base: { cost: 120, dmg: 12, rate: 7.5, range: 3.0 },
+        tracks: { dmg: track(45, 0.25, { hp: 30 }), range: track(30, 0.10), rate: track(40, 0.20) },
+        extra: { hp: 120, limit: 2, hit: 1.0, reach: 0.55 },
+        names: { dmg: 'Скелет', rate: 'Призыв' }, fmt: { dmg: '{hp} HP · {dmg}', rate: '{rate} с' },
+        show: [['Скелетов', 'до {limit}']],
+        desc: 'Ставит скелетов на ближайшую дорогу. Скелет держит врага, пока другие башни его добивают. Боссы скелетов не замечают.',
+        perks: {
+          legion: { name: 'Костяной легион', cost: 180, add: { limit: 1 }, desc: 'Скелетов в строю на {limit} больше.' },
+          grip: { name: 'Мёртвая хватка', cost: 180, set: { grip: 0.25 }, desc: 'Враг в хватке скелета получает +{grip%} урона от всех башен.' },
+          burst: { name: 'Костяной взрыв', cost: 180, set: { burst: 4, burstR: 1.2 }, desc: 'Погибший скелет взрывается: {burst}× его удара врагам в {burstR кл} вокруг.' },
+        },
+      },
     },
     TRACK_NAMES: { dmg: 'Урон', range: 'Дальность', rate: 'Скорость' },
     TRACK_FMT: { dmg: '{dmg}', range: '{range кл}', rate: '{rate /с}' },   // значение ветки в панели: шаблон SIM.fill по итоговым характеристикам
     ART: { sprite: 'bones', tint: null, css: '', color: [0.8, 0.8, 0.8], ui: '#bbbbbb', fx: null, sound: null, flip: false },   // вид башни по умолчанию
     LOOK_MUZZLE: 4,
-    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark'],
+    TOWER_ORDER: ['bones', 'spirits', 'plague', 'dark',
+      'barracks'],
 
     // Враги. speed — ед/с вдоль дороги, armor/mres — доли. Для генератора волн (live/wavegen.js): threat — цена угрозы
     // (в ополченцах), minWave — с какой волны тип может выйти, weight — как часто выбирается в отряд, gap — интервал между
@@ -174,23 +194,25 @@
     // врага ({spawnOnDeath.n} — путь; {aura%} — доля в процентах). alone: false — тип не ходит один: в волне с ним всегда есть
     // отряд того, кто может. Цена угрозы — единственное, что связывает бюджет с составом: чтобы выровнять суммарные HP волн
     // при одном бюджете, достаточно поставить threat пропорционально эффективным HP типа, код менять не нужно.
+    // melee — ближний урон по скелету Казармы в секунду (нет поля — MELEE); unstoppable — скелет такого врага не держит (боссы).
     // Новый тип врага — одна строка здесь.
+    MELEE: 10,                     // ближний урон врага по скелету в секунду, если у типа нет своего melee
     ENEMIES: {
-      militia: { name: 'Ополченец', hp: 50, speed: 64, armor: 0, mres: 0, bounty: 6, leak: 1, size: 1,
+      militia: { name: 'Ополченец', hp: 50, speed: 64, armor: 0, mres: 0, bounty: 6, leak: 1, size: 1, melee: 10,
         threat: 1, minWave: 1, weight: 3, gap: 0.8,
         desc: 'Быстрый и хрупкий. Опасен толпой.' },
-      knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1,
+      knight: { name: 'Рыцарь со щитом', hp: 160, speed: 46, armor: 0.45, mres: 0, bounty: 12, leak: 1, size: 1, melee: 16,
         threat: 4, minWave: 3, weight: 3, gap: 1.3, ability: 'Щит гасит {armor%}% физического урона',
         desc: 'Щит гасит 45% физического урона. Против него — Чума и Тьма.' },
-      priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1,
+      priest: { name: 'Священник', hp: 110, speed: 46, armor: 0, mres: 0.5, bounty: 14, leak: 1, size: 1, melee: 6,
         heal: 12, healEvery: 4, healR: 1.5, healTargets: 3, healLock: 1.5,   // до 3 самых раненых; одного — не чаще раза в healLock с
         threat: 4, minWave: 5, weight: 1.5, gap: 2.2, alone: false, ability: 'Лечит до {healTargets} союзников на {heal} HP раз в {healEvery} с',
         desc: 'Лечит союзников рядом. Магия Духов вязнет в его вере, Кости и Тьма — нет.' },
-      cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true,
+      cart: { name: 'Осадная повозка', hp: 900, speed: 30, armor: 0.30, mres: 0.20, bounty: 50, leak: 3, size: 2, heavy: true, melee: 35,
         spawnOnDeath: { type: 'militia', n: 2 },
         threat: 22, minWave: 7, weight: 1.2, gap: 5, ability: 'При поломке выпускает {spawnOnDeath.n} ополченцев',
         desc: 'Медленная и толстая. При поломке из неё выскакивают ополченцы.' },
-      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true,
+      paladin: { name: 'Паладин', hp: 4000, speed: 34, armor: 0.35, mres: 0.35, bounty: 150, leak: 10, size: 2.2, heavy: true, boss: true, unstoppable: true,
         aura: 0.15, auraR: 1.5,
         threat: 100, minWave: 10, ability: 'Аура: +{aura%}% брони соседям; пропуск — {leak} прочности',
         desc: 'Босс. Аура укрепляет броню соседей. Пропуск стоит 10 прочности склепа.' },

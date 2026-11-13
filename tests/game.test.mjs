@@ -315,9 +315,9 @@ test('яд от облака «Мора» кончается в свой сро�
 });
 
 test('ни в одном снимке партий ботов, берущих все перки, нет нечисловых значений', () => {
-  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split' }];
+  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest', barracks: 'legion' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split', barracks: 'burst' }];
   const all = new Set(); for (const p of sets) for (const v of Object.values(p)) all.add(v);
-  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
+  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse', 'grip'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
   const bad = (o, path) => { if (typeof o === 'number') return Number.isFinite(o) ? null : path;
     if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'map') continue; const b = bad(o[k], path + '.' + k); if (b) return b; } return null; };
   for (const perks of sets) {

@@ -16,7 +16,7 @@ const midWave = () => {
   SIM.step(S, { cmds });
   assert.ok(SIM.hasPerk(S.towers[cells[0]], perk) && SIM.steps(S.towers[cells[0]]) === C.PERK_AT, 'прокачка башни не применилась');
   S.wave = 8; SIM.step(S, { cmds: [{ k: 'call' }] });
-  const ready = () => S.enemies.length >= 3 && S.shots.some((s) => s.k === 'ghost') && S.clouds.length;
+  const ready = () => S.enemies.length >= 3 && S.shots.some((s) => s.k === 'ghost') && S.clouds.length && S.skels.length;   // скелеты Казармы на дороге
   for (let i = 0; i < 120 * 120 && !ready(); i++) SIM.step(S, null);
   assert.ok(S.phase === 'wave' && ready(), 'не собралось состояние посреди волны');
   return S;
@@ -178,6 +178,15 @@ const BAD = {
   'событие без времени': (S) => { S.ev.push({ k: 'die' }); },
   'событие с координатой строкой': (S) => { S.ev.push({ k: 'die', t: S.t, x: 'a' }); },
   'открытое — не список': (S) => { S.unlocked = 'all'; },
+  'скелеты — не список': (S) => { S.skels = {}; },
+  'нет списка скелетов': (S) => { delete S.skels; },
+  'скелет — не объект': (S) => { S.skels[0] = 5; },
+  'скелет без HP': (S) => { delete S.skels[0].hp; },
+  'удар скелета строкой': (S) => { S.skels[0].dmg = '12'; },
+  'скелет не на дороге': (S) => { S.skels[0].cell = tower(S).cell; },
+  'скелет за полем': (S) => { S.skels[0].cell = -1; },
+  'повтор id скелета': (S) => { S.skels[0].id = S.enemies[0].id; },
+  'противник скелета не число': (S) => { S.skels[0].foe = 'x'; },
   'карта короче нормы': (S) => { S.map.road = S.map.road.slice(0, 10); },
   'нет карты': (S) => { delete S.map; },
   'число вне JSON (1e999)': (S) => JSON.parse(JSON.stringify(S).replace(/"souls":\d+/, '"souls":1e999')),
