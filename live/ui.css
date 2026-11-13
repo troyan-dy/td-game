@@ -143,6 +143,18 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #menu { background: linear-gradient(180deg, #07040f55, #07040fcc 80%); }
 #menu .box { background: none; border: 0; box-shadow: none; width: 760px; }
 #menu .sub { font: 20px var(--body); color: var(--dim); margin: 4px 0 30px; }
+.overlay .col .btn.two { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; }
+.btn.two .l1 { font: 700 22px var(--title); line-height: 1.05; }
+.btn.two .l2 { font: 15px var(--body); color: var(--dim); letter-spacing: 0; line-height: 1.1; }
+#menu .seedrow { display: flex; gap: 12px; width: 300px; }
+#menu .seedrow input { flex: 1; min-width: 0; height: 54px; padding: 0 14px; font: 700 22px var(--title); letter-spacing: 1px; color: var(--text);
+  background: #120d22cc; border: 3px solid var(--rim2); border-radius: 6px; box-shadow: 0 0 0 2px var(--ink), inset 0 2px 6px #0008; outline: none;
+  user-select: text; -webkit-user-select: text; }
+#menu .seedrow input::placeholder { color: #8a7bab; font-weight: 400; }
+#menu .seedrow input:focus { border-color: var(--rim-hi); }
+#menu .col .seedrow .btn { width: 116px; flex: none; font-size: 19px; }
+#menu .seednote { width: 380px; height: 22px; margin-top: -6px; font: 16px/22px var(--body); color: var(--dim); white-space: nowrap; }
+#menu .seednote.bad { color: var(--bad); }
 #menu .help { width: 640px; margin: 18px auto 0; text-align: left; font: 16px/1.5 var(--body); color: var(--dim); display: none; }
 #menu .help.show { display: block; }
 #menu .help b { color: var(--text); }

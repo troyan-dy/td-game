@@ -2,13 +2,34 @@
 // Состояние партии живёт в симе (APP.play); здесь только выбор игрока (SCENE.ui) и показ. Команды уходят через APP.cmd().
 (function () {
   const C = SIM.CONFIG, T = C.TOWERS, EN = C.ENEMIES;
-  const SAVE_KEY = 'necropolis.save.v2', PREF_KEY = 'necropolis.prefs.v1';
+  // сейв лежит под одним ключом без номера версии: версию несёт само состояние (S.v), чужую версию отбрасывает SIM.loadable
+  const SAVE_KEY = 'necropolis.save', PREF_KEY = 'necropolis.prefs.v1', SAVE_EVERY = 1000;   // мс между автосохранениями забега
   const $ = (s, r = document) => r.querySelector(s);
   const h = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html !== undefined) e.innerHTML = html; return e; };
   const store = { get(k) { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
-  // сейв продолжаем, только если логика признала состояние годным (версия, карта, поля); негодный выбрасываем
-  const saved = () => { const sv = store.get(SAVE_KEY); if (sv && sv.S && SIM.loadable(sv.S)) return sv; if (sv) store.del(SAVE_KEY); return null; };
+  // Сейв — { S, at, tab }: tab — метка страницы, которая его пишет, новая при каждой загрузке (дубликат вкладки получает свою:
+  // sessionStorage копируется вместе с вкладкой, поэтому метку там не храним). Страница стирает сейв только свой, а чужая
+  // запись в него отключает её автосохранение. Что остаётся неразрешённым:
+  //  - две вкладки стартуют забег одновременно: каждая видит запись другой, и отключаются обе — до следующего старта;
+  //  - отключённая вкладка молчит и после закрытия «владельца», пока сама не начнёт или не продолжит забег.
+  const TAB = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  // Сейв продолжаем, только если это незаконченный забег и логика признала состояние годным (SIM.loadable).
+  // Негодный (битый JSON, старая версия, порча) молча выбрасываем. Ключи сейвов прежних сборок (necropolis.save.v1…) убираем.
+  // Вердикт помним по строке сейва: проверка с пробой не повторяется, пока сейв тот же (показ меню, затем «Продолжить»).
+  let checked = { raw: null, ok: false };
+  const saved = () => {
+    let raw = null, sv = null; try { raw = localStorage.getItem(SAVE_KEY); } catch (e) {}
+    if (raw === null) return null;
+    try { sv = JSON.parse(raw); } catch (e) {}
+    let ok = false;
+    if (raw === checked.raw) ok = checked.ok;
+    else try { ok = !!(sv && typeof sv === 'object' && sv.S && sv.S.phase !== 'won' && sv.S.phase !== 'lost' && SIM.loadable(sv.S)); }
+    catch (e) { console.error(e); return null; }     // сбой самой проверки (не создался образец) — ошибка разработки: меню без «Продолжить», сейв не трогаем
+    checked = { raw, ok };
+    if (ok) return sv;
+    store.del(SAVE_KEY); return null; };
+  const dropOldSaves = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith(SAVE_KEY + '.')) localStorage.removeItem(k); } catch (e) {} };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
   const SOUL = '<span class="soul-ico"></span>';
@@ -46,17 +67,28 @@
       <div class="col"><button class="btn green" id="p-resume">Продолжить</button><button class="btn" id="p-restart">Начать заново</button><button class="btn" id="p-menu">В главное меню</button></div></div>`;
     wire();
   };
+  // волна, на которой игрок продолжит: идущая, а в паузе — следующая
+  const waveOf = (S) => Math.min(SIM.waveCount(), Math.max(1, S.phase === 'wave' ? S.wave : S.wave + 1));
   const menuHTML = () => { const sv = saved();
     return `<div class="box"><h1>НЕКРОПОЛИС</h1><div class="sub">Защити древний склеп от рыцарей, священников и осадных машин</div>
-      <div class="col">${sv ? `<button class="btn green" id="m-cont">Продолжить · волна ${sv.S.wave + 1}</button>` : ''}
-      <button class="btn ${sv ? '' : 'green'}" id="m-new">Новая игра</button><button class="btn" id="m-help">Как играть</button></div>
+      <div class="col">${sv ? `<button class="btn green two" id="m-cont"><span class="l1">Продолжить</span><span class="l2">волна ${waveOf(sv.S)} · сид ${sv.S.seed}</span></button>` : ''}
+      <button class="btn ${sv ? '' : 'green'}" id="m-new" title="Новая карта по случайному сиду">Новая игра</button>
+      <div class="seedrow"><input id="m-seed" type="text" inputmode="numeric" maxlength="40" autocomplete="off" spellcheck="false" placeholder="сид карты" aria-label="Сид карты"><button class="btn" id="m-seedgo" disabled>По сиду</button></div>
+      <div class="seednote" id="m-seednote"></div>
+      <button class="btn" id="m-help">Как играть</button></div>
       <div class="frame help" id="m-helptext"><b>Цель:</b> переживи 25 волн. Каждый прорвавшийся враг отнимает прочность склепа, босс — 10.<br>
       <b>Строительство:</b> нажми на свободную клетку у дороги, затем на карточку башни внизу слева (или клавиши 1–4). Можно и наоборот: выбери башню и нажми на клетку.<br>
-      <b>Карта</b> каждый забег новая, её задаёт сид (он виден слева вверху).<br>
+      <b>Карта</b> каждый забег новая, её задаёт сид: он виден слева вверху и на экране итогов. Введи его в поле «сид карты» — сыграешь ту же карту.<br>
       <b>Души</b> дают за каждого врага и за зачищенную волну. Трать их на новые башни и улучшения.<br>
       <b>Улучшение:</b> нажми на башню, затем «Улучшить» (U). На 3-м уровне открывается выбор одного из двух перков.<br>
       <b>Сочетай башни:</b> Кости — дешёвый урон, Духи замедляют, Чума травит толпу сквозь броню, Тьма жжёт повозки, боссов и священников.<br>
-      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Прогресс сохраняется между волнами.</div></div>`; };
+      <b>Управление:</b> Пробел — пауза, F — скорость ×2, Enter — призвать волну раньше, Esc — меню. Забег сохраняется сам, даже посреди волны: после перезагрузки страницы нажми «Продолжить».</div></div>`; };
+  // поле сида: что получится из введённого — подпись под полем и доступность кнопки «По сиду»
+  const SEED_NOTE = { empty: 'Сид из игры или с экрана итогов — та же карта', negative: 'Сид не может быть отрицательным',
+    big: `Сид не больше ${C.SEED.max}`, format: `Только цифры: целое от 0 до ${C.SEED.max}` };
+  const seedInput = () => { const r = SIM.parseSeed($('#m-seed').value), note = $('#m-seednote');
+    note.textContent = r.ok ? `Карта по сиду ${r.seed}` : SEED_NOTE[r.reason];
+    note.classList.toggle('bad', !r.ok && r.reason !== 'empty'); $('#m-seedgo').disabled = !r.ok; return r; };
 
   // ---------------------------------------------------------------- события ввода
   const toView = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) / r.width * SIM.VIEW.W, (e.clientY - r.top) / r.height * SIM.VIEW.H]; };
@@ -109,11 +141,12 @@
     $('#b-menu').addEventListener('click', () => togglePause(true));
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', () => togglePause(false));
-    $('#p-restart').addEventListener('click', () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('pause', false); });
-    $('#p-menu').addEventListener('click', () => { showOverlay('pause', false); APP.toMenu(); showMenu(); });
+    $('#p-restart').addEventListener('click', () => { APP.newGame(); resetRun(); showOverlay('pause', false); persist(); });
+    $('#p-menu').addEventListener('click', () => { persist(); showOverlay('pause', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
-      if (!APP.play) { if (k === 'Enter') { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
+      // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
+      if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
       if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
@@ -261,9 +294,18 @@
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
-  const showMenu = () => { const m = $('#menu'); m.innerHTML = menuHTML(); showOverlay('menu', true);
-    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S)) { resetRun(); showOverlay('menu', false); } };
-    $('#m-new').onclick = () => { store.del(SAVE_KEY); APP.newGame(); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); };
+  // меню перерисовывается и когда сейв поменяла другая вкладка (onStorage): введённый сид и фокус поля сохраняются
+  const showMenu = () => { const m = $('#menu'), old = $('#m-seed'), typed = old ? old.value : '', focused = !!old && document.activeElement === old;
+    m.innerHTML = menuHTML(); showOverlay('menu', true);
+    if (typed) $('#m-seed').value = typed; if (focused) $('#m-seed').focus();
+    // сейв уже проверен в saved() — APP.load не повторяет проверку; вкладка сразу записывает забег своей меткой
+    const c = $('#m-cont'); if (c) c.onclick = () => { const sv = saved(); if (sv && APP.load(sv.S, true)) { resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); } else showMenu(); };
+    const start = (seed) => { APP.newGame(seed); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+    $('#m-new').onclick = () => start();
+    const inp = $('#m-seed'); inp.oninput = seedInput; seedInput();
+    $('#m-seedgo').onclick = () => { const r = seedInput(); if (r.ok) { inp.blur(); start(r.seed); } else AUDIO.ui('deny'); };
+    // клавиши поля не доходят до игровых: Enter здесь — только «По сиду», а не «призвать волну» в только что начатом забеге
+    inp.onkeydown = (e) => { e.stopPropagation(); if (e.code === 'Enter' || e.code === 'NumpadEnter') { e.preventDefault(); $('#m-seedgo').click(); } else if (e.code === 'Escape') inp.blur(); };
     $('#m-help').onclick = () => $('#m-helptext').classList.toggle('show'); };
   const showEnd = (S) => { const won = S.phase === 'won', m = Math.floor(S.stats.time / 60), s = Math.floor(S.stats.time % 60);
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
@@ -271,13 +313,32 @@
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.wave} / ${C.WAVES.length}</b><span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Собрано душ</span><b>${S.stats.earned}</b><span>Время</span><b>${m}:${String(s).padStart(2, '0')}</b></div>
       <div class="col"><button class="btn green" id="e-again">Играть снова</button><button class="btn" id="e-menu">В главное меню</button></div></div>`;
-    showOverlay('end', true); store.del(SAVE_KEY);
+    showOverlay('end', true);
     $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
-  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; seenEv.clear(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
+  const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
+  const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
+  const resetRun = () => { detached = false; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
-  const save = (S) => { if (S.phase === 'prep' && !S.demo) store.set(SAVE_KEY, { S, at: Date.now() }); };
+  // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
+  // и конца волны, при уходе в меню и при закрытии или скрытии страницы. Законченный забег стирает сейв один раз (dropOwn).
+  // Вкладка, чей сейв перезаписала другая вкладка (detached), больше не пишет, пока не начнёт или не продолжит забег сама.
+  let savedAt = 0, detached = false, writeFailed = false;
+  const persist = () => { const S = APP.play; savedAt = performance.now();
+    if (!S || S.demo || detached || S.phase === 'won' || S.phase === 'lost') return;
+    try { localStorage.setItem(SAVE_KEY, JSON.stringify({ S, at: Date.now(), tab: TAB })); }
+    catch (e) {                                       // не записалось: старый сейв вернул бы игрока далеко назад — убираем его
+      store.del(SAVE_KEY);
+      if (!writeFailed) { writeFailed = true; toast('Забег не сохраняется<small>Хранилище браузера недоступно или переполнено</small>', '', 5000); } } };
+  // свой забег закончился: стираем сейв, только если в хранилище лежит именно он
+  const dropOwn = () => { try { const sv = JSON.parse(localStorage.getItem(SAVE_KEY)); if (sv && sv.tab === TAB) localStorage.removeItem(SAVE_KEY); } catch (e) {} };
+  const onStorage = (e) => { if (e.key !== SAVE_KEY) return;
+    if (!APP.play) { if ($('#menu').classList.contains('show')) showMenu(); return; }   // подпись «Продолжить» — по свежему сейву
+    if (e.newValue === null || detached) return;
+    let tab = null; try { tab = JSON.parse(e.newValue).tab; } catch (x) {}
+    if (tab !== TAB) { detached = true; toast('Забег сохраняет другая вкладка<small>Здесь прогресс больше не сохраняется</small>', '', 5000); } };
 
   // ---------------------------------------------------------------- кадр
   let lastSouls = -1, lastHp = -1, wasEnded = false;
@@ -296,24 +357,27 @@
       $('#w-l2').textContent = (boss ? 'БОСС · ' : '') + (S.prepT > 0 ? `сама через ${Math.ceil(S.prepT)} с · Enter` : 'Enter');
       wb.classList.toggle('pulse', S.wave === 0 && S.towers.some(Boolean)); }
     // события → звук, тосты, новые враги, сейв
-    for (const e of S.ev) { const key = e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1); if (seenEv.has(key)) continue; seenEv.add(key);
+    for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
-      if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); save(S); }
+      if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
-      if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move') && S.phase === 'prep') save(S);
+      if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'wave') savedAt = 0;
     }
-    if (seenEv.size > 3000) { seenEv.clear(); for (const e of S.ev) seenEv.add(e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1)); }
+    if (seenEv.size > 3000) markSeen();
+    if (performance.now() - savedAt >= SAVE_EVERY) persist();
     const isEnded = S.phase === 'won' || S.phase === 'lost';
-    if (isEnded && !wasEnded) { select(-1); setTimeout(() => showEnd(APP.play), 900); }
+    if (isEnded && !wasEnded) { select(-1); dropOwn(); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     renderPanel(false); coach(S);
   };
 
   UI.init = (A, canvas) => {
-    APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol);
+    APP = A; cv = canvas; build(); $('#vol').value = prefs.vol; AUDIO.setVolume(prefs.vol); dropOldSaves(); markSeen();
+    addEventListener('pagehide', persist); addEventListener('beforeunload', persist); addEventListener('storage', onStorage);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); });
     if (!A.play) showMenu(); else if (A.paused) showOverlay('pause', true);
   };
 })();
