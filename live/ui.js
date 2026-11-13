@@ -595,6 +595,10 @@
     $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;
     if (S.souls !== lastSouls) { $('#s-souls').textContent = S.souls; if (S.souls > lastSouls && lastSouls >= 0) { const b = $('#stats .souls'); b.classList.remove('gain'); void b.offsetWidth; b.classList.add('gain'); } lastSouls = S.souls; }
     if (S.hp !== lastHp) { $('#s-hp').textContent = S.hp; if (S.hp < lastHp) { const b = $('#stats .hp'); b.classList.remove('hurt'); void b.offsetWidth; b.classList.add('hurt'); } lastHp = S.hp; }
+    // заголовок занимает место между разведкой и правой полосой: полоса шире (огромные души, далёкая волна) — заголовок уже,
+    // без черепов, а совсем узкий прячется (метка «Пауза» короче и остаётся)
+    const ti = $('#title'), tw = $('#stats').offsetLeft - 10 - ti.offsetLeft;
+    if (ti.dataset.w !== String(tw)) { ti.dataset.w = tw; ti.style.width = Math.max(0, tw) + 'px'; ti.classList.toggle('narrow', tw < 330); ti.classList.toggle('tiny', tw < 270); }
     // пауза, скорость, автоплей: состояние кнопок и метка «Пауза» (класс paused на слое интерфейса)
     const paused = !!A.paused, pb = $('#b-pause'); $('#ui').classList.toggle('paused', paused); pb.classList.toggle('on', paused);
     if (pb.dataset.p !== String(paused)) { pb.dataset.p = paused; pb.textContent = paused ? '▶' : '❚❚'; pb.title = paused ? 'Продолжить (Пробел)' : 'Пауза (Пробел)'; }

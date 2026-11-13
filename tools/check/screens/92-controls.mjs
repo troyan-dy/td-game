@@ -54,7 +54,10 @@ export const steps = {
     // волна отбита: без автоплея следующая не начинается, кнопка без отсчёта
     await ctx.eval(() => { const S = APP.play; S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; });
     await ctx.page.waitForFunction(() => APP.play.phase === 'prep', null, { timeout: 5000 });
-    await ctx.wait(delay * 1000 + 800);
+    // ждём по времени игры (без видеокарты кадров мало и игра идёт медленнее настоящего времени), на ×4
+    await ctx.eval(() => { APP.speed = 4; window.__t0 = APP.play.t; });
+    await ctx.page.waitForFunction((d) => APP.play.t - window.__t0 >= d + 1.5, delay, { timeout: 60000 });
+    await ctx.eval(() => { APP.speed = 1; });
     let s = await st(ctx); const l2 = await ctx.eval(() => document.getElementById('w-l2').textContent);
     expect(s.phase === 'prep' && s.wave === 1 && !s.auto, 'без автоплея волна началась сама: ' + JSON.stringify(s));
     expect(!/через|\d+\s*с/.test(l2), 'кнопка волны показывает отсчёт без автоплея: ' + l2);
@@ -63,7 +66,7 @@ export const steps = {
     s = await st(ctx); const on = await ctx.eval(() => ({ cls: document.getElementById('autobtn').classList.contains('on'), l2: document.getElementById('w-l2').textContent }));
     expect(s.auto && on.cls && /через/.test(on.l2), 'автоплей не включился или не виден: ' + JSON.stringify([s, on]));
     await ctx.shot('controls_auto_on');
-    await ctx.page.waitForFunction(() => APP.play.phase === 'wave' && APP.play.wave === 2, null, { timeout: (delay + 3) * 1000 })
+    await ctx.page.waitForFunction(() => APP.play.phase === 'wave' && APP.play.wave === 2, null, { timeout: 60000 })
       .catch(() => { throw new Error('автоплей не начал волну 2 за задержку'); });
     await ctx.click('#autobtn'); expect(!(await st(ctx)).auto, 'кнопка автоплея не выключила его');
   },
@@ -71,11 +74,13 @@ export const steps = {
     const on = () => ctx.eval(() => [...document.querySelectorAll('#speeds .sp')].map((b) => (b.classList.contains('on') ? b.dataset.s : '')).join(''));
     expect(await ctx.eval(() => document.querySelectorAll('#speeds .sp').length === 3), 'не три кнопки скорости');
     expect(await on() === '1', 'активна не ×1: ' + await on());
+    // ×4 — вчетверо быстрее ×1 (сравнение в одном окне: без видеокарты кадров мало, и обе скорости идут медленнее настоящего времени)
+    const rate = async () => { const a = await ctx.eval(() => [APP.play.t, performance.now()]); await ctx.wait(1200); const b = await ctx.eval(() => [APP.play.t, performance.now()]);
+      return (b[0] - a[0]) / ((b[1] - a[1]) / 1000); };
+    const r1 = await rate();
     await ctx.page.keyboard.press('KeyF'); await ctx.wait(50); expect((await st(ctx)).speed === 2 && await on() === '2', 'F: не ×2');
     await ctx.page.keyboard.press('KeyF'); await ctx.wait(50); expect((await st(ctx)).speed === 4 && await on() === '4', 'F: не ×4');
-    // ×4 — вчетверо быстрее: время игры за секунду настоящего
-    const a = await ctx.eval(() => [APP.play.t, performance.now()]); await ctx.wait(1000); const b = await ctx.eval(() => [APP.play.t, performance.now()]);
-    const k = (b[0] - a[0]) / ((b[1] - a[1]) / 1000); expect(k > 3.3 && k < 4.3, '×4 идёт как ×' + k.toFixed(2));
+    const k = (await rate()) / r1; expect(k > 3.3 && k < 4.7, '×4 идёт как ×' + k.toFixed(2) + ' от ×1');
     await ctx.page.keyboard.press('KeyF'); await ctx.wait(50); expect((await st(ctx)).speed === 1, 'F после ×4 — не ×1');
     await ctx.click('#speeds .sp[data-s="4"]'); await ctx.wait(50); expect((await st(ctx)).speed === 4 && await on() === '4', 'кнопка ×4');
     // худшие значения верхней полосы: длинный сид, бесконечный режим далеко, огромные души

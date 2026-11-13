@@ -40,6 +40,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #title { position: absolute; left: 612px; top: 2px; width: 340px; height: 52px; display: flex; align-items: center; justify-content: center;
   font: 700 34px var(--title); letter-spacing: 3px; color: #f2e6ff; text-shadow: 0 3px 0 #0009, 0 0 12px #b07cff55; pointer-events: none; }
 #title::before, #title::after { content: '☠'; font-size: 20px; color: #cdb8ff; margin: 0 10px; opacity: .8; }
+#title { overflow: hidden; white-space: nowrap; }
+#title.narrow::before, #title.narrow::after { display: none; }
+#title.tiny .nm { display: none; }
 #title .pz { display: none; }
 /* пауза (без меню): на месте заголовка — метка «Пауза», по краю экрана — золотая рамка; кнопки действий серые */
 #ui.paused #title .nm { display: none; }
@@ -69,7 +72,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 @keyframes gain { 50% { transform: scale(1.08); filter: brightness(1.4); } }
 #stats .ibtn { width: 44px; height: 44px; padding: 0; font-size: 20px; display: flex; align-items: center; justify-content: center; }
 #stats .ibtn.on { border-color: var(--soul); color: var(--soul); }
-#stats #b-pause.on { border-color: var(--gold); color: var(--gold); }
+#stats #b-pause.on { border-color: var(--gold); color: var(--gold); font: 24px/1 var(--body); }
 
 /* кнопка волны у ворот */
 #wavebtn { position: absolute; left: 14px; top: 150px; width: 190px; height: 64px; padding: 6px 8px 7px; text-align: center; }
