@@ -11,7 +11,7 @@
   const pct = (v) => '+' + Math.round(v * 100) + '%';
   const trackName = (type, k) => (type && T[type].names && T[type].names[k]) || C.TRACK_NAMES[k];
   const ALL_NAME = { dmg: 'Урон всех башен', range: 'Дальность всех башен', rate: 'Скорость всех башен' };
-  const WHY = { souls: (cg, S) => `Не хватает ${cg.cost - S.souls} душ`, max: () => 'Линия прокачана до конца', locked: () => 'Тип башни закрыт', ended: () => 'Забег окончен' };
+  const WHY = { souls: (cg, S) => `Не хватает ${cg.cost - S.souls} душ`, max: () => 'Линия прокачана до конца', locked: () => 'Тип башни закрыт', ended: () => 'Забег окончен', phase: () => 'Сначала выбери реликвию' };
   const NOTE = 'Покупка сразу усиливает все подходящие башни, и построенные позже. G или Esc — закрыть.';
   let APP, wrap, win, btn, open = false, key = '', lastS = null;
 
@@ -66,7 +66,7 @@
 
   GRIM.frame = (A) => {
     const S = A.play;
-    if (!S) open = false;
+    if (!S || S.phase === 'relic') open = false;                       // выбор реликвии затемняет поле, забег стоит
     wrap.classList.toggle('show', open); btn.classList.toggle('on', open);
     if (!open) { key = ''; return; }
     const k = JSON.stringify([S.seed, S.grim, S.unlocked, S.phase === 'won' || S.phase === 'lost']);

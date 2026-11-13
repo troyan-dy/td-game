@@ -62,16 +62,22 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 @keyframes pulse { 50% { box-shadow: 0 0 0 2px var(--ink), 0 0 22px 4px #6ff2e2aa, inset 0 2px 0 #ffffff1c; } }
 #wavebtn.hidden { display: none; }
 
-/* карточки строительства */
+/* карточки строительства: все типы помещаются в зону интерфейса низа слева (8 клеток, MAP.keepout) */
 #cards { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; padding: 8px 10px; }
-.card { width: 104px; height: 118px; position: relative; padding: 4px 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer;
+.card { width: min(88px, calc((472px - (var(--n, 4) - 1) * 6px) / var(--n, 4))); height: 118px; position: relative; padding: 4px 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer;
   border: 3px solid var(--rim); border-radius: 6px; background: linear-gradient(180deg, #2f2449, #1d1531); box-shadow: inset 0 0 0 2px var(--rim2); }
 .card .pic { position: absolute; left: 0; right: 0; top: 6px; height: 58px; display: flex; align-items: flex-end; justify-content: center; }
-.card .pic img { max-height: 58px; max-width: 80px; image-rendering: auto; filter: drop-shadow(0 3px 2px #0008); }
+.card .pic img { max-height: 58px; max-width: 74px; image-rendering: auto; filter: drop-shadow(0 3px 2px #0008); }
 .card .pic .ph { width: 38px; height: 52px; border-radius: 4px 4px 8px 8px; }
-.card .nm { font: 700 17px var(--title); letter-spacing: 1px; }
+.card .nm { font: 700 15px var(--title); letter-spacing: 0.5px; }
 .card .pr { font: 700 16px var(--title); color: var(--soul); }
 .card .key { position: absolute; left: 5px; top: 3px; font: 12px var(--body); color: var(--dim); opacity: .8; }
+/* больше пяти типов башен: карточки уже, подписи мельче — полоса остаётся в своей зоне (8 клеток слева внизу) */
+#cards.many .card { padding: 4px 2px 6px; }
+#cards.many .card .pic img { max-width: 52px; max-height: 52px; }
+#cards.many .card .nm { font-size: 10.5px; letter-spacing: 0; }
+#cards.many .card .pr { font-size: 13px; white-space: nowrap; }
+#cards.many .card .key { left: 3px; top: 2px; font-size: 10px; }
 .card:hover { filter: brightness(1.2); }
 .card.armed, .card.can.target { border-color: var(--soul); box-shadow: inset 0 0 0 2px var(--rim2), 0 0 14px #6ff2e288; }
 .card.poor .pr { color: var(--bad); }
@@ -244,3 +250,25 @@ body.inmenu #title { display: none; }
 #stats #b-grim { color: var(--gold); }
 #panel .grim { margin-top: 3px; font: 13px/1.25 var(--body); color: var(--gold); }
 #panel .grim b { color: var(--text); }
+/* реликвии (live/relics.js): экран выбора одной из трёх и значки взятых под кнопкой волны */
+#relics .box.rbox { width: 900px; padding: 22px 26px 22px; }
+#relics .rsub { font: 18px var(--body); color: var(--dim); }
+#relics .rcards { display: flex; gap: 16px; margin: 18px 0 12px; align-items: stretch; }
+#relics .rcard { position: relative; flex: 1 1 0; min-width: 0; min-height: 250px; padding: 14px 14px 16px; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+#relics .rcard.rule { border-color: var(--gold); }
+#relics .rcard .key { position: absolute; left: 8px; top: 6px; font: 700 15px var(--title); color: var(--dim); }
+#relics .rcard .ic { font: 46px/1.1 var(--body); color: var(--soul); text-shadow: 0 0 14px #6ff2e288; }
+#relics .rcard.rule .ic { color: var(--gold); text-shadow: 0 0 14px #ffd27a88; }
+#relics .rcard .rn { font: 700 22px/1.15 var(--title); letter-spacing: .5px; }
+#relics .rcard .rk { font: 700 13px var(--title); letter-spacing: 1px; text-transform: uppercase; color: var(--soul); }
+#relics .rcard.rule .rk { color: var(--gold); }
+#relics .rcard .rd { font: 400 17px/1.35 var(--body); color: var(--text); text-shadow: none; margin-top: 4px; }
+#relics .rnote { font: 15px var(--body); color: var(--dim); }
+#relicbar { position: absolute; left: 14px; top: 222px; width: 228px; display: none; flex-wrap: wrap; gap: 6px; }
+#relicbar.show { display: flex; }
+#relicbar .rl { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; font: 19px/1 var(--body); color: var(--soul); cursor: default; }
+#relicbar .rl.rule { color: var(--gold); border-color: #a8884a; }
+#relic-tip { position: absolute; max-width: 300px; padding: 8px 12px 10px; font: 15px/1.35 var(--body); display: none; pointer-events: none; }
+#relic-tip.show { display: block; }
+#relic-tip h4 { margin: 0 0 2px; font: 700 18px var(--title); }
+#relic-tip .rk { font: 700 12px var(--title); letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin-bottom: 4px; }

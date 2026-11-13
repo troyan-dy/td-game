@@ -98,6 +98,8 @@ test('Гримуар: отказы с причиной — нет душ, пре
   assert.deepEqual(SIM.grimLines(L).filter((l) => l.group === 'type').map((l) => l.id), ['bones', 'spirits']);
   assert.equal(SIM.canGrim(L, 'dark').reason, 'locked'); buy(L, 'dark'); assert.equal(L.grim.dark, 0);
   assert.equal(SIM.canGrim(L, 'dmg').ok, true);
+  // выбор реликвии: забег стоит, покупка не проходит
+  S.phase = 'relic'; assert.equal(SIM.canGrim(S, 'range').reason, 'phase');
   // конец забега
   S.phase = 'lost'; assert.equal(SIM.canGrim(S, 'range').reason, 'ended');
 });
