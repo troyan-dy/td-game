@@ -15,11 +15,11 @@
   // id реликвий пула по порядку конфига: объект id → описание или массив { id, … }; пула нет — пусто
   const relicList = (cfg) => { const R = cfg.RELICS; if (!R) return [];
     return Array.isArray(R) ? R.map((r) => [r.id, r]) : Object.keys(R).map((id) => [id, R[id]]); };
-  // каталог: items — { id, kind: 'tower' | 'relic', name, start, by } (by — id достижения, которое открывает предмет, или null);
+  // каталог: items — { id, kind: 'tower' | 'relic', name, full (полное имя башни), start, by } (by — id достижения, которое открывает предмет, или null);
   // achievements — из конфига, с item — id предмета, который достижение открывает (null — предмета не хватило)
   const catalog = (cfg) => {
     cfg = cfg || C; const U = cfg.UNLOCKS, T = cfg.TOWERS || {};
-    const items = cfg.TOWER_ORDER.map((id, i) => ({ id, kind: 'tower', name: (T[id] && (T[id].title || T[id].name)) || id, start: i < U.startTowers, by: null }))
+    const items = cfg.TOWER_ORDER.map((id, i) => ({ id, kind: 'tower', name: (T[id] && (T[id].name || T[id].title)) || id, full: (T[id] && T[id].title) || '', start: i < U.startTowers, by: null }))
       .concat(relicList(cfg).map(([id, r], i) => ({ id, kind: 'relic', name: (r && r.name) || id, start: i < U.startRelics, by: null })));
     const achievements = U.achievements.map((a) => Object.assign({}, a, { item: null }));
     for (const kind of ['tower', 'relic']) {

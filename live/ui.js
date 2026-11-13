@@ -42,7 +42,7 @@
     return it && it.ach ? `${it.ach.name}: ${it.ach.desc.toLowerCase()}` : 'Кнопка «Открыть всё» на экране «Открытия»'; };
   const dropOldSaves = () => { try { for (const k of Object.keys(localStorage)) if (k.startsWith(SAVE_KEY + '.')) localStorage.removeItem(k); } catch (e) {} };
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
-  const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
+  const img = (n, fb) => has(n) ? `<img src="${(window.TOWERART && TOWERART.url(n)) || `assets/${n}.png`}" alt="">` : (fb || '');   // процедурный вид — data URL из towerart.js
   const SOUL = '<span class="soul-ico"></span>';
   // картинка типа башни в DOM: спрайт основы вида (SIM.art: sprite, css-перекраска), без арта — заглушка цвета art.ui
   // A — вид (SIM.art типа или SIM.towerArt стоящей башни: у гибрида — спрайт первой в цвете второй)
@@ -79,7 +79,7 @@
     const cards = h('div', 'frame', ''); cards.id = 'cards';
     cards.style.setProperty('--n', C.TOWER_ORDER.length);            // ширина карточки считается в CSS от числа типов: полоса не шире своей зоны
     if (C.TOWER_ORDER.length > 5) cards.classList.add('many');
-    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="pr">${SOUL} ${d.base.cost}</div><div class="lock">🔒</div>`);
+    C.TOWER_ORDER.forEach((k, i) => { const d = T[k], c = h('div', 'card', `<span class="key">${i + 1}</span><div class="pic">${typePic(k, 1)}</div><div class="nm">${d.name}</div><div class="rl">${d.tag || ''}</div><div class="pr">${SOUL} ${d.base.cost}</div><div class="lock">🔒</div>`);
       c.dataset.type = k; cards.append(c); });
     root.append(cards);
     const panel = h('div', 'frame', ''); panel.id = 'panel'; root.append(panel);
@@ -135,9 +135,9 @@
   const flashPoor = (type) => { const c = $(`.card[data-type="${type}"]`); if (c) { c.animate([{ transform: 'translateX(-5px)' }, { transform: 'translateX(5px)' }, { transform: 'none' }], { duration: 220 }); }
     const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
   const cardAction = (type) => { const S = APP.play; if (!S || ended() || held()) return;
-    if (locked(S, type)) { AUDIO.ui('deny'); toast(`${T[type].title} закрыта<small>${howOpen(type)}</small>`, '', 2600); return; }
+    if (locked(S, type)) { AUDIO.ui('deny'); toast(`${T[type].name} закрыта<small>${howOpen(type)}</small>`, '', 2600); return; }
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
-    ui.armed = ui.armed === type ? null : type; ui.sel = -1; ui.move = -1; renderPanel(true); };
+    ui.armed = ui.armed === type ? null : type; ui.sel = -1; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; renderPanel(true); };   // выбор карточки сбрасывает и перенос, и слияние
   const upgrade = (track) => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw || held()) return;
     const cu = SIM.canUpgrade(S, ui.sel, track);
     if (cu.ok) APP.cmd({ k: 'upgrade', cell: ui.sel, track }); else { AUDIO.ui('deny'); if (cu.reason === 'souls') flashPoor(); } setTimeout(() => renderPanel(true), 30); };
@@ -244,14 +244,15 @@
     t.style.left = Math.max(10, Math.min(1590 - t.offsetWidth, x)) + 'px'; t.style.top = Math.max(58, Math.min(890 - t.offsetHeight, y - t.offsetHeight)) + 'px'; };
   const hideTip = () => $('#tip').classList.remove('show');
   const showCardTip = (c) => { const k = c.dataset.type, d = T[k], st = SIM.buildStats(APP.play, -1, k);
-    if (locked(APP.play, k)) { tipAt(`<h4>${d.title} · закрыта</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">Откроется: <b>${howOpen(k)}</b></div>`, c.offsetLeft + 10, 900 - 150); return; }
-    tipAt(`<h4>${d.title}</h4><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType] || ''}</div>`, c.offsetLeft + 10, 900 - 150); };
+    if (locked(APP.play, k)) { tipAt(`<h4>${d.name} · закрыта</h4><div class="full">${d.title} — ${d.role}</div><div>${d.desc}</div><div class="row" style="margin-top:6px">Откроется: <b>${howOpen(k)}</b></div>`, c.offsetLeft + 10, 900 - 150); return; }
+    tipAt(`<h4>${d.name}</h4><div class="full">${d.title} — ${d.role}</div><div>${d.desc}</div><div class="row" style="margin-top:6px">${statLines(k, st).map(([a, b]) => `${a}: <b>${b}</b>`).join(' · ')} · ${TIP_DESC[d.dmgType] || ''}</div>`, c.offsetLeft + 10, 900 - 150); };
 
   // ---------------------------------------------------------------- панель
   // Панель собрана из кусков, каждый — своя функция (тикеты правят свой кусок, не соседний):
   //   buildMenu(S, p)                    — свободная клетка: меню постройки (покрытие дороги, подсказка)
   //   towerHead(S, tw)                   — башня: картинка, имя, прокачка, итоговые характеристики в две колонки
-  //   towerGrowth(S, tw) / wireGrowth()  — башня: три ветки со ступенями и ценой следующей, выбор перка (описание — в подсказке)
+  //   towerGrowth(S, tw) / wireGrowth()  — башня: три ветки со ступенями и ценой следующей, выбор перка — на кнопке имя, что
+  //                                        делает в 2–4 слова (SIM.perkAct), значок и цена; полное описание — в подсказке
   //   towerManage(S, tw) / wireManage()  — башня: управление (перенос, продажа); в режиме переноса панель — узкая плашка с отменой
   // Перерисовка: целиком — только при смене устройства панели (другая клетка, ступень, перк, режим, конец забега);
   // души, «не хватает», доступность переноса и счётчик убийств обновляются на месте (refreshPanel), кнопки не пересоздаются.
@@ -266,11 +267,11 @@
   const buildMenu = (S, p) => {
     const b = SIM.cellBonus(S, ui.sel), cov = SIM.spotCoverage(S, ui.sel), q = cov > 520 ? 'узловая: бьёт по нескольким участкам дороги' : cov > 300 ? 'хорошее покрытие дороги' : cov > 0 ? 'короткий участок дороги' : 'дорога далеко';
     const prices = C.TOWER_ORDER.map((k) => { const cb = SIM.canBuild(S, ui.sel, k);
-      if (cb.reason === 'locked') return `<div class="lk"><span>${T[k].name}</span><span>🔒 закрыта</span></div>`;
-      return `<div><span>${T[k].name}</span><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
+      if (cb.reason === 'locked') return `<div class="lk"><span>${T[k].name}</span><i>${T[k].role}</i><span>🔒</span></div>`;
+      return `<div title="${T[k].title}"><span>${T[k].name}</span><i>${T[k].role}</i><span>${cb.cost !== cb.base ? `<s class="was">${cb.base}</s>` : ''}<b class="${S.souls < cb.cost ? 'poor' : ''} ${cb.cost !== cb.base ? 'up' : ''}">${cb.cost}</b></span></div>`; }).join('');
     // превью Алтаря: каких соседей он усилит на этой клетке (ответ логики; на карте те же клетки подсвечены)
     const aura = C.TOWER_ORDER.filter((k) => SIM.hasAura(k)).map((k) => { const n = SIM.auraTargets(S, ui.sel, k).length;
-      return n ? `<div class="note aura">${T[k].title} здесь усилит башен: <b>${n}</b></div>` : ''; }).join('');
+      return n ? `<div class="note aura">${T[k].name} здесь усилит башен: <b>${n}</b></div>` : ''; }).join('');
     p.innerHTML = `${closeBtn}<div class="nm">${b ? b.name : 'Свободная клетка'}</div>
         ${b ? `<div class="bonus ${b.kind}">${b.desc}</div>` : ''}
         <div class="note" style="margin-top:6px">${q[0].toUpperCase() + q.slice(1)}.</div>
@@ -283,7 +284,8 @@
   const towerHead = (S, tw) => {
     const d = T[tw.type], st = SIM.towerStats(S, tw), hy = SIM.hybridInfo(S, tw);
     return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
-      <div><div class="nm ${hy ? 'hy' : ''}">${hy ? hy.name : d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
+      <div><div class="nm ${hy ? 'hy' : ''}" title="${hy ? `${d.title} + ${T[tw.mix].title}` : d.title}">${hy ? hy.name : d.name}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
+      ${hy ? '' : `<div class="role">${d.role}</div>`}
       ${hy ? mixLine(hy) : ''}
       <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
       ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}
@@ -316,7 +318,7 @@
       const state = full ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${SIM.perkAt(S)} ступеней · ещё ${need}</span>` : '<span class="ok">выбери — навсегда</span>';
       return perks.length ? `<div class="ph">${two ? 'ПЕРК ' + T[g.type].name : hy ? 'ПЕРКИ · 2 СЛОТА' : 'ПЕРК'} · ${state}</div>
       <div class="perks">${perks.map((pk, i) => { const pd = T[g.type].perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = ['steps', 'taken', 'dead'].includes(cp.reason), dead = !SIM.perkOn(tw, pk);
-        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${dead ? 'dead' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}" data-ty="${g.type}"><span class="pn">${pd.name}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' || dead ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''; };
+        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${dead ? 'dead' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}" data-ty="${g.type}"><span class="pn">${pd.name}</span><span class="pa">${SIM.perkAct(pk)}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' || dead ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''; };
     return `<div class="tracks">${rows}</div>${SIM.perkGroups(tw).map(group).join('')}`;
   };
   const wireGrowth = (p, S, tw) => {
@@ -327,7 +329,7 @@
       b.onmouseleave = hideTip; });
     p.querySelectorAll('.perk').forEach((b) => {
       const pk = b.dataset.p, pd = T[b.dataset.ty].perks[pk], dead = !SIM.perkOn(tw, pk);
-      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${SIM.perkText(pk)}</div>${dead ? `<div class="row bad" style="margin-top:6px">Не действует: гибрид атакует как ${T[tw.type].title.toLowerCase()}.</div>` : ''}<div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${SIM.perkText(pk)}</div>${dead ? `<div class="row bad" style="margin-top:6px">Не действует: гибрид атакует как ${T[tw.type].name}.</div>` : ''}<div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
       b.onmouseleave = hideTip;
       b.onclick = () => { if (held()) return; if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
     });
@@ -346,7 +348,7 @@
     const pic = artPic(SIM.towerArt({ type: info.type, mix: info.mix }), 3, 'width:37px;height:54px;');
     const perks = info.perks.length ? `<div class="pls">${info.perks.map((q) => `<div class="${q.on ? '' : 'dead'}">${PERK_ICON[q.id] || '✦'} ${q.name} — ${q.on ? 'действует' : 'не действует на этой атаке'}</div>`).join('')}</div>` : '';
     return `<div class="hd"><div class="pic">${pic}</div><div><div class="nm hy">${info.name}</div><div class="lv">ГИБРИД · ВЕТКИ ДО ${info.cap} СТУПЕНИ</div></div></div>
-      <div class="note mgn">Стреляет как ${info.title.toLowerCase()}, плюс примесь второй башни:</div>${mixLine(info)}
+      <div class="note mgn">Стреляет как ${T[info.type].name}, плюс примесь второй башни:</div>${mixLine(info)}
       <div class="st">${statLines(info.type, info.stats).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}</div>${perks}
       <div class="note mgn">Перков — до ${info.slots}. Клетка второй башни освободится.</div>
       <div class="mg"><button class="btn green mgo ${info.ok ? '' : info.reason === 'souls' ? 'poor' : 'off'}">Слить · <span class="pr">${SOUL}${info.cost}</span></button><button class="btn mvx2">Отмена</button></div>`;
@@ -437,7 +439,7 @@
     const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended(), APP.paused]);
     if (key === panelKey || (pressed && !force)) { if (tw && !moving) refreshPanel(p, S, tw); return; }
     panelKey = key; hideTip();                                         // подсказка висела над кнопкой, которой больше нет
-    p.classList.add('show'); p.classList.toggle('moving', moving || (merging && ui.mergeTo < 0));
+    p.classList.add('show'); p.classList.toggle('moving', moving || (merging && ui.mergeTo < 0)); p.classList.toggle('buildm', !tw);
     if (!tw) buildMenu(S, p);
     else if (moving || merging) { p.innerHTML = towerManage(S, tw); wireManage(p, S, tw); }
     else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
@@ -447,8 +449,17 @@
   };
 
   // ---------------------------------------------------------------- тосты, новый враг, обучение
-  const toast = (html, cls = '', ms = 2600) => { const t = h('div', 'frame toast ' + cls, html); $('#toasts').append(t);
-    setTimeout(() => t.classList.add('out'), ms); setTimeout(() => t.remove(), ms + 600); };
+  // Тосты — по одному, в верхней полосе HUD на месте заголовка (там не бывает панелей, разведки, превью и подсказок обучения):
+  // очередь, каждый не дольше TOAST_MAX мс, а когда следом ждут другие — TOAST_RUSH. Заголовок на время тоста прячется.
+  const TOAST_MAX = 2200, TOAST_RUSH = 1100, TOAST_QUEUE = 4;
+  let toastQ = [], toastOn = null, toastTimer = 0;
+  const toastNext = () => { clearTimeout(toastTimer); const box = $('#toasts');
+    if (toastOn) { const old = toastOn; old.classList.add('out'); setTimeout(() => old.remove(), 350); toastOn = null; }
+    const nx = toastQ.shift(); $('#ui').classList.toggle('toasting', !!nx); if (!nx) return;
+    const t = h('div', 'frame toast ' + nx.cls, nx.html); box.append(t); toastOn = t;
+    toastTimer = setTimeout(toastNext, toastQ.length ? TOAST_RUSH : Math.min(nx.ms, TOAST_MAX)); };
+  const toast = (html, cls = '', ms = 2600) => { toastQ.push({ html, cls, ms }); if (toastQ.length > TOAST_QUEUE) toastQ.shift();
+    if (!toastOn) toastNext(); else if (toastQ.length === 1) { clearTimeout(toastTimer); toastTimer = setTimeout(toastNext, TOAST_RUSH); } };
   let neQueue = [];
   const showNewEnemy = (type) => { const d = EN[type], o = $('#newenemy'), st = SIM.enemyStats(APP.play, type);   // цифры этой волны, со свойством
     const tags = [`HP ${st.hp}`, st.armor ? `броня ${Math.round(st.armor * 100)}%` : '', st.mres ? `защита от магии ${Math.round(st.mres * 100)}%` : '', st.heal ? `лечит ${st.heal} HP` : '', d.boss ? 'босс' : '', `скорость ${st.speed}`].filter(Boolean).join(' · ');
@@ -524,7 +535,7 @@
     return `<div class="unlocks"><div class="uh">${got.opened.length ? 'Открыто в этом забеге' : 'Достижения забега'}</div><div class="gl">${items.join('')}</div></div>`; };
   // Экран открытий (из меню): рекорды, башни и реликвии — открытые и закрытые с условием, достижения; «Открыть всё»
   const showMeta = () => { const p = profile(), V = META.view(p), m = $('#meta');
-    const chip = (it) => `<div class="chip ${it.open ? 'on' : 'off'}" data-id="${it.id}"><b>${it.open ? '' : '🔒 '}${it.name}</b>${it.open ? '' : `<small>${it.ach ? it.ach.desc : 'только «Открыть всё»'}</small>`}</div>`;
+    const chip = (it) => `<div class="chip ${it.open ? 'on' : 'off'}" data-id="${it.id}"${it.full ? ` title="${it.full}"` : ''}><b>${it.open ? '' : '🔒 '}${it.name}</b>${it.open ? '' : `<small>${it.ach ? it.ach.desc : 'только «Открыть всё»'}</small>`}</div>`;
     const sect = (kind, title) => { const list = V.items.filter((it) => it.kind === kind); if (!list.length) return '';
       return `<div class="sh">${title} <i>${list.filter((it) => it.open).length} / ${list.length}</i></div><div class="chips ${kind}">${list.map(chip).join('')}</div>`; };
     const all = META.unlocked(p) === null || V.items.every((it) => it.open);
@@ -565,7 +576,7 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { neWas = false; detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { neWas = false; detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); toastQ = []; toastOn = null; clearTimeout(toastTimer); $('#toasts').innerHTML = ''; $('#ui').classList.remove('toasting'); panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
@@ -616,14 +627,14 @@
     for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
-      if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
+      if (e.k === 'boss') toast(`☠ ${e.name}<small>пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 2200);
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); savedAt = 0; }
-      if (e.k === 'relic') { const r = SIM.relicsOf(S).find((x) => x.id === e.id); if (r) toast(`${r.icon} ${r.name}<small>${r.desc}</small>`, '', 3600); savedAt = 0; }
+      if (e.k === 'relic') { const r = SIM.relicsOf(S).find((x) => x.id === e.id); if (r) toast(`${r.icon} ${r.name}<small>реликвия взята — описание при наведении на значок</small>`, '', 2200); savedAt = 0; }
       if (e.k === 'relicOffer' || e.k === 'haste') savedAt = 0;
       if (e.k === 'haste') toast(`Нетерпение<small>+${e.souls} душ за раннюю волну</small>`, '', 2200);
       if (e.k === 'endless') { toast('Бесконечный режим<small>Волны растут без предела · босс каждые 10 волн</small>', 'big', 3000); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
-      if (e.k === 'merge') { const hi = S.towers[e.cell] && SIM.hybridInfo(S, S.towers[e.cell]); if (hi) toast(`${hi.icon} Гибрид ${hi.name}<small>Примесь «${hi.mixName}» · ветки до ${hi.cap} ступени</small>`, 'big', 3200); savedAt = 0; }
+      if (e.k === 'merge') { const hi = S.towers[e.cell] && SIM.hybridInfo(S, S.towers[e.cell]); if (hi) toast(`${hi.icon} Гибрид ${hi.name}<small>примесь «${hi.mixName}» · ветки до ${hi.cap} ступени</small>`, 'big', 2200); savedAt = 0; }
       if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'grim' || e.k === 'wave') savedAt = 0;
     }
     if (seenEv.size > 3000) markSeen();

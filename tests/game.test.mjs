@@ -274,6 +274,14 @@ test('описания перков собираются из данных: чи
   assert.match(SIM.perkText('chill'), new RegExp(`${was} с вместо`));
 });
 
+test('у каждого перка короткое действие для кнопки: из данных, без шаблонных скобок, не длиннее 18 знаков (строка на узкой кнопке)', () => {
+  for (const type of C.TOWER_ORDER) for (const id of Object.keys(T[type].perks)) {
+    const act = SIM.perkAct(id); assert.ok(act && !/[{}]/.test(act) && act.length <= 18, `${id}: «${act}»`);
+    assert.ok(!/\d/.test(T[type].perks[id].act.replace(/\{[^}]*\}/g, '')), `${id}: число вписано в действие руками`);
+  }
+  assert.equal(SIM.perkAct('volley'), `${T.bones.perks.volley.set.bolts} цели разом`);
+});
+
 test('новый тип башни добавляется данными: с видом атаки стреляет, без вида атаки не стреляет', () => {
   const base = { cost: 50, dmg: 7, rate: 0.5, range: 3 }, tracks = T.bones.tracks;
   T.zz_beam = { name: 'ТЕСТ', short: 'ТЕСТ', title: 'Тест', dmgType: 'magic', attack: 'beam', muzzle: 40, base, tracks, extra: { heavy: 1 }, perks: {} };

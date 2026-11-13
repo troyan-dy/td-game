@@ -92,15 +92,16 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #cards { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 6px; padding: 8px 10px; }
 .card { width: min(88px, calc((472px - (var(--n, 4) - 1) * 6px) / var(--n, 4))); height: 118px; position: relative; padding: 4px 4px 6px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; cursor: pointer;
   border: 3px solid var(--rim); border-radius: 6px; background: linear-gradient(180deg, #2f2449, #1d1531); box-shadow: inset 0 0 0 2px var(--rim2); }
-.card .pic { position: absolute; left: 0; right: 0; top: 6px; height: 58px; display: flex; align-items: flex-end; justify-content: center; }
-.card .pic img { max-height: 58px; max-width: 74px; image-rendering: auto; filter: drop-shadow(0 3px 2px #0008); }
+.card .pic { position: absolute; left: 0; right: 0; top: 5px; height: 52px; display: flex; align-items: flex-end; justify-content: center; }
+.card .pic img { max-height: 52px; max-width: 74px; image-rendering: auto; filter: drop-shadow(0 3px 2px #0008); }
+.card .rl { font: 11px/1.05 var(--body); color: var(--dim); white-space: nowrap; margin: 1px 0 1px; }
 .card .pic .ph { width: 38px; height: 52px; border-radius: 4px 4px 8px 8px; }
 .card .nm { font: 700 15px var(--title); letter-spacing: 0.5px; }
 .card .pr { font: 700 16px var(--title); color: var(--soul); }
 .card .key { position: absolute; left: 5px; top: 3px; font: 12px var(--body); color: var(--dim); opacity: .8; }
 /* больше пяти типов башен: карточки уже, подписи мельче — полоса остаётся в своей зоне (8 клеток слева внизу) */
 #cards.many .card { padding: 4px 2px 6px; }
-#cards.many .card .pic img { max-width: 52px; max-height: 52px; }
+#cards.many .card .pic img { max-width: 52px; max-height: 48px; }
 #cards.many .card .nm { font-size: 10.5px; letter-spacing: 0; }
 #cards.many .card .pr { font-size: 13px; white-space: nowrap; }
 #cards.many .card .key { left: 3px; top: 2px; font-size: 10px; }
@@ -142,10 +143,13 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #panel .ph { margin-top: 5px; font: 700 12px var(--title); letter-spacing: 1px; color: var(--text); }
 #panel .ph .why { color: var(--gold); letter-spacing: 0; font-weight: 400; font-family: var(--body); }
 #panel .ph .ok { color: var(--soul); letter-spacing: 0; font-weight: 400; font-family: var(--body); }
+/* перки: на кнопке имя, что делает (одной строкой), значок и цена — три перка сравниваются без наведения */
 #panel .perks { display: flex; gap: 4px; margin: 3px 0 2px; }
-#panel .perk { flex: 1; min-width: 0; height: 46px; padding: 1px 2px; font: 700 10.5px/1.1 var(--title); letter-spacing: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; }
+#panel .perk { flex: 1; min-width: 0; min-height: 54px; padding: 2px 2px; font: 700 10.5px/1.1 var(--title); letter-spacing: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; text-align: center; }
+#panel .perk .pa { font: 10.5px/1.1 var(--body); color: #d8ccf0; white-space: nowrap; text-shadow: none; }
 #panel .perk .pf { display: flex; align-items: center; gap: 4px; font-size: 10.5px; }
 #panel .perk .ic { font-size: 13px; line-height: 1; }
+#panel .perk.chosen .pa { color: var(--gold); }
 #panel .perk.chosen { border-color: var(--gold); color: var(--gold); filter: none; }
 #panel .perk.locked { filter: grayscale(.8) brightness(.55); }
 #panel .mg { display: flex; gap: 6px; margin-top: 5px; }
@@ -161,6 +165,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #panel .prices b.up, .card .pr.up { color: #ff5a78; }
 #panel .prices s.was { margin-right: 6px; color: var(--dim); }
 #panel .prices .lk { opacity: .6; }
+/* меню постройки: по строке на башню — имя, роль, цена */
+#panel .st.prices { grid-template-columns: 1fr; row-gap: 1px; }
+#panel .prices div { display: grid; grid-template-columns: 62px 1fr auto; gap: 6px; }
+#panel.buildm { width: 330px; }
+#panel .prices div i { font: 12px/1.3 var(--body); font-style: normal; color: var(--dim); white-space: normal; }
+#panel .prices div span:first-child { color: var(--text); font: 700 12px/1.4 var(--title); }
+#panel .role { margin: 3px 0 0; font: 13px/1.25 var(--body); color: var(--gold); }
+#tip .full { margin: -2px 0 4px; font: 14px/1.3 var(--body); color: var(--gold); }
 #panel .note.aura { margin-top: 6px; color: #ff7a88; }
 #panel .note.aura b { color: #ffb0b8; }
 /* слияние: имя гибрида, строка примеси, недействующие перки, кнопка и превью */
@@ -185,13 +197,15 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 #tip .row b { color: var(--text); }
 
 /* тосты и подсказки обучения */
-#toasts { position: absolute; left: 0; right: 0; top: 64px; display: flex; flex-direction: column; align-items: center; gap: 8px; pointer-events: none; }
-.toast { padding: 8px 22px; font: 700 22px var(--title); letter-spacing: 2px; text-align: center; animation: tin .35s ease-out; }
-.toast.big { font-size: 36px; padding: 10px 34px; }
+/* тосты: по одному, в верхней полосе на месте заголовка (ui.js: очередь) — поле, панели и разведку не закрывают */
+#toasts { position: absolute; left: 560px; width: 440px; top: 2px; height: 52px; display: flex; justify-content: center; align-items: center; pointer-events: none; }
+.toast { position: absolute; max-width: 440px; height: 50px; padding: 3px 18px; display: flex; flex-direction: column; justify-content: center; font: 700 19px/1.1 var(--title); letter-spacing: 1px; text-align: center; white-space: nowrap; animation: tin .25s ease-out; }
+.toast.big { font-size: 22px; border-color: var(--soul); }
 .toast.boss { border-color: #e0566f; color: #ffd9df; }
-.toast small { display: block; font: 15px var(--body); letter-spacing: 0; color: var(--dim); margin-top: 2px; }
-.toast.out { opacity: 0; transition: opacity .5s; }
-@keyframes tin { from { transform: translateY(-14px); opacity: 0; } }
+.toast small { display: block; font: 13px/1.15 var(--body); letter-spacing: 0; color: var(--dim); margin-top: 1px; }
+.toast.out { opacity: 0; transition: opacity .3s; }
+@keyframes tin { from { transform: translateY(-8px); opacity: 0; } }
+#ui.toasting #title { visibility: hidden; }
 #coach { position: absolute; max-width: 320px; padding: 10px 14px; font: 16px/1.35 var(--body); border-color: var(--soul); display: none; pointer-events: none; animation: bob 1.6s ease-in-out infinite; }
 #coach.show { display: block; }
 @keyframes bob { 50% { transform: translateY(-5px); } }
