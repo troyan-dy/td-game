@@ -157,7 +157,8 @@ const gauntlet = (seed, waves) => {
     while (S.phase === 'wave' && guard++ < 1e6) {
       for (const e of S.enemies) { const r = seen.get(e.id);
         if (!r) seen.set(e.id, { type: e.type, child: !!e.child, hp: e.max, armor: e.armor, mres: e.mres, speed: e.speed, bounty: e.bounty, name: e.name, d0: e.d });
-        else if (r.v === undefined && e.d > r.d0 && e.slowT <= 0 && e.freezeT <= 0) r.v = (e.d - r.d0) / S.dt; }
+        else { if (r.v === undefined && e.d > r.d0 && e.slowT <= 0 && e.freezeT <= 0 && !e.haste) r.v = (e.d - r.d0) / S.dt;   // шаг без ускорения знаменосца
+          r.d0 = e.d; } }
       remain.push(SIM.remaining(S) === S.queue.slice(S.qi).reduce((a, q) => a + heads(q.e), 0) + S.enemies.reduce((a, e) => a + heads(e.type), 0));
       SIM.step(S, null);
     }
@@ -167,8 +168,9 @@ const gauntlet = (seed, waves) => {
   return out;
 };
 test('превью совпадает с тем, что выходит на дорогу: типы, число, HP, броня, защита, скорость, награда', () => {
+  const types = new Set();
   for (const seed of [2, 5]) for (const { pv, got } of gauntlet(seed, RUN)) {
-    const byType = {};
+    const byType = {}; for (const q of pv.squads) types.add(q.type);
     for (const g of got) { assert.equal(g.child, false); (byType[g.type] = byType[g.type] || []).push(g); }
     assert.deepEqual(Object.keys(byType).sort(), pv.squads.map((q) => q.type).sort(), `сид ${seed} волна ${pv.n}: типы`);
     for (const q of pv.squads) {
@@ -180,6 +182,7 @@ test('превью совпадает с тем, что выходит на до
       }
     }
   }
+  for (const k of Object.keys(EN)) assert.ok(types.has(k), `на сидах проверки не вышел ${k}`);
 });
 
 test('броня свойства работает в бою: физический удар по бронированному врагу слабее ровно на его броню', () => {
@@ -192,7 +195,7 @@ test('броня свойства работает в бою: физически
   const e = S.enemies[0], q = WAVEGEN.wave(seed, n).squads.find((x) => x.type === e.type);
   assert.ok(e.armor > EN[e.type].armor, 'броня не выросла');
   assert.equal(e.armor, q.armor);
-  e.freezeT = 1e9; e.hp = e.max = 1e6; SIM.step(S, null);
+  e.freezeT = 1e9; e.hp = e.max = 1e6; e.ward = 0; SIM.step(S, null);
   S.shots.push({ k: 'bolt', x: e.x - 20, y: e.y - 14, tid: e.id, dmg: 100, sp: 900, tw: -1, lx: e.x, ly: e.y });
   run(S, 0.2);
   assert.ok(Math.abs((1e6 - e.hp) - 100 * (1 - e.armor)) < 1e-6, `урон ${1e6 - e.hp}, броня ${e.armor}`);
@@ -278,7 +281,8 @@ const findWave = (pred, from = 3, to = RUN) => { for (let s = 1; s < 2000; s++) 
 const ALL_SEEN = Object.fromEntries(Object.keys(EN).map((k) => [k, 1]));
 const startAt = (seed, n) => { const S = SIM.create(seed); S.hp = 1e9; S.wave = n - 1; S.seen = Object.assign({}, ALL_SEEN); SIM.step(S, { cmds: [{ k: 'call' }] }); return S; };
 const enemyOf = (S, f = () => true) => { for (let i = 0; i < 120 * 300; i++) { const e = S.enemies.find((x) => !x.dead && f(x)); if (e) return e; SIM.step(S, null); } throw new Error('враг не вышел'); };
-const shoot = (S, e, k, dmg) => { e.freezeT = 1e9; SIM.step(S, null);
+// у разведчика первое попадание — промах (tests/enemies.test.mjs): здесь проверяется не он, щит снимается
+const shoot = (S, e, k, dmg) => { e.freezeT = 1e9; e.ward = 0; SIM.step(S, null);
   S.shots.push({ k, x: e.x - 20, y: e.y - 14, tid: e.id, dmg, sp: 900, tw: -1, lx: e.x, ly: e.y, bounces: 0, hit: [], born: S.t, seed: 0 }); run(S, 0.3); };
 
 test('награда за убийство в бою равна награде из превью («Богатая», «Толпа»)', () => {
