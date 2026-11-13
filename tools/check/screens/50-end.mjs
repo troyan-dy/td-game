@@ -8,7 +8,7 @@ const endState = (ctx) => ctx.eval(() => { const e = document.getElementById('en
 const winNow = async (ctx, g, worst) => {
   await g.newGame(ctx);
   await ctx.eval((worst) => { const S = APP.play, s = S.stats; S.wave = SIM.waveCount(); if (worst) S.seed = 999999;
-    const b = SIM.rankCells(S, 3.4)[0]; S.souls = 1e4; APP.cmd({ k: 'build', cell: b, type: 'bones' });
+    const b = SIM.rankCells(S, SIM.CONFIG.TYPICAL_RANGE)[0]; S.souls = 1e4; APP.cmd({ k: 'build', cell: b, type: 'bones' });
     if (worst) { s.time = 3599; s.kills = 99999; s.earned = 999999; } }, worst);
   await ctx.wait(100); await ctx.eval(() => { APP.play.phase = 'won'; });
   await ctx.need('#end.show', 5000); await ctx.wait(1000);
