@@ -59,7 +59,7 @@ test('разведчик: первое попадание не наносит у
 
 test('разведчик: промах работает для каждой башни — болт, призрак, яд облака, луч тьмы', () => {
   const { seed, n } = findWave(has('scout'));
-  for (const type of C.TOWER_ORDER) {
+  for (const type of C.TOWER_ORDER.filter((t) => C.TOWERS[t].attack)) {   // башня без атаки (Алтарь) не стреляет
     const S = startAt(seed, n), e = enemyOf(S, (x) => x.type === 'scout'); only(S, e);
     e.freezeT = 1e9; e.speed = 0; e.hp = e.max = 1e5; S.souls = 1e5;   // стоит на месте: котёл целится с упреждением по скорости
     const cell = SIM.rankCells(S, 3)[0], [cx, cy] = SIM.cellXY(S, cell);
