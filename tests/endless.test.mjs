@@ -87,6 +87,19 @@ test('бесконечный забег заканчивается пораже�
   SIM.step(S, { cmds: [{ k: 'call' }, { k: 'endless' }] }); assert.equal(S.phase, 'lost'); assert.equal(S.wave, RUN + 3);
 });
 
+test('поражение объясняет себя: кто прорвался к склепу и сколько прочности отнял, по типам врагов', () => {
+  const S = SIM.create(5); S.hp = 1e3; startAt(S, 3);                 // без башен: прорываются все
+  for (let i = 0; i < 120 * 200 && S.phase === 'wave'; i++) SIM.step(S, null);
+  const rep = SIM.leakReport(S), w = WAVEGEN.wave(S.seed, 3);
+  assert.ok(rep.length >= 1, 'пустой отчёт');
+  assert.equal(rep.reduce((a, r) => a + r.hp, 0), S.stats.leaked, 'сумма прочности по типам — все прорывы');
+  for (const q of w.squads) { const r = rep.find((x) => x.type === q.type); assert.ok(r && r.n >= q.count, `${q.type}: ${JSON.stringify(rep)}`); assert.equal(r.name, C.ENEMIES[q.type].name); }
+  for (let i = 1; i < rep.length; i++) assert.ok(rep[i - 1].hp >= rep[i].hp, 'больше урона — выше');
+  assert.equal(SIM.loadable(json(S)), true);
+  const old = json(S); delete old.leakBy; assert.equal(SIM.loadable(old), true, 'сейв прежней сборки без счётчика прорывов годен');
+  assert.deepEqual(SIM.leakReport(old), []);
+});
+
 // счётчики забега, доигранного до волны n: души и награды всех волн, убийства, урон башни
 const farRun = (n) => {
   const S = endless(9); S.souls = 5000; const cells = SIM.rankCells(S, 3.4);
