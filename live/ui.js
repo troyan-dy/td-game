@@ -64,7 +64,7 @@
   const hitCell = (x, y) => { const S = APP.play; if (!S) return -1; const i = SIM.MAPGEN.cellAt(S.map, x, y); return i >= 0 && !SIM.MAPGEN.hud(S.map, i) ? i : -1; };
   // дорога и препятствие: строить нельзя, панели нет
   const isRoad = (cell) => ['road', 'obstacle'].includes(SIM.canBuild(APP.play, cell, 'bones').reason);
-  const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; renderPanel(true); };
+  const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; ui.move = -1; renderPanel(true); };
   const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
     if (!cb.ok) { if (cb.reason === 'souls') flashPoor(type); AUDIO.ui('deny'); return false; }
     APP.cmd({ k: 'build', cell, type }); ui.last = type; ui.armed = null; ui.preview = null; ui.sel = cell; setTimeout(() => renderPanel(true), 30); return true; };
@@ -72,22 +72,34 @@
     const s = $('#stats .souls'); s.classList.remove('gain'); void s.offsetWidth; s.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(2) hue-rotate(140deg)' }, { filter: 'brightness(1)' }], { duration: 300 }); };
   const cardAction = (type) => { const S = APP.play; if (!S || ended()) return;
     if (ui.sel >= 0 && !S.towers[ui.sel]) { tryBuild(ui.sel, type); return; }
-    ui.armed = ui.armed === type ? null : type; ui.sel = -1; renderPanel(true); };
+    ui.armed = ui.armed === type ? null : type; ui.sel = -1; ui.move = -1; renderPanel(true); };
   const upgrade = () => { const S = APP.play, tw = S && ui.sel >= 0 ? S.towers[ui.sel] : null; if (!tw) return;
     if (tw.lvl < 3) { if (S.souls >= SIM.upgradeCost(tw)) APP.cmd({ k: 'upgrade', cell: ui.sel }); else { AUDIO.ui('deny'); flashPoor(); } } setTimeout(() => renderPanel(true), 30); };
   const sell = () => { const S = APP.play; if (S && ui.sel >= 0 && S.towers[ui.sel]) { APP.cmd({ k: 'sell', cell: ui.sel }); setTimeout(() => renderPanel(true), 30); } };
+  // перенос: кнопка или M включает режим выбора клетки (ui.move — клетка башни), клик по подсвеченной клетке переносит,
+  // Esc, правый клик или клик по самой башне — отмена. Можно ли и куда — отвечает логика (SIM.canMove, SIM.moveCells)
+  const startMove = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel]) return;
+    if (!SIM.canMove(S, ui.sel).ok) { AUDIO.ui('deny'); return; }
+    ui.move = ui.sel; hideTip(); AUDIO.ui('click'); renderPanel(true); };
+  const cancelMove = () => { if (ui.move < 0) return; ui.move = -1; renderPanel(true); };
+  const tryMove = (to) => { const S = APP.play;
+    if (!SIM.canMove(S, ui.move, to).ok) { AUDIO.ui('deny'); return; }
+    APP.cmd({ k: 'move', cell: ui.move, to }); ui.move = -1; ui.sel = to; AUDIO.ui('click'); };
   const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
   const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
   UI.autoPause = () => togglePause(true);
 
   const wire = () => {
-    cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitCell(x, y); cv.style.cursor = ui.hover >= 0 && !isRoad(ui.hover) ? 'pointer' : 'default'; });
+    cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitCell(x, y);
+      cv.style.cursor = ui.move >= 0 ? (SIM.canMove(APP.play, ui.move, ui.hover).ok ? 'pointer' : 'not-allowed') : ui.hover >= 0 && !isRoad(ui.hover) ? 'pointer' : 'default'; });
     cv.addEventListener('pointerleave', () => { ui.hover = -1; });
     cv.addEventListener('pointerdown', (e) => { AUDIO.unlock(); if (!APP.play || ended()) return; const [x, y] = toView(e), i = hitCell(x, y);
+      if (ui.move >= 0) { if (e.button === 0) { if (i === ui.move) cancelMove(); else tryMove(i); } return; }   // правый — в contextmenu
       if (i >= 0 && ui.armed && !APP.play.towers[i]) { tryBuild(i, ui.armed); return; }
       if (i >= 0 && isRoad(i)) { AUDIO.ui('deny'); select(-1); return; }
       if (i >= 0) { select(ui.sel === i ? -1 : i); AUDIO.ui('click'); } else { select(-1); } });
     addEventListener('pointerdown', () => AUDIO.unlock(), { once: true });
+    addEventListener('contextmenu', (e) => { if (ui.move >= 0) { e.preventDefault(); cancelMove(); } });
     $('#cards').addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) { AUDIO.ui('click'); cardAction(c.dataset.type); } });
     $('#cards').addEventListener('pointerover', (e) => { const c = e.target.closest('.card'); if (!c) return; showCardTip(c); if (ui.sel >= 0 && APP.play && !APP.play.towers[ui.sel]) ui.preview = c.dataset.type; });
     $('#cards').addEventListener('pointerout', (e) => { const c = e.target.closest('.card'); if (c && !c.contains(e.relatedTarget)) { hideTip(); ui.preview = null; } });
@@ -103,11 +115,11 @@
       if (e.repeat) return; const k = e.code;
       if (!APP.play) { if (k === 'Enter') { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
-      if (k === 'Escape') { if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
+      if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
       const dg = /^Digit([1-4])$/.exec(k) || /^Numpad([1-4])$/.exec(k); if (dg) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
-      if (k === 'KeyU') upgrade(); else if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
+      if (k === 'KeyU') upgrade(); else if (k === 'KeyX' || k === 'Delete') sell(); else if (k === 'KeyM') { if (ui.move >= 0) cancelMove(); else startMove(); } else if (k === 'KeyF') APP.speed = APP.speed === 1 ? 2 : 1;
       else if (k === 'Enter' || k === 'KeyN') APP.cmd({ k: 'call' });
     });
   };
@@ -133,7 +145,7 @@
   //   buildMenu(S, p)                    — свободная клетка: меню постройки (покрытие дороги, подсказка)
   //   towerHead(S, tw)                   — башня: картинка, имя, уровень, характеристики
   //   towerGrowth(S, tw) / wireGrowth()  — башня: перки и улучшение
-  //   towerManage(S, tw) / wireManage()  — башня: управление (продажа)
+  //   towerManage(S, tw) / wireManage()  — башня: управление (перенос, продажа)
   const closeBtn = '<button class="btn x">✕</button>';
   // меню свободной клетки: особая клетка (вид и бонус), покрытие дороги, итоговые цены башен на этой клетке (с наценкой)
   const buildMenu = (S, p) => {
@@ -169,8 +181,21 @@
       b.onclick = () => { if (tw.lvl === 3 && !tw.perk) { if (S.souls >= pd.cost) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); } };
     });
   };
-  const towerManage = (S, tw) => `<button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
-  const wireManage = (p, S, tw) => { p.querySelector('.sell').onclick = sell; };
+  const towerManage = (S, tw) => {
+    if (ui.move === ui.sel) return `<div class="note mv">Куда перенести? Нажми на подсвеченную клетку. Esc или правый клик — отмена.</div>
+      <button class="btn mvx">Отменить перенос</button>`;
+    const cm = SIM.canMove(S, ui.sel);
+    return `<button class="btn move ${cm.ok ? '' : 'off'}">${cm.ok ? 'Перенести · бесплатно' : 'Перенос — между волнами'}</button>
+      <button class="btn red sell">Продать · +${SIM.sellValue(tw)}</button>`;
+  };
+  const wireManage = (p, S, tw) => {
+    const mv = p.querySelector('.move'), mx = p.querySelector('.mvx'), sl = p.querySelector('.sell');
+    if (mv) { mv.onclick = startMove;
+      mv.onmouseenter = () => tipAt(`<h4>Перенос</h4><div>${SIM.canMove(S, ui.sel).ok ? 'Бесплатно и мгновенно, вся прокачка и перк остаются. Бонус особой клетки — от новой клетки.' : 'Во время волны башни не переносятся. Дождись конца волны.'}</div><div class="row" style="margin-top:6px">Клавиша <b>M</b></div>`, ...tipBeside());
+      mv.onmouseleave = hideTip; }
+    if (mx) mx.onclick = cancelMove;
+    if (sl) sl.onclick = sell;
+  };
 
   const renderPanel = (force) => {
     const S = APP.play, p = $('#panel');
@@ -179,7 +204,7 @@
       const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', cost !== T[k].cost[0]);
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); });
     if (!S || ui.sel < 0) { p.classList.remove('show'); panelKey = ''; return; }
-    const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1)]);
+    const tw = S.towers[ui.sel], key = JSON.stringify([ui.sel, tw && [tw.type, tw.lvl, tw.perk, tw.invested], Math.floor(S.souls / 1), S.phase, ui.move]);
     if (!force && key === panelKey) return; panelKey = key;
     p.classList.add('show'); p.classList.toggle('left', panelLeft(S));
     if (!tw) buildMenu(S, p);
@@ -248,7 +273,7 @@
     showOverlay('end', true); store.del(SAVE_KEY);
     $('#e-again').onclick = () => { APP.newGame(); resetRun(); showOverlay('end', false); };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
-  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.preview = null; neQueue = []; seenEv.clear(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; seenEv.clear(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   const save = (S) => { if (S.phase === 'prep' && !S.demo) store.set(SAVE_KEY, { S, at: Date.now() }); };
@@ -276,12 +301,13 @@
       if (e.k === 'boss') toast(`☠ ${e.name} ☠<small>Пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 3600);
       if (e.k === 'waveClear') { toast(`Волна ${e.wave} отбита<small>+${e.bonus} душ</small>`, '', 2400); save(S); }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
-      if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell') && S.phase === 'prep') save(S);
+      if ((e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move') && S.phase === 'prep') save(S);
     }
     if (seenEv.size > 3000) { seenEv.clear(); for (const e of S.ev) seenEv.add(e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1)); }
     const isEnded = S.phase === 'won' || S.phase === 'lost';
     if (isEnded && !wasEnded) { select(-1); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
+    if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
     renderPanel(false); coach(S);
   };
 

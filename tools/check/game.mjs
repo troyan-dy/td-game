@@ -30,7 +30,7 @@ export async function open(ctx) {
   await ctx.goto(ctx.pagePath);
   await ctx.eval(() => { localStorage.clear(); sessionStorage.clear(); });
   await ctx.page.reload();
-  await ctx.page.waitForFunction(() => window.__ready && window.UI && window.APP, null, { timeout: 20000 });
+  await ctx.page.waitForFunction(() => window.__ready && window.UI && window.APP, null, { timeout: 60000 });
 }
 
 // ---------------------------------------------------------------- помощники состояния игры

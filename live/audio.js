@@ -43,6 +43,7 @@
       case 'die': if (ok('die', 0.05)) { noise(0.12, 0.08, 400, 1, 'lowpass'); tone('sine', 880 + (e.souls % 5) * 60, 1320, 0.12, 0.03, 0.05); } break;
       case 'build': tone('triangle', 130, 70, 0.25, 0.12); noise(0.25, 0.08, 300, 1, 'lowpass'); tone('sine', 520, 780, 0.15, 0.05, 0.1); break;
       case 'upgrade': case 'perk': [392, 494, 587, 784].forEach((f, i) => tone('triangle', f, 0, 0.22, 0.07, i * 0.07)); break;
+      case 'move': noise(0.18, 0.06, 500, 1, 'lowpass'); tone('triangle', 330, 494, 0.18, 0.06, 0.06); break;
       case 'sell': tone('sine', 700, 350, 0.25, 0.06); noise(0.2, 0.05, 900, 2); break;
       case 'leak': tone('sawtooth', e.boss ? 70 : 110, 50, 0.5, 0.14); noise(0.4, 0.1, 200, 1, 'lowpass'); break;
       case 'wave': [196, 196, 261.6].forEach((f, i) => tone('sawtooth', f, f * 0.98, 0.35, 0.06, i * 0.18)); noise(0.6, 0.05, 150, 1, 'lowpass'); break;

@@ -213,7 +213,7 @@
     const bg = big.getContext('2d'); bg.imageSmoothingEnabled = false; bg.drawImage(cv, 0, 0, LW * K, LH * K);
     // ---- сетка клеток: тонкие тёмные линии по краям игровых клеток (поле читается по клеткам);
     // клетки под интерфейсом (HUD, кнопка волны, карточки) затемнены и без сетки — на них не строят
-    for (let i = 0; i < map.cols * map.rows; i++) { if (road.has(i)) continue;
+    for (let i = 0; i < map.cols * map.rows; i++) { if (road.has(i) || SIM.MAPGEN.obstacle(map, i)) continue;
       const x = (i % map.cols) * TILE, y = Math.floor(i / map.cols) * TILE;
       if (SIM.MAPGEN.hud(map, i)) { bg.fillStyle = 'rgba(5, 4, 12, 0.55)'; bg.fillRect(x, y, TILE, TILE); continue; }
       bg.fillStyle = 'rgba(8, 6, 20, 0.22)'; bg.fillRect(x, y, TILE, 1); bg.fillRect(x, y, 1, TILE); }
