@@ -7,7 +7,7 @@
   const has = (n) => !!(window.ASSETS && window.ASSETS[n]);
   const SZ = (n, def) => (window.SIZES && window.SIZES[n]) || def;
   S.REPEAT = [];
-  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones', move: -1 };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток; move — клетка переносимой башни (-1 — не переносим)
+  S.ui = { sel: -1, hover: -1, armed: null, preview: null, last: 'bones', move: -1, merge: -1, mergeTo: -1 };   // выбор игрока (пишет ui.js); sel/hover — индексы клеток; move — клетка переносимой башни (-1 — не переносим); merge/mergeTo — первая башня слияния и выбранный сосед
   S.programs = () => { L.init(W, H); L.glyphs(); L.SUN = [W * 0.15, -300]; };
   S.LIGHTS = [];
   // фон перестраивается, когда в кадре другая карта (новый забег, титульное демо)
@@ -49,7 +49,13 @@
   const TRACK_COL = { dmg: [1, 0.42, 0.34], range: [0.45, 0.78, 1], rate: [1, 0.85, 0.35] };   // метки веток под башней
   // Метки ступеней рисуются отдельным проходом поверх всех башен (иначе башни нижнего ряда закрывают метки верхнего):
   // у каждой башни по одной полосе на ветку (длина — доля от потолка), у выбранной и наведённой — подробные ступени с пустыми.
-  let MARKS = [];
+  let MARKS = [], HYB = [];
+  // значки примеси над гибридами: тёмная плашка с рамкой цвета примеси и символ (чёткий, после грейда)
+  const drawHybridIcons = () => { for (const [x, y, icon, col, ui, id] of HYB) {
+      L.solid(x - 12, y - 12, 24, 24, [0.05, 0.03, 0.09], 0, 0, 0, 0.9);
+      L.solid(x - 12, y - 12, 24, 2, col); L.solid(x - 12, y + 10, 24, 2, col); L.solid(x - 12, y - 10, 2, 20, col); L.solid(x + 10, y - 10, 2, 20, col);
+      L.label('mix' + id, icon, x, y, { size: 15, col: ui, out: '#14081a', al: 0.5 }); }
+    HYB = []; };
   const drawMarks = () => {
     for (const [tw, x, y, sel] of MARKS) C.TRACKS.forEach((k, r) => { const got = tw.tracks[k], yy = y + 15 + r * 5;
       if (sel) { const w = Math.min(7, Math.floor(56 / tw.cap)), x0 = x - (tw.cap * w - 2) / 2;
@@ -62,7 +68,7 @@
     const top = C.VIEW_TOP + 6, inBand = (yy) => yy >= top;                                    // эффекты не залезают в полосу HUD
     const age = GT - tw.built, pop = age < 0.45 ? 1 + 0.18 * Math.sin(age / 0.45 * Math.PI) * (1 - age / 0.45) : 1;   // squash при постройке
     const kick = Math.max(0, 1 - (GT - tw.fireT) / 0.18);                                                          // отдача
-    const A = SIM.art(tw.type), n = towerName(A.sprite, lk), col = A.color;
+    const A = SIM.towerArt(tw), n = towerName(A.sprite, lk), col = A.color;   // гибрид: спрайт первой башни в цвете второй
     let w = 0, h = Math.min(TOWER_H[lk - 1], room), fit = 1;
     if (has(n)) {
       let sh; [w, sh] = SZ(n, [L.hsz(n, TOWER_H[lk - 1]), TOWER_H[lk - 1]]); const miss = lk - +n.slice(-1);
@@ -90,6 +96,10 @@
     if (A.fx === 'crown') { const p = 0.5 + 0.5 * Math.sin(t * 2.2 + tw.cell); L.glow(x, Math.max(top + 20, y - h * 0.78), 34 + 8 * lk, col, 0.25 + 0.25 * p + 0.5 * kick); }
     if (A.fx === 'orbs') L.glow(x, y - h * 0.58, 30, col, 0.35 + 0.3 * kick);
     if (SIM.perksOf(tw).length) L.glow(x, y - 8, 30, col, 0.25 + 0.1 * Math.sin(t * 3));
+    // гибрид: пульсирующее свечение и кольцо цвета примеси у основания, значок примеси над башней (рисуется после грейда)
+    if (A.hybrid) { const p = 0.5 + 0.5 * Math.sin(t * 2.6 + tw.cell);
+      L.glow(x, y - h * 0.45, 46 + 8 * lk, A.mixColor, 0.22 + 0.14 * p, 3.2); L.ring(x, y + 2, 40, 18, A.mixColor, 0.35 + 0.25 * p, 0.12);
+      HYB.push([x + 22, Math.max(C.VIEW_TOP + 16, y + 10 - h + 6), A.icon, A.mixColor, A.mixUi, tw.id]); }
     MARKS.push([tw, x, y, sel]);
     const [mx, my] = SIM.muzzle(ST, tw), off = SIM.muzzleH(tw), fitH = Math.min(1, room / (off + 10));
     L.anchor('muzzle_' + tw.type, [mx, my], [x, y + 10 - (off + 10) * fitH], 2);
@@ -274,10 +284,10 @@
 
     drawSpecialGround(ST, t);
     // сетка проявляется в паузе между волнами и при выбранной башне; при переносе ярче, допустимые клетки подсвечены
-    const moving = !ST.demo && ui.move >= 0 && !!ST.towers[ui.move];
-    if (!ST.demo && (moving || ST.phase === 'prep' || (ui.sel >= 0 && ST.towers[ui.sel]))) drawGrid(ST, moving ? 0.26 : 0.12);
+    const moving = !ST.demo && ui.move >= 0 && !!ST.towers[ui.move], merging = !ST.demo && !moving && ui.merge >= 0 && !!ST.towers[ui.merge];
+    if (!ST.demo && (moving || ST.phase === 'prep' || (ui.sel >= 0 && ST.towers[ui.sel]))) drawGrid(ST, moving || merging ? 0.26 : 0.12);
     // ауры стоящих алтарей: всегда видны слабо, у выбранного или наведённого — ярко, с уголками и пунктиром к усиленным
-    if (!moving) ST.towers.forEach((tw) => { if (tw && SIM.hasAura(tw.type)) drawAura(ST, tw.cell, undefined, ui.sel === tw.cell || ui.hover === tw.cell, t); });
+    if (!moving) ST.towers.forEach((tw) => { if (tw && SIM.auraOf(tw)) drawAura(ST, tw.cell, undefined, ui.sel === tw.cell || ui.hover === tw.cell, t); });
     if (moving) {
       const mt = ST.towers[ui.move], col = tcol(mt.type), cells = SIM.moveCells(ST, ui.move), ok = ui.hover >= 0 && cells.includes(ui.hover);
       fillCells(ST, cells, [0.86, 0.94, 1.0], 0.17 + 0.05 * Math.sin(t * 4));        // светлая заливка: бирюза сливается с травой фона
@@ -291,13 +301,23 @@
         const r = SIM.moveRangePx(ST, ui.move, ui.hover), R = r / 0.85;
         L.ring(x, y, R, R * 0.92, lc, 0.16, 0.15); L.ring(x, y, R, R * 0.92, lc, 0.3, 0.012); drawRange(x, y, r, lc, t, 0.75); }
     }
+    // слияние: соседи, с которыми можно слить, — заливка и уголки их цвета; выбранный (или наведённый) — ярче, с пунктиром
+    // «примесь → гибрид» к первой башне
+    if (merging) { const cells = SIM.mergeTargets(ST, ui.merge), [fx, fy] = SIM.cellXY(ST, ui.merge), p = 0.75 + 0.25 * Math.sin(t * 4);
+      drawCell(ST, ui.merge, 'sel', t);
+      for (const c of cells) { const lc = tcol(ST.towers[c].type).map((v) => v + (1 - v) * 0.4), on = c === ui.mergeTo || c === ui.hover;
+        fillCells(ST, [c], lc, (on ? 0.32 : 0.17) * p); corners(ST, c, lc, on ? 1 : 0.75);
+        if (on) { const [x, y] = SIM.cellXY(ST, c), d = Math.hypot(fx - x, fy - y), ang = Math.atan2(fy - y, fx - x);
+          for (let k = 14; k < d - 14; k += 12) L.solid(x + Math.cos(ang) * k, y + Math.sin(ang) * k, 7, 4, lc, ang, 3.5, 2, 0.95); } }
+      if (ui.hover >= 0 && ui.hover !== ui.merge && !cells.includes(ui.hover)) drawCell(ST, ui.hover, 'no', t); }
     // клетки: выбранная и под курсором; круг дальности выбранной башни или будущей башни (на выбранной клетке или под курсором)
-    if (!ST.demo && !moving) {
+    if (!ST.demo && !moving && !merging) {
       const selT = ui.sel >= 0 ? ST.towers[ui.sel] : null, pType = ui.preview || ui.armed || ui.last;
       if (ui.sel >= 0) drawCell(ST, ui.sel, 'sel', t);
       if (ui.hover >= 0 && ui.hover !== ui.sel && !ST.towers[ui.hover]) drawCell(ST, ui.hover, BLOCKED.includes(SIM.canBuild(ST, ui.hover, pType).reason) ? 'no' : 'ok', t);
       // у алтаря вместо круга дальности — аура (выше); у будущего алтаря — превью ауры и тех, кого он усилит
       if (selT) { const [x, y] = SIM.cellXY(ST, ui.sel); if (!SIM.hasAura(selT.type)) drawRange(x, y, SIM.towerStats(ST, selT).rangePx, tcol(selT.type), t);
+        for (const c of SIM.mergeTargets(ST, ui.sel)) corners(ST, c, [1, 0.85, 0.5], 0.5 + 0.25 * Math.sin(t * 3));   // с кем можно слить
         if (C.TOWERS[selT.type].attack === 'summon') fillCells(ST, SIM.skelCells(ST, selT).sort((a, b) => a - b), tcol(selT.type), 0.16 + 0.04 * Math.sin(t * 3)); }   // куда Казарма ставит скелетов
       else if (ui.sel >= 0 && !BLOCKED.includes(SIM.canBuild(ST, ui.sel, pType).reason) && SIM.hasAura(pType)) drawAura(ST, ui.sel, pType, true, t);
       else if (ui.sel >= 0) { const [x, y] = SIM.cellXY(ST, ui.sel); drawRange(x, y, SIM.buildRangePx(ST, ui.sel, pType), tcol(pType), t, 0.8); }
@@ -357,6 +377,14 @@
         for (let j = 0; j < 6; j++) L.puff(e.x + (j - 2.5) * 12 * (1 + q), e.y - 4 - 14 * q, 7 + 8 * q, [0.5, 0.45, 0.6], 0.4 * (1 - q), j + e.t);
         if (e.k !== 'build') for (let j = 0; j < 7; j++) { const an = j * 0.9 + e.t, rr = 20 + 50 * q, sy = e.y - 50 - 40 * q + Math.sin(an) * rr * 0.5;
           if (sy > C.VIEW_TOP + 6) L.star(e.x + Math.cos(an) * rr, sy, 9, c, 1 - q); } }          // звёзды прокачки не залезают в полосу HUD
+      if (e.k === 'merge' && a < 1.1) { const q = a / 1.1, mc = tcol(e.mix), u = Math.min(1, a / 0.45);   // слияние: примесь перетекает в гибрид, вспышка
+        for (let j = 0; j < 6; j++) { const k = Math.min(1, u + j * 0.06); L.glow(e.fx + (e.x - e.fx) * k, e.fy + (e.y - e.fy) * k - 30, 16, mc, 0.8 * (1 - q)); }
+        for (let j = 0; j < 6; j++) L.puff(e.fx + (j - 2.5) * 10, e.fy - 8 - 24 * q, 9 + 9 * q, [0.5, 0.45, 0.6], 0.45 * (1 - q), j + 7);
+        L.ring(e.x, e.y, 30 + 70 * q, (30 + 70 * q) * 0.5, mc, 0.9 * (1 - q), 0.15); L.glow(e.x, e.y - 40, 70, mc, 0.6 * (1 - q));
+        for (let j = 0; j < 8; j++) { const an = j * 0.785 + e.t, rr = 24 + 60 * q, sy = e.y - 50 - 30 * q + Math.sin(an) * rr * 0.5; if (sy > C.VIEW_TOP + 6) L.star(e.x + Math.cos(an) * rr, sy, 10, mc, 1 - q); } }
+      if (e.k === 'pierce' && a < 0.25) { const q = a / 0.25, d = Math.hypot(e.x1 - e.x, e.y1 - e.y), ang = Math.atan2(e.y1 - e.y, e.x1 - e.x);   // пронзание: удар насквозь к соседу цели
+        L.solid(e.x, e.y, d, 3 * (1 - q) + 1, COL.bone, ang, 0, 1.5, 0.9 * (1 - q)); L.star(e.x1, e.y1, 10, [1, 0.95, 0.85], 1 - q); }
+      if (e.k === 'stun' && a < 0.5) { const q = a / 0.5; for (let j = 0; j < 3; j++) L.star(e.x + (j - 1) * 9, e.y - 40 - 8 * q, 8, COL.stun, 1 - q); }   // мини-оглушение примеси
       if (e.k === 'move' && a < 0.6) { const q = a / 0.6;                // перенос: пыль на старой клетке, кольцо на новой
         for (let j = 0; j < 6; j++) L.puff(e.fx + (j - 2.5) * 10, e.fy - 8 - 24 * q, 9 + 9 * q, [0.5, 0.45, 0.6], 0.45 * (1 - q), j + 3);
         L.ring(e.x, e.y, 26 + 40 * q, (26 + 40 * q) * 0.5, COL.soul, 0.8 * (1 - q), 0.15); }
@@ -392,6 +420,7 @@
     if (!ST.demo && ui.armed && ui.hover >= 0 && !ST.towers[ui.hover]) { const cb = SIM.canBuild(ST, ui.hover, ui.armed);
       if (!BLOCKED.includes(cb.reason)) { const [x, y] = SIM.cellXY(ST, ui.hover);
         L.label('buildcost', String(cb.cost), x, y - 40, { size: 20, col: cb.cost !== cb.base ? '#ff8aa0' : '#7ff5e6', out: '#14081a', al: 0.5 }); } }
+    drawHybridIcons();
     // значки особых клеток — поверх всего (и башен): метка видна, даже когда на клетке стоит башня
     for (const s of ST.map.specials || []) { const x = (s.cell % ST.map.cols) * TILE, y = Math.floor(s.cell / ST.map.cols) * TILE; badge(s.kind, x + TILE - 13, y + 13); }
 

@@ -45,9 +45,11 @@
   const img = (n, fb) => has(n) ? `<img src="assets/${n}.png" alt="">` : (fb || '');
   const SOUL = '<span class="soul-ico"></span>';
   // картинка типа башни в DOM: спрайт основы вида (SIM.art: sprite, css-перекраска), без арта — заглушка цвета art.ui
-  const typePic = (type, lk, ph) => { const A = SIM.art(type), n = [3, 2, 1].map((l) => 'tw_' + A.sprite + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
-    const html = img(n || 'tw_' + A.sprite + '_' + lk, `<div class="ph" style="${ph || ''}background:${A.ui}"></div>`);
+  // A — вид (SIM.art типа или SIM.towerArt стоящей башни: у гибрида — спрайт первой в цвете второй)
+  const artPic = (A, lk, ph) => { const n = [3, 2, 1].map((l) => 'tw_' + A.sprite + '_' + l).find((x) => has(x) && +x.slice(-1) <= lk);
+    const html = img(n || 'tw_' + A.sprite + '_' + lk, `<div class="ph" style="${ph || ''}background:${A.hybrid ? A.mixUi : A.ui}"></div>`);
     return A.css ? html.replace('<img ', `<img style="filter:${A.css}" `) : html; };
+  const typePic = (type, lk, ph) => artPic(SIM.art(type), lk, ph);
   const TIP_DESC = { phys: 'физический', magic: 'магический', poison: 'яд', aura: 'аура соседям' };
   const DMG_KIND = { phys: 'физический урон', magic: 'магический урон', poison: 'урон ядом', aura: 'аура соседям' };
   const PERK_ICON = { pierce: '➶', volley: '⋔', frost: '❄', pack: '👻', pestilence: '☣', acid: '⚗', harvest: '☠', curse: '✶', crush: '⚒', chill: '☾', miasma: '♨', split: '⟡', toll: '🔔', knell: '✝', drone: '〰', offering: '♥', frenzy: '↯', circle: '◎',
@@ -120,7 +122,7 @@
   const hitCell = (x, y) => { const S = APP.play; if (!S) return -1; const i = SIM.MAPGEN.cellAt(S.map, x, y); return i >= 0 && !SIM.MAPGEN.hud(S.map, i) ? i : -1; };
   // дорога и препятствие: строить нельзя, панели нет
   const isRoad = (cell) => ['road', 'obstacle'].includes(SIM.canBuild(APP.play, cell, 'bones').reason);
-  const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; ui.move = -1; renderPanel(true); };
+  const select = (i) => { ui.sel = i; ui.preview = null; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; renderPanel(true); };
   const tryBuild = (cell, type) => { const S = APP.play; if (!S) return false; const cb = SIM.canBuild(S, cell, type);
     if (!cb.ok) { if (cb.reason === 'souls') flashPoor(type); AUDIO.ui('deny'); return false; }
     APP.cmd({ k: 'build', cell, type }); ui.last = type; ui.armed = null; ui.preview = null; ui.sel = cell; setTimeout(() => renderPanel(true), 30); return true; };
@@ -143,21 +145,34 @@
   const tryMove = (to) => { const S = APP.play;
     if (!SIM.canMove(S, ui.move, to).ok) { AUDIO.ui('deny'); return; }
     APP.cmd({ k: 'move', cell: ui.move, to }); ui.move = -1; ui.sel = to; AUDIO.ui('click'); };
+  // слияние: кнопка включает режим выбора соседа (ui.merge — клетка первой башни), клик по подсвеченному соседу показывает
+  // в панели, что получится (ui.mergeTo), кнопка «Слить» отправляет команду; Esc, правый клик или клик по самой башне — отмена.
+  // Можно ли, с кем и что выйдет — отвечает логика (SIM.canMerge, SIM.mergeTargets, SIM.mergeInfo)
+  const startMerge = () => { const S = APP.play; if (!S || ui.sel < 0 || !S.towers[ui.sel]) return;
+    if (!SIM.mergeTargets(S, ui.sel).length) { AUDIO.ui('deny'); return; }
+    ui.merge = ui.sel; ui.mergeTo = -1; ui.move = -1; hideTip(); AUDIO.ui('click'); renderPanel(true); };
+  const cancelMerge = () => { if (ui.merge < 0) return; ui.merge = -1; ui.mergeTo = -1; renderPanel(true); };
+  const pickMerge = (i) => { if (!SIM.mergeTargets(APP.play, ui.merge).includes(i)) { AUDIO.ui('deny'); return; }
+    ui.mergeTo = i; AUDIO.ui('click'); renderPanel(true); };
+  const doMerge = () => { const S = APP.play, cm = SIM.canMerge(S, ui.merge, ui.mergeTo);
+    if (!cm.ok) { AUDIO.ui('deny'); if (cm.reason === 'souls') flashPoor(); return; }
+    APP.cmd({ k: 'merge', cell: ui.merge, other: ui.mergeTo }); ui.sel = ui.merge; ui.merge = -1; ui.mergeTo = -1; setTimeout(() => renderPanel(true), 30); };
   const ended = () => APP.play && (APP.play.phase === 'won' || APP.play.phase === 'lost');
   const togglePause = (v) => { if (!APP.play || ended()) return; APP.paused = v === undefined ? !APP.paused : v; showOverlay('pause', APP.paused); };
   UI.autoPause = () => togglePause(true);
 
   const wire = () => {
     cv.addEventListener('pointermove', (e) => { const [x, y] = toView(e); ui.hover = hitCell(x, y);
-      cv.style.cursor = ui.move >= 0 ? (SIM.canMove(APP.play, ui.move, ui.hover).ok ? 'pointer' : 'not-allowed') : ui.hover >= 0 && !isRoad(ui.hover) ? 'pointer' : 'default'; });
+      cv.style.cursor = ui.merge >= 0 ? (SIM.mergeTargets(APP.play, ui.merge).includes(ui.hover) || ui.hover === ui.merge ? 'pointer' : 'not-allowed') : ui.move >= 0 ? (SIM.canMove(APP.play, ui.move, ui.hover).ok ? 'pointer' : 'not-allowed') : ui.hover >= 0 && !isRoad(ui.hover) ? 'pointer' : 'default'; });
     cv.addEventListener('pointerleave', () => { ui.hover = -1; });
     cv.addEventListener('pointerdown', (e) => { AUDIO.unlock(); if (!APP.play || ended()) return; const [x, y] = toView(e), i = hitCell(x, y);
       if (ui.move >= 0) { if (e.button === 0) { if (i === ui.move) cancelMove(); else tryMove(i); } return; }   // правый — в contextmenu
+      if (ui.merge >= 0) { if (e.button === 0) { if (i === ui.merge) cancelMerge(); else pickMerge(i); } return; }
       if (i >= 0 && ui.armed && !APP.play.towers[i]) { tryBuild(i, ui.armed); return; }
       if (i >= 0 && isRoad(i)) { AUDIO.ui('deny'); select(-1); return; }
       if (i >= 0) { select(ui.sel === i ? -1 : i); AUDIO.ui('click'); } else { select(-1); } });
     addEventListener('pointerdown', () => AUDIO.unlock(), { once: true });
-    addEventListener('contextmenu', (e) => { if (ui.move >= 0) { e.preventDefault(); cancelMove(); } });
+    addEventListener('contextmenu', (e) => { if (ui.move >= 0) { e.preventDefault(); cancelMove(); } else if (ui.merge >= 0) { e.preventDefault(); cancelMerge(); } });
     $('#cards').addEventListener('click', (e) => { const c = e.target.closest('.card'); if (c) { AUDIO.ui('click'); cardAction(c.dataset.type); } });
     $('#cards').addEventListener('pointerover', (e) => { const c = e.target.closest('.card'); if (!c) return; showCardTip(c); if (ui.sel >= 0 && APP.play && !APP.play.towers[ui.sel]) ui.preview = c.dataset.type; });
     $('#cards').addEventListener('pointerout', (e) => { const c = e.target.closest('.card'); if (c && !c.contains(e.relatedTarget)) { hideTip(); ui.preview = null; } });
@@ -175,7 +190,7 @@
       // Enter в меню — «Продолжить» или «Новая игра», если фокус не на кнопке или поле: там Enter делает своё
       if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
-      if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
+      if (k === 'Escape') { if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else togglePause(); e.preventDefault(); return; }
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (APP.paused || ended()) return;
       const dg = /^(?:Digit|Numpad)([1-9])$/.exec(k); if (dg && C.TOWER_ORDER[+dg[1] - 1]) { cardAction(C.TOWER_ORDER[+dg[1] - 1]); return; }
@@ -232,13 +247,17 @@
         <div class="st prices">${prices}</div>
         ${aura}<div class="note" style="margin-top:6px">Выберите башню на карточках слева внизу или клавишами 1–${C.TOWER_ORDER.length}.</div>`;
   };
-  const towerPic = (tw) => { const lk = SIM.look(tw); return typePic(tw.type, lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
+  const towerPic = (tw) => { const lk = SIM.look(tw); return artPic(SIM.towerArt(tw), lk, `width:${22 + 5 * lk}px;height:${30 + 8 * lk}px;`); };
+  // строка примеси гибрида (описание из логики); на атаке, где ей нечего делать, — честная пометка
+  const mixLine = (info) => `<div class="mixl" style="color:${SIM.art(info.mix).ui}"><span class="ic">${info.icon}</span> <b>${info.mixName}</b> · ${info.mixText}${info.mixOn ? '' : ' <i>На этой атаке не действует.</i>'}</div>`;
   const towerHead = (S, tw) => {
-    const d = T[tw.type], st = SIM.towerStats(S, tw);
+    const d = T[tw.type], st = SIM.towerStats(S, tw), hy = SIM.hybridInfo(S, tw);
     return `<div class="hd"><div class="pic">${towerPic(tw)}</div>
-      <div><div class="nm">${d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
+      <div><div class="nm ${hy ? 'hy' : ''}">${hy ? hy.name : d.short}</div><div class="lv">ПРОКАЧКА ${SIM.steps(tw)} / ${C.TRACKS.length * tw.cap} · <span class="dt">${DMG_KIND[d.dmgType] || ''}</span></div></div></div>
+      ${hy ? mixLine(hy) : ''}
       <div class="st">${statLines(tw.type, st).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}
-      ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}</div>${grimLine(S, tw)}
+      ${SIM.hasAura(tw.type) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : `<div><span>Убито</span><b data-v="kills">${tw.kills}</b></div>`}
+      ${hy && SIM.auraOf(tw) ? `<div><span>Усиливает</span><b>${SIM.auraTargets(S, tw.cell).length} баш.</b></div>` : ''}</div>${grimLine(S, tw)}
       ${boostLine(st)}`;
   };
   // бонус Алтаря крови в итоговых характеристиках башни (st.altar от логики) — одной строкой под характеристиками
@@ -251,40 +270,64 @@
   // почему ступень или перк недоступны — словами (подсказка при наведении); пустая строка — доступно
   const trackWhy = (S, cu) => ({ max: 'Ветка прокачана до предела этой башни', price: 'Следующая ступень этой ветки пока недоступна', souls: `Не хватает ${cu.cost - S.souls} душ`, ended: 'Забег окончен' }[cu.reason] || '');
   const perkWhy = (S, cp) => ({ steps: `Откроется после ${SIM.perkAt(S)} ступеней: вложи ещё ${cp.need}`, chosen: 'Выбрано навсегда', taken: 'Выбран другой перк — выбор навсегда',
-    souls: `Цена ${cp.cost} душ — не хватает ${cp.cost - S.souls}`, ended: 'Забег окончен' }[cp.reason] || `Цена: <b>${cp.cost}</b> душ · выбор навсегда`);
+    souls: `Цена ${cp.cost} душ — не хватает ${cp.cost - S.souls}`, ended: 'Забег окончен', dead: 'Не действует на атаке этого гибрида — не продаётся' }[cp.reason] || `Цена: <b>${cp.cost}</b> душ · выбор навсегда`);
   const trackCls = (cu) => (cu.ok ? 'green' : cu.reason === 'souls' ? 'poor' : 'off');
   const towerGrowth = (S, tw) => {
-    const d = T[tw.type];
     const rows = C.TRACKS.map((k) => { const cu = SIM.canUpgrade(S, tw.cell, k), nx = trackValue(tw.type, k, SIM.towerStats(S, tw, k));
       const pips = Array.from({ length: tw.cap }, (_, i) => `<i class="${i < tw.tracks[k] ? 'on' : ''}"></i>`).join('');
       const label = cu.reason === 'max' ? 'МАКСИМУМ' : cu.reason === 'price' ? 'НЕДОСТУПНО' : `→ ${nx} · <span class="pr">${SOUL}${cu.cost}</span>`;
       return `<div class="tr ${k}"><span class="tn"><span class="key">${TRACK_KEY[k]}</span>${trackName(tw.type, k)}</span><span class="pips c${tw.cap}">${pips}</span>
         <button class="btn tb ${trackCls(cu)}" data-t="${k}">${label}</button></div>`; }).join('');
-    const perks = Object.keys(d.perks), cps = perks.map((pk) => SIM.canPerk(S, tw.cell, pk)), need = cps.length ? cps[0].need : 0, free = SIM.freeSlots(tw);
-    const state = !free ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${SIM.perkAt(S)} ступеней · ещё ${need}</span>` : '<span class="ok">выбери — навсегда</span>';
-    return `<div class="tracks">${rows}</div>${perks.length ? `<div class="ph">ПЕРК · ${state}</div>
-      <div class="perks">${perks.map((pk, i) => { const pd = d.perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = cp.reason === 'steps' || cp.reason === 'taken';
-        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}"><span class="pn">${pd.name}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''}`;
+    // перки группами по типу (SIM.perkGroups): у обычной башни одна группа, у гибрида разных типов — по группе на тип;
+    // перк, не действующий на атаке гибрида (SIM.perkOn), зачёркнут
+    const hy = SIM.isHybrid(tw), two = hy && tw.mix !== tw.type;
+    const group = (g) => { const perks = g.ids, cps = perks.map((pk) => SIM.canPerk(S, tw.cell, pk)), need = cps.length ? cps[0].need : 0, free = SIM.freeSlots(tw);
+      const full = !free || (two && perks.some((pk) => SIM.hasPerk(tw, pk)));
+      const state = full ? '<span class="ok">выбран навсегда</span>' : need > 0 ? `<span class="why">после ${SIM.perkAt(S)} ступеней · ещё ${need}</span>` : '<span class="ok">выбери — навсегда</span>';
+      return perks.length ? `<div class="ph">${two ? 'ПЕРК ' + T[g.type].name : hy ? 'ПЕРКИ · 2 СЛОТА' : 'ПЕРК'} · ${state}</div>
+      <div class="perks">${perks.map((pk, i) => { const pd = T[g.type].perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = ['steps', 'taken', 'dead'].includes(cp.reason), dead = !SIM.perkOn(tw, pk);
+        return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${dead ? 'dead' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}" data-ty="${g.type}"><span class="pn">${pd.name}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' || dead ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''; };
+    return `<div class="tracks">${rows}</div>${SIM.perkGroups(tw).map(group).join('')}`;
   };
   const wireGrowth = (p, S, tw) => {
-    const d = T[tw.type];
     p.querySelectorAll('.tb').forEach((b) => { const k = b.dataset.t;
       b.onclick = () => upgrade(k);
       b.onmouseenter = () => { const cu = SIM.canUpgrade(APP.play, tw.cell, k), why = trackWhy(APP.play, cu);
         tipAt(`<h4>${trackName(tw.type, k)} · ступень ${tw.tracks[k]} / ${tw.cap}</h4><div class="row">${why || `Следующая ступень: <b>${cu.cost}</b> душ · клавиша ${TRACK_KEY[k]}`}</div>`, ...tipBeside()); };
       b.onmouseleave = hideTip; });
     p.querySelectorAll('.perk').forEach((b) => {
-      const pk = b.dataset.p, pd = d.perks[pk];
-      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${SIM.perkText(pk)}</div><div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
+      const pk = b.dataset.p, pd = T[b.dataset.ty].perks[pk], dead = !SIM.perkOn(tw, pk);
+      b.onmouseenter = () => tipAt(`<h4>${pd.name}</h4><div>${SIM.perkText(pk)}</div>${dead ? `<div class="row bad" style="margin-top:6px">Не действует: гибрид атакует как ${T[tw.type].title.toLowerCase()}.</div>` : ''}<div class="row" style="margin-top:6px">${perkWhy(APP.play, SIM.canPerk(APP.play, tw.cell, pk))}</div>`, ...tipBeside());
       b.onmouseleave = hideTip;
       b.onclick = () => { if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
     });
   };
+  // почему башню нельзя слить — словами; пустая строка — можно (есть подходящий сосед)
+  const mergeWhy = (S, cell) => { const cm = SIM.canMerge(S, cell);
+    if (cm.ok) return SIM.mergeTargets(S, cell).length ? '' : `Рядом (и по диагонали) нет башни со всеми ветками на ${C.TRACK_MAX}-й ступени.`;
+    return { first: 'Алтарь крови не стреляет и сливается только второй башней: выбери соседнюю башню и слей её с алтарём.',
+      tracks: `Сливаются башни, у которых все три ветки на ${C.TRACK_MAX}-й ступени.`, phase: 'Сливать можно только в паузе между волнами.',
+      ended: 'Забег окончен' }[cm.reason] || ''; };
+  // режим слияния: выбор соседа, затем превью гибрида из логики (SIM.mergeInfo) и подтверждение
+  const mergeBlock = (S, tw) => {
+    const info = ui.mergeTo >= 0 ? SIM.mergeInfo(S, ui.merge, ui.mergeTo) : null;
+    if (!info) return `<div class="note mv">С кем слить? Нажми на подсвеченную соседнюю башню — она станет примесью, гибрид встанет на эту клетку. Esc или правый клик — отмена.</div>
+      <button class="btn mvx">Отменить слияние</button>`;
+    const pic = artPic(SIM.towerArt({ type: info.type, mix: info.mix }), 3, 'width:37px;height:54px;');
+    const perks = info.perks.length ? `<div class="pls">${info.perks.map((q) => `<div class="${q.on ? '' : 'dead'}">${PERK_ICON[q.id] || '✦'} ${q.name} — ${q.on ? 'действует' : 'не действует на этой атаке'}</div>`).join('')}</div>` : '';
+    return `<div class="hd"><div class="pic">${pic}</div><div><div class="nm hy">${info.name}</div><div class="lv">ГИБРИД · ВЕТКИ ДО ${info.cap} СТУПЕНИ</div></div></div>
+      <div class="note mgn">Стреляет как ${info.title.toLowerCase()}, плюс примесь второй башни:</div>${mixLine(info)}
+      <div class="st">${statLines(info.type, info.stats).map(([a, b]) => `<div><span>${a}</span><b>${b}</b></div>`).join('')}</div>${perks}
+      <div class="note mgn">Перков — до ${info.slots}. Клетка второй башни освободится.</div>
+      <div class="mg"><button class="btn green mgo ${info.ok ? '' : info.reason === 'souls' ? 'poor' : 'off'}">Слить · <span class="pr">${SOUL}${info.cost}</span></button><button class="btn mvx2">Отмена</button></div>`;
+  };
   const towerManage = (S, tw) => {
     if (ui.move === ui.sel) return `<div class="note mv">Куда перенести? Нажми на подсвеченную клетку. Esc или правый клик — отмена.</div>
       <button class="btn mvx">Отменить перенос</button>`;
-    const cm = SIM.canMove(S, ui.sel);
-    return `<div class="mg"><button class="btn move ${cm.ok ? '' : 'off'}">Перенести</button>
+    if (ui.merge === ui.sel) return mergeBlock(S, tw);
+    const cm = SIM.canMove(S, ui.sel), n = SIM.isHybrid(tw) ? 0 : SIM.mergeTargets(S, ui.sel).length;
+    return `${SIM.isHybrid(tw) ? '' : `<button class="btn merge ${n ? 'green' : 'off'}">⚭ Слить с соседом${n > 1 ? ` · ${n} на выбор` : ''}</button>`}
+      <div class="mg"><button class="btn move ${cm.ok ? '' : 'off'}">Перенести</button>
       <button class="btn red sell">Продать · +${SIM.sellValue(tw, S)}</button></div>`;
   };
   const wireManage = (p, S, tw) => {
@@ -292,8 +335,15 @@
     if (mv) { mv.onclick = startMove;
       mv.onmouseenter = () => tipAt(`<h4>Перенос</h4><div>${SIM.canMove(APP.play, ui.sel).ok ? 'Бесплатно и мгновенно, вся прокачка и перк остаются. Бонус особой клетки — от новой клетки.' : (SIM.hasRelic(APP.play, 'restless') ? 'В этой волне башня уже переносилась. Дождись конца волны.' : 'Во время волны башни не переносятся. Дождись конца волны.')}</div><div class="row" style="margin-top:6px">Клавиша <b>M</b></div>`, ...tipBeside());
       mv.onmouseleave = hideTip; }
-    if (mx) mx.onclick = cancelMove;
+    if (mx) mx.onclick = ui.merge >= 0 ? cancelMerge : cancelMove;
     if (sl) sl.onclick = sell;
+    const mg = p.querySelector('.merge'), go = p.querySelector('.mgo'), mx2 = p.querySelector('.mvx2');
+    if (mg) { mg.onclick = startMerge;
+      mg.onmouseenter = () => { const why = mergeWhy(APP.play, ui.sel);
+        tipAt(`<h4>Слияние</h4><div>${why || `Сливает эту башню с соседней в гибрид: стреляет как эта, плюс примесь соседа. Оба перка остаются, ветки — до ${C.MERGE.cap} ступени. Цена ${C.MERGE.cost} душ.`}</div>`, ...tipBeside()); };
+      mg.onmouseleave = hideTip; }
+    if (go) go.onclick = doMerge;
+    if (mx2) mx2.onclick = cancelMerge;
   };
   // то, что меняется без смены устройства панели: доступность по душам и фазе, счётчик убийств
   const refreshPanel = (p, S, tw) => {
@@ -301,6 +351,8 @@
     p.querySelectorAll('.perk').forEach((b) => b.classList.toggle('poor', SIM.canPerk(S, tw.cell, b.dataset.p).reason === 'souls'));
     const kills = p.querySelector('[data-v="kills"]'); if (kills && kills.textContent !== String(tw.kills)) kills.textContent = tw.kills;
     const mv = p.querySelector('.move'); if (mv) mv.classList.toggle('off', !SIM.canMove(S, tw.cell).ok);
+    const mg = p.querySelector('.merge'); if (mg) { const n = SIM.mergeTargets(S, tw.cell).length; mg.classList.toggle('off', !n); mg.classList.toggle('green', !!n); }
+    const go = p.querySelector('.mgo'); if (go && ui.mergeTo >= 0) { const r = SIM.canMerge(S, ui.merge, ui.mergeTo).reason; go.classList.toggle('poor', r === 'souls'); go.classList.toggle('off', !!r && r !== 'souls'); }
   };
 
   // Место окна у точки — общее для панели и подсказок обучения. Перебор позиций по всему полю шагом 16 px.
@@ -337,8 +389,8 @@
   const around = (S, i) => cellRect(S, i, 1);
   const PANEL_MAX = 0, COACH_MAX = 400;                                // мягкий предел расстояния (0 — нет); см. spotNear
   const panelCache = {}, coachCache = {};
-  const placePanel = (S, p) => { const moving = ui.move === ui.sel, [x, y] = SIM.cellXY(S, ui.sel);
-    const [l, t] = spotNear(S, { x, y, w: p.offsetWidth, h: p.offsetHeight, keep: cellRect(S, ui.sel, moving ? 2 : 1), maxDist: PANEL_MAX, cache: panelCache,
+  const placePanel = (S, p) => { const moving = ui.move === ui.sel, merging = ui.merge === ui.sel, [x, y] = SIM.cellXY(S, ui.sel);
+    const [l, t] = spotNear(S, { x, y, w: p.offsetWidth, h: p.offsetHeight, keep: cellRect(S, ui.sel, moving || merging ? 2 : 1), maxDist: PANEL_MAX, cache: panelCache,
       soft: (moving ? SIM.moveCells(S, ui.sel) : S.map.road).map((i) => cellRect(S, i)) });
     p.style.left = l + 'px'; p.style.top = t + 'px'; };
 
@@ -350,14 +402,14 @@
       const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', !!cb && cb.cost !== cb.base);
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); c.classList.toggle('locked', locked(S, k)); });
     if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
-    const tw = S.towers[ui.sel], moving = ui.move === ui.sel;
+    const tw = S.towers[ui.sel], moving = ui.move === ui.sel, merging = !!tw && ui.merge === ui.sel;
     // в ключе и сами итоговые характеристики: они меняются и извне (алтарь рядом, Гримуар, клетка) — панель покажет новые
-    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw)], moving, ended()]);
+    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended()]);
     if (key === panelKey || (pressed && !force)) { if (tw && !moving) refreshPanel(p, S, tw); return; }
     panelKey = key; hideTip();                                         // подсказка висела над кнопкой, которой больше нет
-    p.classList.add('show'); p.classList.toggle('moving', moving);
+    p.classList.add('show'); p.classList.toggle('moving', moving || (merging && ui.mergeTo < 0));
     if (!tw) buildMenu(S, p);
-    else if (moving) { p.innerHTML = towerManage(S, tw); wireManage(p, S, tw); }
+    else if (moving || merging) { p.innerHTML = towerManage(S, tw); wireManage(p, S, tw); }
     else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
     const x = p.querySelector('.x'); if (x) x.onclick = () => select(-1);
     placePanel(S, p);
@@ -376,6 +428,7 @@
   const closeNewEnemy = () => { showOverlay('newenemy', false); APP.paused = false; if (neQueue.length) showNewEnemy(neQueue.shift()); };
   // непрокачанная башня, которой хватает душ на ступень; башня, которой открыт выбор перка
   const raw = (S) => S.towers.find((t) => t && !SIM.steps(t) && C.TRACKS.some((k) => SIM.canUpgrade(S, t.cell, k).ok));
+  const mergeReady = (S) => S.phase === 'prep' && S.towers.find((t) => t && SIM.mergeTargets(S, t.cell).length);
   const perkReady = (S) => S.towers.find((t) => t && SIM.freeSlots(t) && Object.keys(T[t.type].perks).length && SIM.canPerk(S, t.cell, Object.keys(T[t.type].perks)[0]).need === 0);
   const COACH = [
     { id: 'build', when: (S) => S.wave === 0 && !S.towers.some(Boolean), at: (S) => SIM.cellXY(S, bestCell(S)),
@@ -386,6 +439,8 @@
       text: 'Нажми на башню и прокачай её ветки: урон, дальность, скорость. Прокачка часто выгоднее новой башни в стороне от дороги.' },
     { id: 'perk', when: (S) => !!perkReady(S), at: (S) => SIM.cellXY(S, perkReady(S).cell),
       text: `В башню вложено ${C.PERK_AT} ступеней — выбери один из трёх перков. Выбор навсегда, читай подсказки.` },
+    { id: 'merge', when: (S) => !!mergeReady(S), at: (S) => SIM.cellXY(S, mergeReady(S).cell),
+      text: 'Две соседние башни прокачаны до предела — их можно слить в гибрид: нажми на башню и «Слить с соседом». Порядок важен: гибрид стреляет как первая.' },
   ];
   // подсказка обучения — тем же размещением, что и панель: не закрывает цель, панель, разведку, плашки, вход и склеп, мимо дороги
   const placeNear = (S, x, y, w, h) => {
@@ -399,7 +454,7 @@
     if (el.textContent !== c.text) el.textContent = c.text;
     el.classList.add('show');
     const [x, y] = c.at(S), [l, t] = placeNear(S, x, y, el.offsetWidth, el.offsetHeight); el.style.left = l + 'px'; el.style.top = t + 'px'; };
-  const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && SIM.steps(t) > 0)) || (q.id === 'perk' && S.towers.some((t) => t && SIM.perksOf(t).length));
+  const done = (q, S) => (q.id === 'build' && S.towers.some(Boolean)) || (q.id === 'call' && S.wave > 0) || (q.id === 'upgrade' && S.towers.some((t) => t && SIM.steps(t) > 0)) || (q.id === 'perk' && S.towers.some((t) => t && SIM.perksOf(t).length)) || (q.id === 'merge' && S.stats.merges > 0);
 
   // ---------------------------------------------------------------- оверлеи
   const showOverlay = (id, on) => { if (on) hideTip(); $('#' + id).classList.toggle('show', !!on); if (id === 'menu') document.body.classList.toggle('inmenu', !!on); };
@@ -473,7 +528,7 @@
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
   const markSeen = () => { seenEv.clear(); if (APP.play) for (const e of APP.play.ev) seenEv.add(evKey(e)); };
-  const resetRun = () => { detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
+  const resetRun = () => { detached = false; runGot = null; ui.sel = -1; ui.armed = null; ui.move = -1; ui.merge = -1; ui.mergeTo = -1; ui.preview = null; neQueue = []; markSeen(); $('#toasts').innerHTML = ''; panelKey = ''; showOverlay('end', false); showOverlay('newenemy', false); };
 
   // ---------------------------------------------------------------- сейв
   // Незаконченный забег пишется целиком, в любой фазе (и посреди волны): раз в SAVE_EVERY мс, сразу после команд и начала
@@ -521,6 +576,7 @@
       if (e.k === 'haste') toast(`Нетерпение<small>+${e.souls} душ за раннюю волну</small>`, '', 2200);
       if (e.k === 'endless') { toast('Бесконечный режим<small>Волны растут без предела · босс каждые 10 волн</small>', 'big', 3000); savedAt = 0; }
       if (e.k === 'newEnemy' && e.type !== 'militia') { if ($('#newenemy').classList.contains('show')) neQueue.push(e.type); else showNewEnemy(e.type); }
+      if (e.k === 'merge') { const hi = S.towers[e.cell] && SIM.hybridInfo(S, S.towers[e.cell]); if (hi) toast(`${hi.icon} Гибрид ${hi.name}<small>Примесь «${hi.mixName}» · ветки до ${hi.cap} ступени</small>`, 'big', 3200); savedAt = 0; }
       if (e.k === 'build' || e.k === 'upgrade' || e.k === 'perk' || e.k === 'sell' || e.k === 'move' || e.k === 'grim' || e.k === 'wave') savedAt = 0;
     }
     if (seenEv.size > 3000) markSeen();
@@ -529,6 +585,7 @@
     if (isEnded && !wasEnded) { select(-1); dropOwn(); runGot = credit(S); setTimeout(() => showEnd(APP.play), 900); }
     wasEnded = isEnded;
     if (ui.move >= 0 && !SIM.canMove(S, ui.move).ok) { cancelMove(); if (S.phase === 'wave') toast('Волна началась — перенос отменён', '', 2000); }
+    if (ui.merge >= 0 && !SIM.mergeTargets(S, ui.merge).length) { cancelMerge(); if (S.phase === 'wave') toast('Волна началась — слияние отменено', '', 2000); }
     renderPanel(false); coach(S);
   };
 
