@@ -4,6 +4,8 @@
 // Особые клетки карты дают бонус башне на них (C.SPECIAL): он берётся от текущей клетки башни при каждом расчёте (cellBonus).
 // Создание: create(seed, { dt, unlocked }). Ввод: inp.cmds = [{k:'build',cell,type} | {k:'upgrade',cell,track} | {k:'perk',cell,p} | {k:'sell',cell} | {k:'call'}].
 // Перенос: {k:'move',cell,to} — башня с клетки cell на клетку to, только в паузе между волнами (SIM.canMove, SIM.moveCells).
+// Конец забега: победа на последней волне (C.RUN_WAVES) — фаза 'won'; {k:'endless'} после неё (SIM.canEndless) продолжает забег
+// в бесконечном режиме (S.endless): волны идут дальше без предела (SIM.lastWave), забег кончается только поражением.
 // Скелеты Казармы — S.skels (раздел «скелеты»): держат врагов на дороге; без своей башни рассыпаются.
 (function () {
   const C = (typeof window !== 'undefined' && window.CONFIG) || require('./config.js');
@@ -129,7 +131,11 @@
     return IDX.get(id) || null; };
   const dropIndex = () => { IDX_S = null; };
   const sellValue = (tw) => Math.floor(tw.invested * C.SELL_REFUND);
-  const waveCount = () => C.RUN_WAVES;
+  const waveCount = () => C.RUN_WAVES;                                       // волн в обычном забеге (победа на последней)
+  const lastWave = (S) => (S.endless ? Infinity : C.RUN_WAVES);           // последняя волна этого забега: в бесконечном режиме предела нет
+  const canEndless = (S) => S.phase === 'won' && !S.endless;
+  // положена ли реликвия после волны n: волны забега из C.RELIC.waves, в бесконечном режиме — каждая endlessEvery-я
+  const relicDue = (n) => (n > C.RUN_WAVES ? n % C.RELIC.endlessEvery === 0 : C.RELIC.waves.includes(n));
   const isBoss = (n) => WAVEGEN.isBoss(n);
   const ev = (S, k, o) => { S.ev.push(Object.assign({ k, t: S.t }, o || {})); };
 
@@ -140,7 +146,7 @@
     return {
       v: C.VERSION, seed, dt: opts.dt || C.DT, unlocked: opts.unlocked || null, map,
       t: 0, rs: RNG.seed(seed, 'battle'),
-      souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', prepT: -1, waveT: 0, qi: 0, queue: [],
+      souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, prepT: -1, waveT: 0, qi: 0, queue: [],
       towers: new Array(map.cols * map.rows).fill(null), enemies: [], shots: [], clouds: [], beams: [], ev: [], nid: 1, skels: [],
       stats: { kills: 0, earned: 0, leaked: 0, spent: 0, time: 0 }, seen: {}, waveStats: null,
     };
@@ -267,8 +273,6 @@
   };
   // карта забега ровно та, что генератор даёт от его сида (иначе сид в HUD не воспроизводит карту); генерация ~15 мс — помним последнюю
   const mapOfSeed = (seed) => { if (MAPC.seed !== seed) MAPC = { seed, json: JSON.stringify(MAPGEN.generate(seed)) }; return MAPC.json; };
-  // фаза согласована с номером волны и таймером паузы. Верхняя граница волны — последняя волна забега;
-  // бесконечный режим (#14) должен снять её для забега, продолжающегося после победы.
   // башня по смыслу своей модели: ступень каждой ветки — целое 0..cap; cap — целый, от потолка обычной башни до числа
   // заданных цен; слотов перков не меньше, чем у обычной башни; перки — без повторов, не больше слотов, все — перки её типа
   const towerOk = (tw, def) => {
@@ -276,12 +280,14 @@
     return int(tw.cap, C.TRACK_MAX, prices) && C.TRACKS.every((k) => int(tw.tracks[k], 0, tw.cap)) && int(tw.slots, C.PERK_SLOTS, C.SAVE_NUM_MAX)
       && Array.isArray(tw.perks) && tw.perks.length <= tw.slots && new Set(tw.perks).size === tw.perks.length && tw.perks.every((p) => own(def.perks, p));
   };
+  // фаза согласована с номером волны, режимом и таймером паузы. Обычный забег: волны 1..RUN_WAVES, пауз после последней нет,
+  // победа — на последней. Бесконечный режим начинается паузой после победы (волна RUN_WAVES): дальше волны без предела, победы нет.
   const phaseOk = (S) => {
-    const last = waveCount();
-    if (S.phase === 'prep') return int(S.wave, 0, last - 1) && (S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME));   // после последней волны пауз нет
-    if (S.phase === 'wave') return int(S.wave, 1, last);
-    if (S.phase === 'won') return S.wave === last;
-    if (S.phase === 'lost') return int(S.wave, 0, last);
+    const R = C.RUN_WAVES, E = S.endless, prepOk = S.prepT === -1 || (S.prepT >= 0 && S.prepT <= C.PREP_TIME);
+    if (S.phase === 'prep') return (E ? int(S.wave, R, Infinity) : int(S.wave, 0, R - 1)) && prepOk;
+    if (S.phase === 'wave') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 1, R);
+    if (S.phase === 'won') return !E && S.wave === R;
+    if (S.phase === 'lost') return E ? int(S.wave, R + 1, Infinity) : int(S.wave, 0, R);
     return false;
   };
   const loadable = (S) => {
@@ -313,7 +319,7 @@
   };
   // превью волны n для разведки: только с текущей+1 по текущую+SCOUT_AHEAD и не дальше конца забега, иначе null.
   // Свежий объект на каждый вызов: менять его можно, на бой это не влияет.
-  const scoutRange = (S) => ({ from: S.wave + 1, to: Math.min(waveCount(), S.wave + C.SCOUT_AHEAD) });
+  const scoutRange = (S) => ({ from: S.wave + 1, to: Math.min(lastWave(S), S.wave + C.SCOUT_AHEAD) });
   const preview = (S, n) => { const r = scoutRange(S); return Number.isInteger(n) && n >= r.from && n <= r.to ? WAVEGEN.wave(S.seed, n) : null; };
   // сколько врагов волны ещё осталось: не вышедшие на дорогу и живые — вместе с теми, кто выйдет из них при смерти
   // (повозка считается за себя и своих ополченцев сразу, поэтому число только убывает)
@@ -336,6 +342,9 @@
   // ---------------------------------------------------------------- команды игрока
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
   const doCmd = (S, c) => {
+    if (c.k === 'endless') {                                               // продолжить после победы: пауза перед следующей волной, по кнопке
+      if (canEndless(S)) { S.endless = true; S.phase = 'prep'; S.prepT = -1; ev(S, 'endless', { wave: S.wave }); }
+      return; }
     if (S.phase === 'won' || S.phase === 'lost') return;
     dropIndex();
     const tw = c.cell >= 0 && c.cell < cellCount(S) ? S.towers[c.cell] : null, at = tw ? cellXY(S, c.cell) : null;
@@ -362,7 +371,7 @@
       S.towers[c.to] = tw; S.towers[c.cell] = null; tw.cell = c.to; dismiss(S, tw);   // скелеты у старой клетки рассыпаются
       ev(S, 'move', { cell: c.to, from: c.cell, type: tw.type, x, y, fx: at[0], fy: at[1] });
     } else if (c.k === 'call') {
-      if (S.phase === 'prep' && S.wave < waveCount()) startWave(S);
+      if (S.phase === 'prep' && S.wave < lastWave(S)) startWave(S);
     }
   };
 
@@ -379,7 +388,8 @@
     const def = EN[type], st = enemyStats(S, type);
     const e = { id: S.nid++, type, d: d || 0, hp: st.hp, max: st.hp, bounty: st.bounty, armor: st.armor, mres: st.mres, speed: st.speed, heal: st.heal, child: !!child,
       lane: (rand(S) - 0.5) * (def.size > 1.5 ? 6 : 16), slowK: 0, slowT: 0, freezeT: 0, curse: 0, curseT: 0, shred: 0, shredT: 0, poison: {},
-      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name };
+      healCD: (def.healEvery || 0) * rand(S), hitT: -9, x: 0, y: 0, face: 1, walk: 0, aura: 0, name: st.name,
+      ward: def.ward || 0, haste: 0 };   // ward — сколько первых попаданий ещё пройдут мимо; haste — ускорение от знаменосца
     placeEnemy(S, e, 0);
     S.enemies.push(e);
     if (!S.seen[type]) { S.seen[type] = 1; ev(S, 'newEnemy', { type }); }
@@ -394,6 +404,7 @@
   // ---------------------------------------------------------------- урон и смерть
   const damage = (S, e, amt, type, tw, opt) => {
     if (e.dead || amt <= 0) return 0;
+    if (e.ward > 0) { e.ward--; ev(S, 'miss', { x: e.x, y: e.y - 14 }); return 0; }   // разведчик: первое попадание любого урона — мимо
     // броня и защита — с врага (свойство волны их меняет); бонус клетки уже в уроне снаряда (towerStats при выстреле)
     if (type === 'phys') amt *= 1 - Math.min(0.9, Math.max(0, e.armor + e.aura - e.shred) * (1 - (opt && opt.pen || 0)));   // pen — доля брони, которую удар не замечает
     else if (type === 'magic' && !(opt && opt.ignoreMres)) amt *= 1 - e.mres;
@@ -597,7 +608,7 @@
     if (S.phase === 'won' || S.phase === 'lost') { pruneEv(S); return; }
     S.stats.time += DT;
     // таймер паузы стартует только существующую волну (как и команда вызова): забег после последней волны не падает
-    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < waveCount()) startWave(S); }
+    if (S.phase === 'prep' && S.prepT > 0) { S.prepT -= DT; if (S.prepT <= 0 && S.wave < lastWave(S)) startWave(S); }
     if (S.phase === 'wave') {
       S.waveT += DT;
       while (S.qi < S.queue.length && S.queue[S.qi].at <= S.waveT) spawnEnemy(S, S.queue[S.qi++].e, 0);
@@ -605,6 +616,9 @@
     // ауры паладинов
     const bosses = S.enemies.filter((e) => !e.dead && EN[e.type].aura);
     for (const e of S.enemies) { e.aura = 0; for (const b of bosses) if (b !== e && Math.hypot(b.x - e.x, b.y - e.y) <= EN[b.type].auraR * UNIT) e.aura = EN[b.type].aura; }
+    // знамёна: соседи знаменосца быстрее (не складываются); убит знаменосец — на следующем шаге ускорения нет
+    const banners = S.enemies.filter((e) => !e.dead && EN[e.type].haste);
+    for (const e of S.enemies) { e.haste = 0; for (const b of banners) if (b !== e && Math.hypot(b.x - e.x, b.y - e.y) <= EN[b.type].hasteR * UNIT) e.haste = Math.max(e.haste, EN[b.type].haste); }
     const held = stepSkels(S);                                        // скелеты: схватка, удары, гибель; кого держат
     // враги: статусы, лечение, движение
     for (const e of S.enemies) {
@@ -620,7 +634,7 @@
           .sort((p, q) => p.hp / p.max - q.hp / q.max || p.id - q.id).slice(0, def.healTargets);
         for (const o of hurt) { o.hp = Math.min(o.max, o.hp + amt); o.healedT = S.t; any = true; }
         ev(S, 'heal', { x: e.x, y: e.y, any }); } }
-      const v = e.freezeT > 0 || held.has(e.id) ? 0 : e.speed * (e.slowT > 0 ? 1 - e.slowK : 1);
+      const v = e.freezeT > 0 || held.has(e.id) ? 0 : e.speed * (1 + e.haste) * (e.slowT > 0 ? 1 - e.slowK : 1);
       e.d += v * DT; placeEnemy(S, e, v * DT);
       if (e.d >= pathLen(S)) { const [cx, cy] = routeOf(S.map).crypt;
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss }); }
@@ -646,7 +660,7 @@
     else if (S.phase === 'wave' && S.qi >= S.queue.length && !S.enemies.length) {
       const bonus = C.WAVE_BONUS(S.wave); S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
-      if (S.wave >= waveCount()) { S.phase = 'won'; ev(S, 'win', {}); }
+      if (S.wave >= lastWave(S)) { S.phase = 'won'; ev(S, 'win', {}); }
       else { S.phase = 'prep'; S.prepT = C.PREP_TIME; }
     }
     pruneEv(S);
@@ -692,7 +706,7 @@
 
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
-    create, step, at, selfCheck, doCmd, waveCount, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
+    create, step, at, selfCheck, doCmd, waveCount, lastWave, canEndless, relicDue, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perksOf, hasPerk, freeSlots, muzzleH,
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx,
