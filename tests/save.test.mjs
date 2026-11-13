@@ -12,8 +12,9 @@ const midWave = () => {
   const cmds = C.TOWER_ORDER.map((type, i) => ({ k: 'build', cell: cells[i], type }));
   const perk = Object.keys(C.TOWERS[C.TOWER_ORDER[0]].perks)[0];
   for (let i = 0; i < C.PERK_AT; i++) cmds.push({ k: 'upgrade', cell: cells[0], track: C.TRACKS[i % C.TRACKS.length] });
-  cmds.push({ k: 'perk', cell: cells[0], p: perk });
+  cmds.push({ k: 'perk', cell: cells[0], p: perk }, { k: 'grim', line: 'dmg' }, { k: 'grim', line: C.TOWER_ORDER[0] });
   SIM.step(S, { cmds });
+  assert.ok(S.grim.dmg === 1 && S.grim[C.TOWER_ORDER[0]] === 1, 'покупки Гримуара не применились');
   assert.ok(SIM.hasPerk(S.towers[cells[0]], perk) && SIM.steps(S.towers[cells[0]]) === C.PERK_AT, 'прокачка башни не применилась');
   S.wave = 8; SIM.step(S, { cmds: [{ k: 'call' }] });
   const ready = () => S.enemies.length >= 3 && S.shots.some((s) => s.k === 'ghost') && S.clouds.length;
@@ -180,6 +181,14 @@ const BAD = {
   'открытое — не список': (S) => { S.unlocked = 'all'; },
   'карта короче нормы': (S) => { S.map.road = S.map.road.slice(0, 10); },
   'нет карты': (S) => { delete S.map; },
+  'нет Гримуара': (S) => { delete S.grim; },
+  'Гримуар — не объект': (S) => { S.grim = 3; },
+  'нет линии типа в Гримуаре': (S) => { delete S.grim[C.TOWER_ORDER[0]]; },
+  'ступень общей линии Гримуара выше пяти': (S) => { S.grim.dmg = C.GRIMOIRE.all.dmg.cost.length + 1; },
+  'ступень линии типа Гримуара выше предела': (S) => { S.grim[C.TOWER_ORDER[0]] = 99; },
+  'дробная ступень Гримуара': (S) => { S.grim.range = 1.5; },
+  'отрицательная ступень Гримуара': (S) => { S.grim.rate = -1; },
+  'ступень Гримуара строкой': (S) => { S.grim.dmg = '1'; },
   'неизвестная реликвия': (S) => { S.relics = ['nope']; },
   'реликвия-свойство объекта': (S) => { S.relics = ['constructor']; },
   'реликвии — не список': (S) => { S.relics = 'deal'; },

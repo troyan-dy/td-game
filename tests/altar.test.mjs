@@ -130,3 +130,13 @@ test('«Беспокойные мёртвые»: алтарь, перенесё�
   SIM.step(S, { cmds: [{ k: 'move', cell: c, to }] }); assert.equal(S.towers[to] && S.towers[to].type, 'altar');
   assert.deepEqual(SIM.towerStats(S, tw), o, 'бонус остался на старом месте');
 });
+
+test('Гримуар усиливает ауру алтаря: линия типа Алтаря — сила ауры (урон соседям), видно и в характеристиках алтаря', () => {
+  const S = SIM.create(10), [c, [n]] = spot(S, 1), tw = build(S, n, 'dark'), alt = build(S, c, 'altar');
+  const own0 = SIM.ownStats(S, alt), before = SIM.towerStats(S, tw).altar;
+  S.souls = 1e6; SIM.step(S, { cmds: [{ k: 'grim', line: 'altar' }] }); assert.equal(S.grim.altar, 1);
+  const g = SIM.grimBonus(S, 'altar'), after = SIM.towerStats(S, tw).altar;
+  assert.ok(g.dmg > 0); near(after.dmg, before.dmg * (1 + g.dmg), 'урон соседям после линии Гримуара');
+  near(SIM.towerStats(S, alt).auraDmg, own0.auraDmg * (1 + g.dmg), 'сила ауры в итоговых характеристиках алтаря');
+  assert.deepEqual(SIM.ownStats(S, alt), own0, 'Гримуар — внешний бонус, свои характеристики алтаря те же');
+});
