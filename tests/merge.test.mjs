@@ -32,11 +32,11 @@ const near = (x, y, msg) => assert.ok(Math.abs(x - y) < 1e-6, `${msg}: ${x} пр
 const hurt = (e) => e.max - e.hp;
 // враги-манекены (живучие, на месте) на дороге в точке на расстоянии dist px от клетки cell; волна идёт, очередь пуста
 const dummies = (S, cell, enemy, dists) => {
-  SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = [];
+  SIM.step(S, { cmds: [{ k: 'call' }] }); const q = S.queue; S.enemies = []; S.shots = [];
   const [x, y] = SIM.cellXY(S, cell), L = SIM.pathLen(S);
   return dists.map((dist) => { let best = 0, bd = Infinity;
     for (let d = 0; d < L; d += 1) { const p = SIM.posAt(S, d), q = Math.abs(Math.hypot(p.x - x, p.y - y) - dist); if (q < bd) { bd = q; best = d; } }
-    S.queue.push({ at: 0, e: enemy }); S.qi = S.queue.length - 1; S.waveT = 0; SIM.step(S, null);
+    S.queue = [{ at: 0, e: enemy }]; S.qi = 0; SIM.step(S, null); S.queue = q; S.qi = q.length;   // очередь волны — от генератора (её сверяет сейв)
     const e = S.enemies[S.enemies.length - 1]; e.d = best; e.lane = 0; e.speed = 0; e.hp = e.max = 1e6; e.heal = 0; return e; });
 };
 // шагать, пока башня tw не выстрелит n раз (по событиям fire), и ещё after секунд — долететь снаряду

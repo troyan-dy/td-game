@@ -14,14 +14,14 @@ const mine = (S, tw) => S.skels.filter((s) => s.tw === tw.id);
 const evs = (S, k) => S.ev.filter((e) => e.k === k && e.t === S.t);
 // лимит скелетов на время теста (один скелет — проще следить за боем)
 const withLimit = (n, fn) => { const was = B.extra.limit; B.extra.limit = n; try { return fn(); } finally { B.extra.limit = was; } };
-// идёт волна без своих врагов: дальше враги выставляются руками
-const quietWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; };
+// идёт волна без своих врагов (её очередь считается вышедшей): дальше враги выставляются руками
+const quietWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; };
 // расстояние по маршруту до точки, ближайшей к (x, y)
 const routeD = (S, x, y) => { let best = 0, bd = Infinity;
   for (let d = 0; d < SIM.pathLen(S); d++) { const p = SIM.posAt(S, d), q = Math.hypot(p.x - x, p.y - y); if (q < bd) { bd = q; best = d; } } return best; };
 // враг type на расстоянии d по маршруту (на оси дороги)
 const enemyAt = (S, type, d, hp) => {
-  S.queue.push({ at: 0, e: type }); S.qi = S.queue.length - 1; S.waveT = 0; SIM.step(S, null);
+  const q = S.queue; S.queue = [{ at: 0, e: type }]; S.qi = 0; SIM.step(S, null); S.queue = q; S.qi = q.length;   // очередь волны — от генератора (её сверяет сейв)
   const e = S.enemies[S.enemies.length - 1], p = SIM.posAt(S, d); e.d = d; e.lane = 0; e.x = p.x; e.y = p.y;
   if (hp) e.hp = e.max = hp; return e; };
 // Казарма с одним скелетом и враг, идущий к нему по дороге

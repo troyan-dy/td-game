@@ -829,6 +829,8 @@ test('перки Колокола: Набат — оглушение дольш�
 
 test('оглушение — часть состояния: сейв посреди оглушения годен и продолжается без потерь', () => {
   const B = bellAt(4, 'drone'), [e] = strikeNow(B, [['militia', 0]]); assert.ok(e.stunT > 0);
+  // очередь волны — как от генератора (её сверяет проверка сейва); враг на дороге живучий, волна не кончится
+  B.S.queue = SIM.WAVEGEN.queue(SIM.WAVEGEN.wave(B.S.seed, B.S.wave)); B.S.qi = B.S.queue.length;
   assert.ok(SIM.loadable(JSON.parse(JSON.stringify(B.S))), 'сейв с оглушённым врагом негоден');
   const R = JSON.parse(JSON.stringify(B.S)); for (let i = 0; i < 3 / B.S.dt; i++) { SIM.step(B.S, null); SIM.step(R, null); }
   assert.deepEqual(R, B.S);

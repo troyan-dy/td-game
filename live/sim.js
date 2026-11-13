@@ -410,8 +410,9 @@
   //     Новый вид сущности в состоянии (не башня и не враг) требует своего образца в shapes() и строки проверки здесь.
   //     Числа: по модулю не больше C.SAVE_NUM_MAX и не меньше нуля (таймеры — не глубже одного шага), кроме координат
   //     и направлений (SIGNED) и полей, отрицательных уже в образце (метки времени −9, prepT −1);
-  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, типы башен, перков и врагов из конфига, башня на своей
-  //     клетке по правилу постройки, фаза согласована с номером волны и таймером паузы, id без повторов;
+  //  2) смысл: версия, карта ровно та, что генератор даёт от сида, характеристики и очередь волны — от генератора волн,
+  //     типы башен, перков и врагов из конфига, башня на своей клетке по правилу постройки, фаза согласована с номером
+  //     волны и таймером паузы, id без повторов;
   //  3) проба: копия состояния живёт C.SAVE_TRIAL секунд игры — логика не бросает исключений, числа остаются в границах.
   const SIGNED = new Set(['x', 'y', 'lane', 'aim', 'face', 'dx', 'dy']);
   const kind = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
@@ -476,6 +477,12 @@
     if (S.relics.length > chances) return false;
     if (S.phase !== 'relic') return S.offer === null;
     return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked)); };
+  // характеристики врагов и очередь выхода текущей (или только что отбитой) волны — ровно то, что генератор даёт от сида и
+  // номера волны: иначе на дорогу выйдут враги с цифрами, которых нет в разведке. Реликвии и бой их не меняют. До первой волны их нет
+  const waveOk = (S) => {
+    if (S.wave === 0) return S.waveStats === null && S.queue.length === 0;
+    const w = WAVEGEN.wave(S.seed, S.wave);
+    return JSON.stringify(S.waveStats) === JSON.stringify(w.stats) && JSON.stringify(S.queue) === JSON.stringify(WAVEGEN.queue(w)); };
   const loadable = (S) => {
     const sh = shapes();
     try {
@@ -485,7 +492,7 @@
       if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
-      if (!relicsOk(S)) return false;
+      if (!relicsOk(S) || !waveOk(S)) return false;
       if (!GRIM.every((l) => int(S.grim[l.id], 0, l.cost.length))) return false;   // ступени Гримуара — целые до предела линии
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;

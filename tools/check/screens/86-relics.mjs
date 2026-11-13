@@ -13,7 +13,7 @@ const toChoice = (ctx, s, n) => ctx.eval(([s, n]) => {
   const S = SIM.create(s); S.seen = Object.fromEntries(Object.keys(SIM.CONFIG.ENEMIES).map((k) => [k, 1])); S.souls = 2000;
   while (S.wave < n || S.phase !== 'relic') {
     if (S.phase === 'relic') { SIM.step(S, { cmds: [{ k: 'relic', i: 0 }] }); continue; }
-    SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null);
+    SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null);
     if (S.wave > n) throw new Error('выбора после волны ' + n + ' нет'); }
   S.ev = []; APP.play = S; APP.paused = false; APP.speed = 1; SCENE.ui.sel = -1; }, [s, n]);
 const waitOffer = (ctx, ids) => ctx.page.waitForFunction((ids) => { const b = document.getElementById('relics');
@@ -50,7 +50,7 @@ export const steps = {
     // ещё два выбора мышью: после 10-й и 15-й волны
     for (const n of [10, 15]) {
       await ctx.eval((n) => { const S = APP.play;
-        while (S.phase !== 'relic') { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); if (S.wave > n) break; }
+        while (S.phase !== 'relic') { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); if (S.wave > n) break; }
         S.ev = []; }, n);
       const o = await ctx.eval(() => APP.play.offer.slice()); await waitOffer(ctx, o);
       await ctx.click('#relics .rcard[data-i="0"]');

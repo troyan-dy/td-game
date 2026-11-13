@@ -8,7 +8,7 @@ const C = SIM.CONFIG, RL = C.RELICS, IDS = Object.keys(RL), MAPGEN = SIM.MAPGEN;
 const json = (S) => JSON.parse(JSON.stringify(S));
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 // волна отбита сразу: вызвать, убрать её врагов, шаг — зачистка (души за волну начисляются как обычно)
-const clearWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.queue = []; S.qi = 0; S.enemies = []; S.shots = []; SIM.step(S, null); };
+const clearWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); };
 const toWave = (S, n) => { while (S.wave < n) { assert.equal(S.phase, 'prep', `волна ${S.wave}: ждали паузу, а фаза ${S.phase}`); clearWave(S); } return S; };
 // первый сид, на котором реликвия id предложена после 5-й волны
 const seedFor = (id) => { for (let s = 1; s < 500; s++) if (SIM.drawRelics(s, 5, [], null).includes(id)) return s; throw new Error('не предложена ни на одном сиде: ' + id); };
@@ -194,7 +194,7 @@ const EFFECTS = {
     SIM.step(A, { cmds: [{ k: 'move', cell: c, to: cells[0] }] }); assert.ok(A.towers[cells[0]] && !A.towers[c], 'перенос во время волны');
     assert.equal(SIM.canMove(A, cells[0]).reason, 'phase', 'второй перенос за волну');
     SIM.step(A, { cmds: [{ k: 'move', cell: cells[0], to: cells[1] }] }); assert.ok(A.towers[cells[0]], 'второй перенос прошёл');
-    A.queue = []; A.qi = 0; A.enemies = []; SIM.step(A, null); assert.equal(A.phase, 'prep'); assert.ok(SIM.canMove(A, cells[0], cells[1]).ok, 'в паузе как обычно');
+    A.qi = A.queue.length; A.enemies = []; SIM.step(A, null); assert.equal(A.phase, 'prep'); assert.ok(SIM.canMove(A, cells[0], cells[1]).ok, 'в паузе как обычно');
     SIM.step(A, { cmds: [{ k: 'call' }] }); assert.ok(SIM.canMove(A, cells[0]).ok, 'в новой волне снова можно');
     assert.equal(SIM.loadable(json(A)), true); },
   cornerstone: () => { const [A, B] = pair('cornerstone'); const [c1, c2] = SIM.rankCells(A, 3).filter((i) => !MAPGEN.special(A.map, i));
