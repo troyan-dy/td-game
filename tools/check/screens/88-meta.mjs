@@ -48,10 +48,27 @@ export const steps = {
     await ctx.need('#end.show', 5000); await ctx.wait(300);
     const t = await ctx.eval(() => { const u = document.querySelector('#end .unlocks'); return u ? u.textContent : ''; });
     if (!t.includes('Десятая волна')) throw new Error('экран итогов не показал достижения и открытия забега: ' + JSON.stringify(t));
+    await ctx.need('#end [data-try="bell"]');
+    if (!t.includes(await ctx.eval(() => SIM.CONFIG.TOWERS.bell.role))) throw new Error('награда не объясняет роль Колокола');
     await ctx.shot('meta_end');
   },
   meta_progress: async (ctx) => {
-    await ctx.click('#e-menu'); await ctx.wait(200);
+    await ctx.click('#end [data-try="bell"]');
+    await ctx.need('.card.armed[data-type="bell"]');
+    const cell = await ctx.eval(() => {
+      const S = APP.play, cv = document.getElementById('c'), r = cv.getBoundingClientRect();
+      if (S.seed !== 5 || S.wave !== 0 || S.souls !== SIM.CONFIG.START_SOULS || S.towers.some(Boolean)) throw new Error('повтор начался с неверной картой или бюджетом');
+      for (const i of SIM.rankCells(S, 3)) {
+        const [x, y] = SIM.cellXY(S, i), px = r.left + x * r.width / SIM.VIEW.W, py = r.top + y * r.height / SIM.VIEW.H;
+        const cb = SIM.canBuild(S, i, 'bell');
+        if (cb.ok && document.elementFromPoint(px, py) === cv) return { i, x: px, y: py, cost: cb.cost };
+      }
+      throw new Error('нет открытой клетки для Колокола');
+    });
+    await ctx.page.mouse.click(cell.x, cell.y);
+    await ctx.page.waitForFunction(({ i, cost }) => APP.play.towers[i]?.type === 'bell' && APP.play.souls === SIM.CONFIG.START_SOULS - cost, cell);
+    await ctx.shot('meta_try_bell');
+    await ctx.click('#b-menu'); await ctx.click('#p-menu'); await ctx.wait(200);
     const st = await openMeta(ctx);
     if (!st.text.includes('Лучшая волна10') || st.done < 2) throw new Error('экран открытий после забега: ' + JSON.stringify(st));
     await ctx.shot('meta_progress');
