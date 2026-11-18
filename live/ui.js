@@ -622,7 +622,7 @@
     const btns = choice ? `<button class="btn green two" id="e-endless"><span class="l1">Продолжить</span><span class="l2">бесконечный режим</span></button><button class="btn" id="e-finish">Закончить забег</button>`
       : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
-      <p>${text}</p>${won ? '' : leaksHTML(S)}
+      <p>${text}</p>${S.hunt ? `<p>${SIM.huntWon(S) ? 'Охота удалась · получено ' + (C.HUNT.stake + C.HUNT.profit) + ' душ' : 'Охота не удалась · ставка потеряна'}</p>` : ''}${won ? '' : leaksHTML(S)}
       ${gotHTML(runGot)}
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.endless ? `${S.wave} · ∞` : `${S.wave} / ${R}`}</b><span>Время</span><b>${clock(S.stats.time)}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Собрано душ</span><b>${S.stats.earned}</b></div>
@@ -697,6 +697,8 @@
     // события → звук, тосты, новые враги, сейв
     for (const e of S.ev) { const key = evKey(e); if (seenEv.has(key)) continue; seenEv.add(key);
       AUDIO.event(e);
+      if (e.k === 'hunt' || e.k === 'huntEnd') savedAt = 0;
+      if (e.k === 'huntEnd') toast(e.won ? `Охота удалась<small>+${e.payout} душ со ставкой</small>` : 'Охота не удалась<small>Ставка потеряна</small>', '', 2400);
       if (e.k === 'wave') toast(`ВОЛНА ${e.wave}${e.boss ? '<small>Приближается босс</small>' : ''}`, 'big' + (e.boss ? ' boss' : ''), 2200);
       if (e.k === 'boss') toast(`☠ ${e.name}<small>пропуск стоит ${EN.paladin.leak} прочности склепа</small>`, 'boss', 2200);
       if (e.k === 'waveClear' && SIM.isBoss(e.wave + 1) && e.wave < SIM.lastWave(S)) bossPending = e.wave + 1;   // босс в следующей волне — карточка в паузе

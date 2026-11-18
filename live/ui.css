@@ -326,6 +326,12 @@ body.inmenu #title { display: none; }
 #scout .bad { color: var(--bad); }
 #scout .ar { color: var(--soul); }
 #scout b { color: var(--soul); }
+#scout .hunt-live, #scout-panel .hunt-result { color: var(--gold); }
+#scout-panel .hunt-offer { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; align-items: center; border-top: 1px solid var(--rim2); margin-top: 4px; padding: 6px 2px 0; }
+#scout-panel .hunt-offer > b:first-child { color: var(--gold); font: 700 16px var(--title); }
+#scout-panel .hunt-offer > span { grid-column: 1 / -1; grid-row: 2; }
+#scout-panel .hunt-offer .btn { padding: 3px 8px; color: var(--soul); font: 700 15px var(--body); }
+#scout-panel .hunt-result { padding-top: 4px; }
 #scout-panel { position: absolute; left: 222px; top: 58px; width: 384px; padding: 5px 8px 7px; display: none; font: 14px/1.2 var(--body); color: var(--dim); }
 #scout-panel.show { display: block; }
 #scout-panel .hd { display: flex; align-items: center; gap: 4px; }

@@ -60,6 +60,7 @@ export function steps() {
         'пауза после последней волны': (sv) => { Object.assign(sv.S, { phase: 'prep', wave: lastWave, auto: true, autoT: 1, enemies: [], queue: [], qi: 0 }); },
         'сейв прошлой сборки (без автоплея, с таймером паузы)': (sv) => { sv.S.v -= 1; delete sv.S.auto; delete sv.S.autoT; delete sv.S.hasteT; sv.S.prepT = 15; },
         'бесконечный режим до победы': (sv) => { sv.S.endless = true; },
+        'охота на чужую волну': (sv) => { sv.S.hunt = { wave: sv.S.wave + 5, passed: 0 }; },
         'характеристики врагов волны не от генератора': (sv) => { Object.values(sv.S.waveStats)[0].hp *= 2; },
       };
       for (const [name, f] of Object.entries(spoil)) {
