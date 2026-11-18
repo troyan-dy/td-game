@@ -78,6 +78,15 @@ test('бесконечный режим: угроза растёт, босс к�
   assert.ok(S.ev.some((e) => e.k === 'wave' && e.wave === 30 && e.boss));
 });
 
+test('сейв обычного поражения сохраняет волну и исключает волну за концом кампании', () => {
+  const S = startAt(SIM.create(5), RUN);
+  S.hp = 0;
+  SIM.step(S, null);
+  assert.equal(S.phase, 'lost');
+  assert.equal(SIM.loadable(json(S)), true);
+  assert.equal(SIM.loadable({ ...json(S), wave: RUN + 1 }), false);
+});
+
 test('бесконечный забег заканчивается поражением на достигнутой волне, без победы', () => {
   const S = endless(); S.hp = 1; startAt(S, RUN + 3);
   for (let i = 0; i < 120 * 30 && S.phase !== 'lost'; i++) SIM.step(S, null);

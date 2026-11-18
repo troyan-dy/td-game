@@ -142,6 +142,17 @@ test('превью гибрида: что получится — до слиян
   assert.equal(SIM.mergeInfo(S, a, a), null);
 });
 
+test('среди нескольких соседей целями слияния остаются все готовые башни в порядке клеток', () => {
+  const S = SIM.create(4);
+  const [source, first, [second, unfinished]] = pairSpot(S, undefined, 2);
+  maxed(S, source, 'bones');
+  maxed(S, second, 'dark');
+  maxed(S, first, 'spirits');
+  SIM.doCmd(S, { k: 'build', type: 'bones', cell: unfinished });
+  S.souls = 0;
+  assert.deepEqual(SIM.mergeTargets(S, source), [Math.min(first, second), Math.max(first, second)]);
+});
+
 test('одинаковые типы сливаются: атака плюс собственная примесь, оба слота — перки своего типа', () => {
   const { S, a, tw } = hybrid(7, 'bones', 'bones', 'crush');
   assert.equal(tw.type, 'bones'); assert.equal(tw.mix, 'bones');
