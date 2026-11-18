@@ -9,7 +9,7 @@ const C = SIM.CONFIG, EN = C.ENEMIES, RUN = SIM.waveCount();
 
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 const json = (S) => JSON.parse(JSON.stringify(S));
-const findWave = (pred, from = 1, to = RUN) => { for (let s = 1; s < 2000; s++) for (let n = from; n <= to; n++) { const w = WAVEGEN.wave(s, n); if (pred(w)) return { seed: s, n, w }; } throw new Error('нет такой волны'); };
+const findWave = (pred, from = 1, to = RUN) => { for (let s = 1; s <= 200; s++) for (let n = from; n <= to; n++) { const w = WAVEGEN.wave(s, n); if (pred(w)) return { seed: s, n, w }; } throw new Error('нет такой волны'); };
 const has = (type) => (w) => w.squads.some((q) => q.type === type);
 const ALL_SEEN = Object.fromEntries(Object.keys(EN).map((k) => [k, 1]));
 // забег перед волной n, волна вызвана; враги выходят как в бою

@@ -11,7 +11,7 @@ const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < 
 const clearWave = (S) => { SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); };
 const toWave = (S, n) => { while (S.wave < n) { assert.equal(S.phase, 'prep', `волна ${S.wave}: ждали паузу, а фаза ${S.phase}`); clearWave(S); } return S; };
 // первый сид, на котором реликвия id предложена после 5-й волны
-const seedFor = (id) => { for (let s = 1; s < 500; s++) if (SIM.drawRelics(s, 5, [], null).includes(id)) return s; throw new Error('не предложена ни на одном сиде: ' + id); };
+const seedFor = (id) => { for (let s = 1; s <= 200; s++) if (SIM.drawRelics(s, 5, [], null).includes(id)) return s; throw new Error('не предложена ни на одном сиде: ' + id); };
 // забег на экране выбора после 5-й волны, где предложена id; take — сразу взять её командой
 const reach = (id, take = true, dt) => {
   const S = toWave(SIM.create(seedFor(id), { dt }), 5); assert.equal(S.phase, 'relic');

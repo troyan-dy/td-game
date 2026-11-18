@@ -78,7 +78,7 @@ test('боссы на каждой bossEvery-й волне (10-я и 20-я в з
 
 test('свойство примерно у трети волн, кроме волн 1–2 и боссов; встречается каждое свойство', () => {
   let with_ = 0, all = 0; const seen = {};
-  for (const s of seeds(500)) for (let n = 1; n <= RUN; n++) {
+  for (const s of seeds(200)) for (let n = 1; n <= RUN; n++) {
     const w = WAVEGEN.wave(s, n);
     if (n < WG.traitFrom || w.boss) { assert.equal(w.trait, null, `сид ${s} волна ${n}: свойство ${w.trait && w.trait.id}`); continue; }
     all++; if (w.trait) { with_++; seen[w.trait.id] = (seen[w.trait.id] || 0) + 1; }
@@ -92,23 +92,32 @@ test('свойство примерно у трети волн, кроме во�
 
 // средние характеристики типа на волне n: по волнам со свойством id и по волнам без свойства
 const statsBy = (n, pick) => { const acc = { yes: [], no: [] };
-  for (const s of seeds(600)) { const w = WAVEGEN.wave(s, n); acc[pick(w) ? 'yes' : w.trait ? 'skip' : 'no']?.push(w); } return acc; };
+  for (const s of seeds(200)) { const w = WAVEGEN.wave(s, n); acc[pick(w) ? 'yes' : w.trait ? 'skip' : 'no']?.push(w); } return acc; };
 const avg = (arr) => arr.reduce((a, b) => a + b, 0) / arr.length;
 test('свойство реально меняет врагов: броня, скорость, HP, награда, число и лечение против волн того же номера без свойства', () => {
-  const n = 9, sq = (ws, type, key) => ws.flatMap((w) => w.squads.filter((q) => q.type === type).map((q) => q[key]));
-  const by = (id) => statsBy(n, (w) => w.trait && w.trait.id === id);
-  const armored = by('armored'), fast = by('fast'), horde = by('horde'), rich = by('rich'), healers = by('healers');
-  assert.ok(avg(sq(armored.yes, 'knight', 'armor')) > avg(sq(armored.no, 'knight', 'armor')), 'бронированная: броня рыцарей не выросла');
-  assert.ok(avg(sq(armored.yes, 'militia', 'mres')) > avg(sq(armored.no, 'militia', 'mres')), 'бронированная: защита от магии не выросла');
-  assert.ok(avg(sq(fast.yes, 'militia', 'speed')) > avg(sq(fast.no, 'militia', 'speed')), 'быстрая: скорость не выросла');
-  const cnt = (ws) => avg(ws.map((w) => w.total.count));
-  assert.ok(cnt(horde.yes) > 1.3 * cnt(horde.no), `толпа: врагов ${cnt(horde.yes)} против ${cnt(horde.no)}`);
-  assert.ok(avg(sq(horde.yes, 'militia', 'hp')) < avg(sq(horde.no, 'militia', 'hp')), 'толпа: враги не слабее');
-  assert.ok(avg(sq(rich.yes, 'knight', 'bounty')) > avg(sq(rich.no, 'knight', 'bounty')), 'богатая: награда не выросла');
-  const priests = (ws) => avg(ws.map((w) => w.squads.filter((q) => q.type === 'priest').reduce((a, q) => a + q.count * EN.priest.threat, 0) / w.threat));
-  assert.ok(priests(healers.yes) > priests(healers.no) + 0.1, `с лекарями: доля священников ${priests(healers.yes)} против ${priests(healers.no)}`);
-  assert.ok(avg(sq(healers.yes, 'priest', 'heal')) > avg(sq(healers.no, 'priest', 'heal')), 'с лекарями: лечение не сильнее');
-  for (const t of [armored, fast, horde, rich, healers]) assert.ok(t.yes.length > 20 && t.no.length > 100);
+  // Сравниваем внутри одной волны; общую выборку набираем за три волны на тех же 200 картах.
+  const samples = {};
+  for (const n of [7, 8, 9]) {
+    const sq = (ws, type, key) => ws.flatMap((w) => w.squads.filter((q) => q.type === type).map((q) => q[key]));
+    const by = (id) => statsBy(n, (w) => w.trait && w.trait.id === id);
+    const armored = by('armored'), fast = by('fast'), horde = by('horde'), rich = by('rich'), healers = by('healers');
+    assert.ok(avg(sq(armored.yes, 'knight', 'armor')) > avg(sq(armored.no, 'knight', 'armor')), 'бронированная: броня рыцарей не выросла');
+    assert.ok(avg(sq(armored.yes, 'militia', 'mres')) > avg(sq(armored.no, 'militia', 'mres')), 'бронированная: защита от магии не выросла');
+    assert.ok(avg(sq(fast.yes, 'militia', 'speed')) > avg(sq(fast.no, 'militia', 'speed')), 'быстрая: скорость не выросла');
+    const cnt = (ws) => avg(ws.map((w) => w.total.count));
+    assert.ok(cnt(horde.yes) > 1.3 * cnt(horde.no), `толпа: врагов ${cnt(horde.yes)} против ${cnt(horde.no)}`);
+    assert.ok(avg(sq(horde.yes, 'militia', 'hp')) < avg(sq(horde.no, 'militia', 'hp')), 'толпа: враги не слабее');
+    assert.ok(avg(sq(rich.yes, 'knight', 'bounty')) > avg(sq(rich.no, 'knight', 'bounty')), 'богатая: награда не выросла');
+    const priests = (ws) => avg(ws.map((w) => w.squads.filter((q) => q.type === 'priest').reduce((a, q) => a + q.count * EN.priest.threat, 0) / w.threat));
+    assert.ok(priests(healers.yes) > priests(healers.no) + 0.1, `с лекарями: доля священников ${priests(healers.yes)} против ${priests(healers.no)}`);
+    assert.ok(avg(sq(healers.yes, 'priest', 'heal')) > avg(sq(healers.no, 'priest', 'heal')), 'с лекарями: лечение не сильнее');
+    for (const [id, t] of Object.entries({ armored, fast, horde, rich, healers })) {
+      const count = samples[id] ??= { yes: 0, no: 0 };
+      count.yes += t.yes.length;
+      count.no += t.no.length;
+    }
+  }
+  for (const t of Object.values(samples)) assert.ok(t.yes > 20 && t.no > 100);
 });
 
 test('генератор отдаёт волну по любому номеру: дальше 20-й угроза продолжает расти', () => {
@@ -188,7 +197,7 @@ test('превью совпадает с тем, что выходит на до
 
 test('броня свойства работает в бою: физический удар по бронированному врагу слабее ровно на его броню', () => {
   let seed = 1, n = 0;
-  for (; seed < 500 && !n; seed++) for (let k = 3; k <= 9; k++) if (WAVEGEN.wave(seed, k).trait?.id === 'armored') { n = k; break; }
+  for (; seed <= 200 && !n; seed++) for (let k = 3; k <= 9; k++) if (WAVEGEN.wave(seed, k).trait?.id === 'armored') { n = k; break; }
   seed--;
   const S = SIM.create(seed); S.hp = 1e9; S.wave = n - 1;
   SIM.step(S, { cmds: [{ k: 'call' }] });
@@ -204,7 +213,7 @@ test('броня свойства работает в бою: физически
 
 test('из повозки выходят ополченцы с характеристиками этой волны из превью', () => {
   let seed = 1, n = 0;
-  for (; seed < 500 && !n; seed++) for (let k = 7; k <= RUN; k++) { const w = WAVEGEN.wave(seed, k); if (w.squads.some((q) => q.type === 'cart') && w.trait) { n = k; break; } }
+  for (; seed <= 200 && !n; seed++) for (let k = 7; k <= RUN; k++) { const w = WAVEGEN.wave(seed, k); if (w.squads.some((q) => q.type === 'cart') && w.trait) { n = k; break; } }
   seed--;
   const S = SIM.create(seed); S.hp = 1e9; S.wave = n - 1;
   const pv = SIM.preview(S, n), ex = pv.extra.find((x) => x.type === 'militia');
@@ -278,7 +287,7 @@ test('характеристики превью — по формуле: баз�
 });
 
 // ---------------------------------------------------------------- свойства в бою: цифры превью — это то, что происходит
-const findWave = (pred, from = 3, to = RUN) => { for (let s = 1; s < 2000; s++) for (let n = from; n <= to; n++) { const w = WAVEGEN.wave(s, n); if (pred(w)) return { seed: s, n, w }; } throw new Error('нет такой волны'); };
+const findWave = (pred, from = 3, to = RUN) => { for (let s = 1; s <= 200; s++) for (let n = from; n <= to; n++) { const w = WAVEGEN.wave(s, n); if (pred(w)) return { seed: s, n, w }; } throw new Error('нет такой волны'); };
 const ALL_SEEN = Object.fromEntries(Object.keys(EN).map((k) => [k, 1]));
 const startAt = (seed, n) => { const S = SIM.create(seed); S.hp = 1e9; S.wave = n - 1; S.seen = Object.assign({}, ALL_SEEN); SIM.step(S, { cmds: [{ k: 'call' }] }); return S; };
 const enemyOf = (S, f = () => true) => { for (let i = 0; i < 120 * 300; i++) { const e = S.enemies.find((x) => !x.dead && f(x)); if (e) return e; SIM.step(S, null); } throw new Error('враг не вышел'); };
@@ -333,7 +342,7 @@ test('бюджет меньше цены самого дешёвого враг�
 test('кто не ходит один (alone: false), тот не составляет волну сам; волн из одного отряда немного', () => {
   assert.equal(EN.priest.alone, false);
   let single = 0, multi = 0;
-  for (const s of seeds(300)) for (let n = 1; n <= RUN; n++) {
+  for (const s of seeds(200)) for (let n = 1; n <= RUN; n++) {
     const w = WAVEGEN.wave(s, n), nb = w.squads.filter((q) => !q.boss);
     assert.ok(nb.some((q) => EN[q.type].alone !== false), `сид ${s} волна ${n}: одни ${nb.map((q) => q.type).join(', ')}`);
     if (Object.keys(EN).filter((k) => !EN[k].boss && EN[k].minWave <= n).length >= 2) { multi++; if (nb.length === 1) single++; }

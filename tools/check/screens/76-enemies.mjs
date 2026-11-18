@@ -4,7 +4,7 @@
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 // первая волна забега без свойства и босса, где идут оба
 const pick = (ctx) => ctx.eval(() => {
-  for (let s = 1; s <= 500; s++) for (let n = 6; n <= SIM.waveCount(); n++) { const w = WAVEGEN.wave(s, n), t = w.squads.map((q) => q.type);
+  for (let s = 1; s <= 200; s++) for (let n = 6; n <= SIM.waveCount(); n++) { const w = WAVEGEN.wave(s, n), t = w.squads.map((q) => q.type);
     if (!w.trait && !w.boss && t.includes('scout') && t.includes('banner')) return { s, n }; }
   return null; });
 // забег перед волной n: все враги уже встречены (окно «Новый враг» не закрывает поле), бездонный склеп
