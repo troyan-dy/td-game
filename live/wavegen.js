@@ -45,8 +45,9 @@
 
   // порядок без повторов по весам (ключ −ln(u)/w)
   const weighted = (pairs, R) => pairs.map(([v, w]) => [v, -Math.log(1 - R()) / w]).sort((a, b) => a[1] - b[1]).map((p) => p[0]);
-  const pickCount = (R) => { const tot = WG.squads.reduce((a, [, w]) => a + w, 0); let u = R() * tot;
-    for (const [k, w] of WG.squads) { if ((u -= w) < 0) return k; } return WG.squads[WG.squads.length - 1][0]; };
+  const pickCount = (R) => { const pairs = WG.squads, tot = pairs.reduce((a, [, w]) => a + w, 0); let u = R() * tot;
+    for (let i = 0; i < pairs.length - 1; i++) { u -= pairs[i][1]; if (u < 0) return pairs[i][0]; }
+    return pairs[pairs.length - 1][0]; };
 
   const spawnsOf = (type) => { const sp = EN[type].spawnOnDeath; return 1 + (sp ? sp.n * spawnsOf(sp.type) : 0); };
   const cheapest = (types) => types.reduce((b, k) => (!b || EN[k].threat < EN[b].threat ? k : b), null);
@@ -66,30 +67,39 @@
     const m = mods(traitId), B = budget * (boss ? WG.bossEscort : 1) * mul(m, 'budget');
     // отряды: типы, доступные к этой волне, по весам; свойство может добавить свой тип с долей бюджета.
     // Тип с alone: false (священник) один не ходит: если все выбранные такие — добавляется первый по весам из тех, кто может.
-    const pool = Object.keys(EN).filter((k) => !EN[k].boss && EN[k].minWave <= n);
+    const cap = WG.maxEnemies - (boss ? 1 : 0);
+    const pool = Object.keys(EN).filter((k) => !EN[k].boss && EN[k].minWave <= n && spawnsOf(k) <= cap);
+    const leaders = pool.filter(alone);
+    if (!leaders.length) throw new RangeError(`wavegen: на волне ${n} нет самостоятельного отряда, который помещается в предел ${cap}`);
     const byWeight = weighted(pool.map((k) => [k, EN[k].weight || 1]), R);
     const chosen = byWeight.slice(0, Math.min(pool.length, pickCount(R)));
-    const forced = Object.entries(m.share || {}).filter(([k]) => pool.includes(k));
+    const forced = Object.entries(m.share || {}).filter(([k, part]) => pool.includes(k) && part > 0);
     for (const [k] of forced) if (!chosen.includes(k)) chosen.push(k);
-    if (!chosen.some(alone)) { const k = byWeight.find((x) => alone(x) && !chosen.includes(x)); if (k) chosen.push(k); }
+    if (!chosen.some(alone)) chosen.push(byWeight.find(alone));
     const free = chosen.filter((k) => !forced.some(([f]) => f === k));
     const fShare = forced.reduce((a, [, v]) => a + v, 0), w = free.map(() => WG.share[0] + R() * (WG.share[1] - WG.share[0])), wSum = w.reduce((a, b) => a + b, 0);
-    const shareOf = (k) => { const f = forced.find(([x]) => x === k); if (f) return free.length ? f[1] : 1; return (1 - fShare) * w[free.indexOf(k)] / wSum; };
+    const shareOf = (k) => { const f = forced.find(([x]) => x === k); if (f) return free.length ? f[1] : f[1] / fShare; return (1 - fShare) * w[free.indexOf(k)] / wSum; };
     let cnt = chosen.map((k) => Math.floor(shareOf(k) * B / EN[k].threat));
     let types = chosen.filter((_, i) => cnt[i] > 0); cnt = cnt.filter((c) => c > 0);
     // остаток бюджета — самому дешёвому из тех, кто может идти один (если его не осталось — он добавляется);
     // бюджет меньше цены самого дешёвого врага — волна из одного такого врага (единственный случай, когда угроза выше бюджета)
     const spent = () => types.reduce((a, k, i) => a + cnt[i] * EN[k].threat, 0);
-    const lead = cheapest(types.filter(alone)) || cheapest(pool.filter(alone)) || cheapest(pool);
+    const lead = cheapest(types.filter(alone)) || cheapest(leaders);
     if (!types.includes(lead)) { types.push(lead); cnt.push(0); }
     const li = types.indexOf(lead);
     cnt[li] += Math.floor((B - spent()) / EN[lead].threat + 1e-9);
     if (cnt[li] < 1) cnt[li] = 1;
     // предел числа врагов (вместе с теми, кто выйдет из убитых): бюджет сверх него — в силу каждого врага (power)
-    const raw = spent(), cap = WG.maxEnemies - (boss ? 1 : 0), heads = () => types.reduce((a, k, i) => a + cnt[i] * spawnsOf(k), 0);
+    const raw = spent(), heads = () => types.reduce((a, k, i) => a + cnt[i] * spawnsOf(k), 0);
     if (heads() > cap) {
       const k = heads() / cap; cnt = cnt.map((c) => Math.max(1, Math.floor(c / k)));
-      while (heads() > cap) { const i = cnt.reduce((b, c, j) => (c > cnt[b] ? j : b), 0); if (cnt[i] <= 1) break; cnt[i]--; }
+      while (heads() > cap) {
+        const i = cnt.reduce((b, c, j) => (c > cnt[b] ? j : b), 0);
+        if (cnt[i] > 1) { cnt[i]--; continue; }
+        // Каждый отряд уже из одного врага. Лидер помещается сам и сохраняется до конца.
+        const drop = types.findLastIndex((k) => k !== lead);
+        types.splice(drop, 1); cnt.splice(drop, 1);
+      }
     }
     const power = raw / spent();
     // расписание: дешёвые отряды открывают волну, остальные вступают позже; длинная волна сжимается до maxDuration

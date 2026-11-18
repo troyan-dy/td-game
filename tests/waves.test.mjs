@@ -14,6 +14,91 @@ const sig = (w) => w.squads.map((q) => q.type + '×' + q.count).join(' ') + (w.t
 const heads = (t) => 1 + (EN[t].spawnOnDeath ? EN[t].spawnOnDeath.n : 0);
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
 
+// Точные составы ниже используют один воспроизводимый набор настроек на время теста.
+const withSettings = (t, target, changed) => {
+  const original = Object.fromEntries(Object.keys(changed).map((key) => [key, target[key]]));
+  t.after(() => Object.assign(target, original));
+  Object.assign(target, changed);
+};
+
+test('предел численности оставляет место врагам из повозки и переносит остаток угрозы в силу', (t) => {
+  withSettings(t, WG, { squads: [[2, 1]], share: [1, 1], budget: () => 100, traitFrom: 4, maxEnemies: 8 });
+  withSettings(t, EN, { knight: { ...EN.knight, threat: 10, spawnOnDeath: { type: 'militia', n: 2 } } });
+  const wave = WAVEGEN.wave(4, 3);
+  // До предела: 50 ополченцев, 5 рыцарей, 10 подкреплений. Округление долей даёт 6 + 1 + 2 = 9.
+  assert.deepEqual(wave.squads.map(({ type, count }) => [type, count]), [['militia', 5], ['knight', 1]]);
+  assert.equal(wave.total.extra, 2);
+  assert.equal(wave.total.count + wave.total.extra, 8);
+  assert.equal(wave.power, 100 / 15);
+});
+
+test('при тесном пределе сохраняется самостоятельный отряд, при невозможном генератор объясняет причину', (t) => {
+  withSettings(t, WG, { squads: [[2, 1]], share: [1, 1], traitFrom: 4, maxEnemies: 1 });
+  withSettings(t, EN, { knight: { ...EN.knight, alone: false } });
+  assert.deepEqual(WAVEGEN.wave(4, 3).squads.map(({ type, count }) => [type, count]), [['militia', 1]]);
+  // На волне 1 доступны только ополченцы и теперь им самим требуется сопровождение.
+  withSettings(t, EN, { militia: { ...EN.militia, alone: false } });
+  assert.throws(() => WAVEGEN.wave(4, 1), /самостоятельн.*отряд/);
+  // Единственное место на волне босса уже занято самим боссом.
+  assert.throws(() => WAVEGEN.wave(4, WG.bossEvery), /самостоятельн.*отряд/);
+});
+
+test('из разрешённых типов генератор выбирает тот, чьи подкрепления помещаются в предел', (t) => {
+  withSettings(t, WG, { squads: [[2, 1]], traitFrom: 4, maxEnemies: 1 });
+  withSettings(t, EN, { militia: { ...EN.militia, spawnOnDeath: { type: 'scout', n: 2 } } });
+  const wave = WAVEGEN.wave(4, 3);
+  assert.deepEqual(wave.squads.map(({ type, count }) => [type, count]), [['knight', 1]]);
+  assert.equal(wave.total.extra, 0);
+});
+
+test('равные цены дают порядок по типу, подкрепления двух отрядов складываются', (t) => {
+  withSettings(t, WG, { squads: [[2, 1]], budget: () => 8, share: [1, 1], traitFrom: 4 });
+  const carrier = (type, n) => ({ ...EN[type], threat: 1, spawnOnDeath: { type: 'scout', n } });
+  withSettings(t, EN, { militia: carrier('militia', 2), knight: carrier('knight', 3) });
+  for (const seed of [1, 4, 6]) {
+    const wave = WAVEGEN.wave(seed, 3);
+    assert.deepEqual(wave.squads.map(({ type, count }) => [type, count]), [['knight', 4], ['militia', 4]]);
+    assert.deepEqual(wave.extra.map(({ type, count }) => [type, count]), [['scout', 20]]);
+    assert.equal(wave.total.extra, 20);
+    assert.equal(wave.total.hp, 4 * wave.stats.knight.hp + 4 * wave.stats.militia.hp + 20 * wave.stats.scout.hp);
+  }
+});
+
+test('очередь сохраняет одновременные выходы одного типа и упорядочивает разные типы', () => {
+  const squads = [{ type: 'militia', count: 2, at: 1, gap: 0 }, { type: 'knight', count: 2, at: 0, gap: 1 }];
+  assert.deepEqual(WAVEGEN.queue({ squads }), [
+    { e: 'knight', at: 0 }, { e: 'knight', at: 1 }, { e: 'militia', at: 1 }, { e: 'militia', at: 1 },
+  ]);
+});
+
+test('свойство делит весь бюджет по весам, если доли заданы для каждого отряда', (t) => {
+  withSettings(t, WG, { squads: [[2, 1]], budget: () => 40, traitChance: 1 });
+  withSettings(t, EN, { knight: { ...EN.knight, threat: 1 } });
+  const traits = Object.fromEntries(Object.entries(C.TRAITS).map(([id, trait]) => [id, { ...trait, minWave: 99 }]));
+  traits.armored = { name: 'Рыцарский строй', desc: '', minWave: 1, share: { militia: 0.25, knight: 0.75 } };
+  withSettings(t, C.TRAITS, traits);
+  const wave = WAVEGEN.wave(4, 3);
+  assert.equal(wave.trait.id, 'armored');
+  assert.deepEqual(wave.squads.map(({ type, count }) => [type, count]), [['knight', 30], ['militia', 10]]);
+  assert.equal(wave.threat, wave.budget);
+});
+
+test('шаблон способности берёт числовые поля волны и врага и отмечает отсутствующее значение', (t) => {
+  withSettings(t, EN, { cart: { ...EN.cart, ability: '{armor%}% / {spawnOnDeath.n} / {missing.field} / {name}' } });
+  const stats = WAVEGEN.stats('cart', 1);
+  assert.equal(stats.ability, `${Math.round(stats.armor * 100)}% / ${EN.cart.spawnOnDeath.n} / ? / ?`);
+});
+
+test('вес типа по умолчанию равен единице при жеребьёвке отрядов', (t) => {
+  withSettings(t, WG, { squads: [[1, 1]], traitFrom: 4 });
+  withSettings(t, EN, { militia: { ...EN.militia, weight: 1 }, knight: { ...EN.knight, weight: 1 } });
+  const draw = () => seeds(12).map((s) => WAVEGEN.wave(s, 3).squads[0].type);
+  const expected = draw();
+  assert.deepEqual(new Set(expected), new Set(['knight', 'militia']));
+  delete EN.militia.weight;
+  assert.deepEqual(draw(), expected);
+});
+
 test('забег — RUN_WAVES волн из генератора, ручного списка волн нет', () => {
   assert.equal(C.WAVES, undefined, 'в конфиге остался ручной список волн');
   assert.equal(RUN, C.RUN_WAVES);
