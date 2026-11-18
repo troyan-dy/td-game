@@ -234,7 +234,7 @@
     $('#vol').addEventListener('input', (e) => { prefs.vol = +e.target.value; AUDIO.setVolume(prefs.vol); store.set(PREF_KEY, prefs); });
     $('#p-resume').addEventListener('click', closeMenu);
     $('#p-help').addEventListener('click', () => { AUDIO.ui('click'); showHelp(true); });
-    $('#p-restart').addEventListener('click', () => { APP.newGame(undefined, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('gmenu', false); persist(); });
+    $('#p-restart').addEventListener('click', () => { showOverlay('gmenu', false); startRun(); });
     $('#p-menu').addEventListener('click', () => { persist(); showOverlay('gmenu', false); APP.toMenu(); showMenu(); });
     addEventListener('keydown', (e) => {
       if (e.repeat) return; const k = e.code;
@@ -577,7 +577,8 @@
     $('#m-meta').onclick = () => { AUDIO.ui('click'); showMeta(); };
     $('#m-help').onclick = () => showHelp(!$('#help').classList.contains('show')); };
   // новый забег — по сиду (ввод на титульном экране, «Переиграть сид») или по случайному
-  const startRun = (seed) => { APP.newGame(seed, { unlocked: META.unlocked(profile()) }); resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
+  const startRun = (seed) => { const p = profile(); APP.newGame(seed, { unlocked: META.unlocked(p), firstRun: p.runs === 0 && !p.all });
+    resetRun(); showOverlay('menu', false); AUDIO.ui('start'); persist(); };
   const clock = (sec) => { const t = Math.floor(sec), hh = Math.floor(t / 3600), mm = Math.floor(t / 60) % 60, ss = String(t % 60).padStart(2, '0');
     return hh ? `${hh}:${String(mm).padStart(2, '0')}:${ss}` : `${mm}:${ss}`; };
   // Итог забега идёт в профиль один раз, когда забег кончился (победа — сразу, ещё до выбора; поражение в бесконечном режиме —

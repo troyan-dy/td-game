@@ -68,10 +68,15 @@
   const hasRelic = (S, id) => S.relics.includes(id);                 // единственная проверка «взята ли реликвия»
   const relicSum = (S, key) => { let n = 0; for (const id of S.relics) n += RL[id][key] || 0; return n; };   // числовые реликвии: сумма поля по взятым
   // предложение после волны n: до C.RELIC_OFFER открытых и не взятых, от сида и номера волны (поток 'relics') — ход боя не влияет
-  const drawRelics = (seed, n, taken, unlocked) => {
-    const pool = RELIC_IDS.filter((id) => !taken.includes(id) && (!unlocked || unlocked.includes(id))), R = RNG.stream(seed, 'relics', n);
-    for (let i = 0; i < Math.min(C.RELIC_OFFER, pool.length); i++) { const j = i + Math.floor(R() * (pool.length - i)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
-    return pool.slice(0, C.RELIC_OFFER); };
+  const drawRelics = (seed, n, taken, unlocked, firstRun = false) => {
+    const eligible = RELIC_IDS.filter((id) => !taken.includes(id) && (!unlocked || unlocked.includes(id))), R = RNG.stream(seed, 'relics', n);
+    const intro = C.RELIC.firstRunOffer, guided = firstRun && n === C.RELIC.waves[0] && eligible.includes(intro);
+    const pool = guided ? eligible.filter((id) => RL[id].kind === 'num') : eligible;
+    const count = Math.min(C.RELIC_OFFER - (guided ? 1 : 0), pool.length);
+    for (let i = 0; i < count; i++) { const j = i + Math.floor(R() * (pool.length - i)); [pool[i], pool[j]] = [pool[j], pool[i]]; }
+    const offer = pool.slice(0, count);
+    if (guided) offer.splice(Math.floor(R() * (count + 1)), 0, intro);
+    return offer; };
   // перк открывается с этой суммы ступеней (Раннее озарение — раньше)
   const perkAt = (S) => (hasRelic(S, 'insight') ? RL.insight.perkAt : C.PERK_AT);
   // перки с наградой за убийство в радиусе (harvest): только для башен с ними смерть врага считает характеристики
@@ -243,6 +248,7 @@
     const map = MAPGEN.generate(seed);
     return {
       v: C.VERSION, seed, dt: opts.dt || C.DT, unlocked: opts.unlocked || null, map,
+      firstRun: opts.firstRun === true,
       t: 0, rs: RNG.seed(seed, 'battle'),
       souls: C.START_SOULS, hp: C.CRYPT_HP, wave: 0, phase: 'prep', endless: false, waveT: 0, qi: 0, queue: [],
       auto: false, autoT: -1, hasteT: 0,   // автоплей; его отсчёт до волны (−1 — волна только по кнопке); окно «Нетерпения»
@@ -441,6 +447,7 @@
     if (SHAPE) return SHAPE;
     const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
     state.leakBy = null;                                              // счётчик прорывов — только для показа: сейв без него (прежней сборки) годен
+    state.firstRun = null;                                            // в прежних сейвах флага нет, они сохраняют обычную жеребьёвку
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
@@ -485,13 +492,14 @@
   // реликвии: известные, без повторов, не больше, чем было выборов к этой волне; предложение — только в фазе выбора и ровно то,
   // что даёт сид (иначе после загрузки игрок выбирал бы из чужого набора); перенос посреди боя — не позже текущей волны
   const relicsOk = (S) => {
+    if (S.firstRun !== undefined && typeof S.firstRun !== 'boolean') return false;
     if (!Array.isArray(S.relics) || !S.relics.every((id) => own(RL, id)) || new Set(S.relics).size !== S.relics.length) return false;
     if (!int(S.waveMoved, 0, S.wave)) return false;
     const cleared = S.phase === 'wave' || S.phase === 'lost' ? S.wave - 1 : S.wave; let chances = S.phase === 'relic' ? -1 : 0;
     for (let n = 1; n <= cleared && chances < S.relics.length; n++) if (relicDue(n)) chances++;
     if (S.relics.length > chances) return false;
     if (S.phase !== 'relic') return S.offer === null;
-    return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked)); };
+    return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked, S.firstRun)); };
   // характеристики врагов и очередь выхода текущей (или только что отбитой) волны — ровно то, что генератор даёт от сида и
   // номера волны: иначе на дорогу выйдут враги с цифрами, которых нет в разведке. Реликвии и бой их не меняют. До первой волны их нет
   const waveOk = (S) => {
@@ -1010,7 +1018,7 @@
     pruneEv(S);
   };
   // выбор реликвии после волны: забег встаёт, пока игрок не выберет (отсчёт автоплея и окно «Нетерпения» ждут полными); открытых не осталось — выбора нет
-  const offerRelics = (S) => { const o = drawRelics(S.seed, S.wave, S.relics, S.unlocked); if (!o.length) return;
+  const offerRelics = (S) => { const o = drawRelics(S.seed, S.wave, S.relics, S.unlocked, S.firstRun); if (!o.length) return;
     S.offer = o; S.phase = 'relic'; ev(S, 'relicOffer', { wave: S.wave }); };
   // реликвия для интерфейса: { id, name, icon, kind, desc } — описание с числами из её данных
   const relicText = (id) => { const r = RL[id], t = r.tower || {};

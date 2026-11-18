@@ -306,7 +306,7 @@
 
     // Генератор волн (live/wavegen.js): волна n собирается от сида забега и номера, для любого n (и после RUN_WAVES).
     RUN_WAVES: 20,                 // волн в забеге; победа на последней, после неё — выбор: закончить или бесконечный режим
-    RELIC: { waves: [5, 10, 15], endlessEvery: 5 },   // после каких волн забега положена реликвия; в бесконечном режиме — после каждой endlessEvery-й
+    RELIC: { waves: [5, 10, 15], endlessEvery: 5, firstRunOffer: 'restless' },
     SCOUT_AHEAD: 3,                // разведка видит волны с текущей+1 по текущую+SCOUT_AHEAD
     WAVEGEN: {
       budget: (w) => 10 + 6 * (w - 1) + 0.12 * (w - 1) ** 3,   // бюджет угрозы волны (в ополченцах), строго растёт; ранние мягко, поздние круто
@@ -372,7 +372,7 @@
     },
 
     // Открытия между забегами (live/meta.js). Новый профиль: открыты первые startTowers типов из TOWER_ORDER и первые
-    // startRelics реликвий пула (C.RELICS — по порядку конфига). Остальное открывается по одному: достижения с gives 'tower'
+    // startRelics реликвий по relicOrder. Порядок C.RELICS сохранён для жеребьёвки прежних забегов. Достижения с gives 'tower'
     // по порядку этого списка получают закрытые башни по порядку TOWER_ORDER, с gives 'relic' — закрытые реликвии по порядку
     // пула. Достижение, которому не хватило предмета, просто отмечается (предмет откроется, когда появится в конфиге).
     // Условия (все должны выполниться): wave — дойти до волны; win — победить; faster — победить быстрее, с игры;
@@ -380,6 +380,8 @@
     // (суммируются счётчики S.stats, плюс runs — забегов и wins — побед).
     UNLOCKS: {
       startTowers: 4, startRelics: 10,
+      relicOrder: ['marrow', 'lampoil', 'bile', 'lens', 'dust', 'restless', 'coin', 'ossuary', 'hoard', 'chisel',
+        'caustic', 'deal', 'twin', 'tithe', 'cornerstone', 'hallowed', 'toll', 'haste', 'insight', 'usury'],
       achievements: [
         { id: 'wave10', name: 'Десятая волна', desc: 'Дойти до 10-й волны', gives: 'tower', wave: 10 },
         { id: 'win', name: 'Склеп устоял', desc: 'Победить в забеге', gives: 'tower', win: true },

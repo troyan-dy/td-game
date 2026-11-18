@@ -53,6 +53,7 @@ export function steps() {
       const spoil = {
         'битый JSON': () => '{{{',
         'старая версия': (sv) => { sv.S.v -= 1; },
+        'признак первого забега строкой': (sv) => { sv.S.firstRun = 'true'; },
         'башня неизвестного типа': (sv) => { sv.S.towers[sv.S.towers.findIndex(Boolean)] = { type: 'nope' }; },
         'враг без полей': (sv) => { sv.S.enemies[0] = { type: sv.S.enemies[0].type }; },
         'законченный забег': (sv) => { sv.S.phase = 'lost'; },

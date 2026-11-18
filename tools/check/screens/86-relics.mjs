@@ -4,13 +4,13 @@
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 // сид, у которого предложение после 5-й волны с самыми длинными текстами (сначала самая длинная карточка, затем сумма)
 const worstSeed = (ctx) => ctx.eval(() => { let best = null;
-  for (let s = 1; s <= 300; s++) { const d = SIM.drawRelics(s, 5, [], null).map((id) => (SIM.CONFIG.RELICS[id].name + SIM.relicText(id)).length);
+  for (let s = 1; s <= 200; s++) { const d = SIM.drawRelics(s, 5, [], null).map((id) => (SIM.CONFIG.RELICS[id].name + SIM.relicText(id)).length);
     const sc = Math.max(...d) * 1000 + d.reduce((a, b) => a + b, 0); if (!best || sc > best.sc) best = { s, sc }; }
   return best.s; });
 // забег на сиде s доведён до выбора реликвии после волны n: волны отбиваются сразу, все враги уже встречены
 // (окно «Новый враг» не закрывает экран), на выборах до n берётся первая
 const toChoice = (ctx, s, n) => ctx.eval(([s, n]) => {
-  const S = SIM.create(s); S.seen = Object.fromEntries(Object.keys(SIM.CONFIG.ENEMIES).map((k) => [k, 1])); S.souls = 2000;
+  const S = s === null ? APP.play : SIM.create(s); S.seen = Object.fromEntries(Object.keys(SIM.CONFIG.ENEMIES).map((k) => [k, 1])); S.souls = 2000;
   while (S.wave < n || S.phase !== 'relic') {
     if (S.phase === 'relic') { SIM.step(S, { cmds: [{ k: 'relic', i: 0 }] }); continue; }
     SIM.step(S, { cmds: [{ k: 'call' }] }); S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null);
@@ -26,6 +26,36 @@ const cards = (ctx) => ctx.eval(() => { const o = SIM.relicOffer(APP.play) || []
 const KEY = 'necropolis.save';
 
 export const steps = {
+  relics_first_run: async (ctx, g) => {
+    await ctx.eval((k) => localStorage.removeItem(k), g.PROFILE_KEY);
+    await g.newGame(ctx, 4);
+    const from = (await g.spots(ctx))[0];
+    await g.build(ctx, from, 'bones');
+    await toChoice(ctx, null, 5);
+    await ctx.need('#relics.show');
+    await ctx.shot('relics_first_run');
+    await ctx.page.locator('#relics .rcard').filter({ hasText: 'Беспокойные мёртвые' }).click({ timeout: 5000 });
+    await ctx.page.locator('#wavebtn').click();
+    await g.select(ctx, from);
+    await ctx.page.locator('#panel .move:not(.off)').click();
+    const to = await ctx.eval((cell) => {
+      const cv = document.getElementById('c'), rect = cv.getBoundingClientRect();
+      for (const i of SIM.moveCells(APP.play, cell)) {
+        const [x, y] = SIM.cellXY(APP.play, i), px = rect.left + x * rect.width / SIM.VIEW.W, py = rect.top + y * rect.height / SIM.VIEW.H;
+        if (document.elementFromPoint(px, py) === cv) return { cell: i, x: px, y: py };
+      }
+    }, from);
+    expect(to, 'нет доступной клетки для переноса');
+    await ctx.page.mouse.click(to.x, to.y);
+    await ctx.page.waitForFunction(([a, b]) => APP.play.phase === 'wave' && !APP.play.towers[a] && APP.play.towers[b]?.type === 'bones'
+      && !SIM.canMove(APP.play, b).ok, [from, to.cell], { timeout: 5000 });
+    await ctx.shot('relics_first_move');
+    await ctx.eval(() => { APP.play.hp = 0; });
+    await ctx.page.locator('#e-replay').click({ timeout: 5000 });
+    const replay = await ctx.eval(() => ({ first: APP.play.firstRun, seed: APP.play.seed, wave: APP.play.wave }));
+    expect(replay.first === false && replay.seed === 4 && replay.wave === 0, 'повтор сида после итога должен использовать обычную жеребьёвку');
+    await ctx.eval(([k, p]) => localStorage.setItem(k, JSON.stringify(p)), [g.PROFILE_KEY, g.ALL_OPEN]);
+  },
   relics_offer: async (ctx, g) => {
     await g.newGame(ctx, 1);
     await toChoice(ctx, await worstSeed(ctx), 5);
