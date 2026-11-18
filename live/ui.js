@@ -121,7 +121,7 @@
     ['Башни', () => `<p>Нажми на свободную клетку у дороги и выбери башню на карточках внизу (или клавиши 1–${C.TOWER_ORDER.length}). Можно наоборот: карточка, потом клетка.</p>
       <div class="hroles">${C.TOWER_ORDER.map((k) => `<div><b>${T[k].name}</b> — ${T[k].role}</div>`).join('')}</div>
       <p>Особые клетки: ${Object.values(C.SPECIAL).map((x) => `<b>${x.name.toLowerCase()}</b> — ${x.desc}`).join('; ')}.</p>`],
-    ['Прокачка', () => `<p>Нажми на башню: ветки <b>урон (Q)</b>, <b>дальность (W)</b>, <b>скорость (E)</b>, по ${C.TRACK_MAX} ступеней.</p>
+    ['Прокачка', () => `<p>Ветки башни: <b>урон (Q)</b>, <b>дальность (W)</b>, <b>скорость (E)</b>, по ${C.TRACK_MAX} ступеней. Чтобы поднять несколько разом, нажми «Купить несколько ступеней…» и выбери уровни.</p>
       <p>Когда вложено ${C.PERK_AT} ступеней — <b>перк</b>, один из трёх, навсегда. На кнопке — что он делает, подробности — при наведении.</p>
       <p><b>Перенос</b> (M) — между волнами, бесплатно, прокачка остаётся. <b>Продажа</b> (X) возвращает ${Math.round(C.SELL_REFUND * 100)}% вложенного.</p>`],
     ['Слияние', () => `<p>Две <b>соседние</b> башни (и по диагонали) со всеми ветками на ${C.TRACK_MAX}-й ступени сливаются в <b>гибрид</b>: нажми на башню и «Слить с соседом».</p>
@@ -244,8 +244,9 @@
       if (!APP.play) { if (k === 'Enter' && !(e.target && e.target.closest && e.target.closest('button, input, textarea, select'))) { const c = $('#m-cont') || $('#m-new'); if (c) c.click(); } return; }
       if ($('#newenemy').classList.contains('show')) { if (k === 'Enter' || k === 'Space' || k === 'Escape') { closeNewEnemy(); e.preventDefault(); } return; }
       // Esc: сначала закрывает меню и отменяет открытый режим (перенос, слияние, выбор; окно Гримуара ловит Esc раньше), потом — меню
-      if (k === 'Escape') { if (menuOpen()) closeMenu(); else if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else openMenu(); e.preventDefault(); return; }
+      if (k === 'Escape') { if (menuOpen()) closeMenu(); else if (upgradeDraft) closeUpgradeDraft(); else if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else openMenu(); e.preventDefault(); return; }
       if (menuOpen()) { if (k === 'Space') e.preventDefault(); return; }   // под меню игра молчит
+      if (k === 'Enter' && e.target.closest?.('#panel :is(.batch-open,.tier,.batch-back,.batch-buy)')) return;
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (k === 'KeyF') { cycleSpeed(); return; }
       if (k === 'KeyA') { toggleAuto(); return; }
@@ -285,7 +286,7 @@
   // Перерисовка: целиком — только при смене устройства панели (другая клетка, ступень, перк, режим, конец забега);
   // души, «не хватает», доступность переноса и счётчик убийств обновляются на месте (refreshPanel), кнопки не пересоздаются.
   // pressed — кнопка мыши зажата над панелью: и полная перерисовка ждёт отпускания (или отмены нажатия, или потери фокуса).
-  let panelKey = '', pressed = false;
+  let panelKey = '', pressed = false, upgradeDraft = null;
   const PAUSE_NOTE = '<div class="pnote">❚❚ Пауза: действия недоступны. Пробел — продолжить</div>';
   // подсказка перка или ветки — сбоку от панели, где хватает места
   const tipBeside = () => { const p = $('#panel'), right = p.offsetLeft + p.offsetWidth + 10;
@@ -347,9 +348,13 @@
       return perks.length ? `<div class="ph">${two ? 'ПЕРК ' + T[g.type].name : hy ? 'ПЕРКИ · 2 СЛОТА' : 'ПЕРК'} · ${state}</div>
       <div class="perks">${perks.map((pk, i) => { const pd = T[g.type].perks[pk], cp = cps[i], ch = cp.reason === 'chosen', lock = ['steps', 'taken', 'dead'].includes(cp.reason), dead = !SIM.perkOn(tw, pk);
         return `<button class="btn perk ${ch ? 'chosen' : ''} ${lock ? 'locked' : ''} ${dead ? 'dead' : ''} ${cp.reason === 'souls' ? 'poor' : ''}" data-p="${pk}" data-ty="${g.type}"><span class="pn">${pd.name}</span><span class="pa">${SIM.perkAct(pk)}</span><span class="pf"><span class="ic">${PERK_ICON[pk] || '✦'}</span>${ch || cp.reason === 'taken' || dead ? '' : `<span class="pr">${SOUL}${pd.cost}</span>`}</span></button>`; }).join('')}</div>` : ''; };
-    return `<div class="tracks">${rows}</div>${SIM.perkGroups(tw).map(group).join('')}`;
+    const multi = C.TRACKS.some((k) => tw.tracks[k] < tw.cap)
+      ? '<button class="btn batch-open">Купить несколько ступеней…</button>' : '';
+    return `<div class="tracks">${rows}</div>${multi}${SIM.perkGroups(tw).map(group).join('')}`;
   };
   const wireGrowth = (p, S, tw) => {
+    const multi = p.querySelector('.batch-open');
+    if (multi) multi.onclick = () => { if (!held()) { upgradeDraft = { tower: tw, levels: { ...tw.tracks } }; renderPanel(true); } };
     p.querySelectorAll('.tb').forEach((b) => { const k = b.dataset.t;
       b.onclick = () => upgrade(k);
       b.onmouseenter = () => { const cu = SIM.canUpgrade(APP.play, tw.cell, k), why = trackWhy(APP.play, cu);
@@ -361,6 +366,53 @@
       b.onmouseleave = hideTip;
       b.onclick = () => { if (held()) return; if (SIM.canPerk(APP.play, ui.sel, pk).ok) { APP.cmd({ k: 'perk', cell: ui.sel, p: pk }); hideTip(); setTimeout(() => renderPanel(true), 30); } else AUDIO.ui('deny'); };
     });
+  };
+  const closeUpgradeDraft = () => { upgradeDraft = null; renderPanel(true); };
+  const refreshUpgradeDraft = (p, S, tw) => {
+    const buy = p.querySelector('.batch-buy');
+    const key = `${S.souls}/${S.phase}/${S.relics.length}`;
+    if (!buy || buy.dataset.quote === key) return;
+    buy.dataset.quote = key;
+    const quote = SIM.upgradeQuote(S, tw.cell, upgradeDraft.levels);
+    buy.disabled = !quote.ok || APP.paused;
+    buy.textContent = quote.cost ? `Купить за ${quote.cost} душ` : 'Купить';
+    const balance = p.querySelector('.batch-balance');
+    balance.classList.toggle('bad', quote.reason === 'souls');
+    balance.textContent = quote.reason === 'price' ? 'Ступень недоступна'
+      : quote.reason === 'souls' ? `Не хватает ${quote.cost - S.souls} душ` : `Останется душ: ${S.souls - (quote.cost || 0)}`;
+  };
+  const batchPanel = (p, S, tw) => {
+    const levels = upgradeDraft.levels;
+    const rows = C.TRACKS.map((k) => {
+      levels[k] = Math.max(levels[k], tw.tracks[k]);  // одиночная покупка клавишей могла поднять ветку
+      const name = trackName(tw.type, k);
+      const buttons = Array.from({ length: tw.cap }, (_, i) => {
+        const n = i + 1;
+        return `<button class="btn tier" data-n="${n}" aria-label="${name}, ступень ${n}" aria-pressed="${n === levels[k]}" ${n < tw.tracks[k] ? 'disabled' : ''}>${n}</button>`;
+      }).join('');
+      return `<div class="batch-track" data-track="${k}"><div class="batch-label">${name} <span>${tw.tracks[k]} / ${tw.cap}</span></div><div class="tiers">${buttons}</div></div>`;
+    }).join('');
+    const hybrid = SIM.hybridInfo(S, tw);
+    p.innerHTML = closeBtn + `<div class="nm${hybrid ? ' hy' : ''}">${hybrid ? hybrid.name : T[tw.type].name}</div><div class="note">Выбери, до какой ступени поднять ветки.</div>
+      ${rows}<div class="batch-balance"></div><div class="batch-actions"><button class="btn batch-back">Назад</button><button class="btn green batch-buy">Купить</button></div>`;
+    p.querySelectorAll('.batch-track').forEach((row) => {
+      const k = row.dataset.track;
+      row.onclick = (event) => {
+        const b = event.target.closest('.tier'); if (!b || held()) return;
+        const n = Number(b.dataset.n);
+        levels[k] = levels[k] === n ? tw.tracks[k] : n;
+        for (const tier of row.querySelectorAll('.tier')) tier.setAttribute('aria-pressed', Number(tier.dataset.n) === levels[k]);
+        delete p.querySelector('.batch-buy').dataset.quote;
+        refreshUpgradeDraft(p, S, tw);
+      };
+    });
+    p.querySelector('.batch-back').onclick = closeUpgradeDraft;
+    p.querySelector('.batch-buy').onclick = () => {
+      if (held() || !SIM.upgradeQuote(S, tw.cell, levels).ok) return;
+      APP.cmd({ k: 'upgradeSet', cell: tw.cell, towerId: tw.id, levels: { ...levels } });
+      closeUpgradeDraft();
+    };
+    refreshUpgradeDraft(p, S, tw);
   };
   // почему башню нельзя слить — словами; пустая строка — можно (есть подходящий сосед)
   const mergeWhy = (S, cell) => { const cm = SIM.canMerge(S, cell);
@@ -462,14 +514,19 @@
     document.querySelectorAll('.card').forEach((c) => { const k = c.dataset.type, cb = S ? SIM.canBuild(S, spot >= 0 ? spot : -1, k) : null, cost = cb ? cb.cost : T[k].base.cost, poor = S && S.souls < cost;
       const pr = c.querySelector('.pr'), txt = `${SOUL} ${cost}`; if (pr.innerHTML !== txt) pr.innerHTML = txt; pr.classList.toggle('up', !!cb && cb.cost !== cb.base);
       c.classList.toggle('poor', !!poor); c.classList.toggle('armed', ui.armed === k); c.classList.toggle('target', !!(S && ui.sel >= 0 && !S.towers[ui.sel])); c.classList.toggle('can', !poor); c.classList.toggle('locked', locked(S, k)); });
-    if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; return; }
+    if (!S || ui.sel < 0) { if (panelKey) hideTip(); p.classList.remove('show'); panelKey = ''; upgradeDraft = null; return; }
     const tw = S.towers[ui.sel], moving = ui.move === ui.sel, merging = !!tw && ui.merge === ui.sel;
+    if (upgradeDraft && (upgradeDraft.tower !== tw || moving || merging || ended())) upgradeDraft = null;
     // в ключе и сами итоговые характеристики: они меняются и извне (алтарь рядом, Гримуар, клетка) — панель покажет новые
-    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended(), APP.paused]);
-    if (key === panelKey || (pressed && !force)) { if (tw && !moving) refreshPanel(p, S, tw); return; }
+    const key = JSON.stringify([ui.sel, tw && [tw.id, tw.type, tw.tracks, tw.cap, SIM.perksOf(tw), SIM.freeSlots(tw), tw.invested, SIM.towerStats(S, tw), tw.mix], !!upgradeDraft, moving, merging && ui.mergeTo, merging && SIM.mergeTargets(S, ui.sel), ended(), APP.paused]);
+    if (key === panelKey || (pressed && !force)) {
+      if (upgradeDraft) refreshUpgradeDraft(p, S, tw);
+      else if (tw && !moving) refreshPanel(p, S, tw);
+      return; }
     panelKey = key; hideTip();                                         // подсказка висела над кнопкой, которой больше нет
     p.classList.add('show'); p.classList.toggle('moving', moving || (merging && ui.mergeTo < 0)); p.classList.toggle('buildm', !tw);
     if (!tw) buildMenu(S, p);
+    else if (upgradeDraft) batchPanel(p, S, tw);
     else if (moving || merging) { p.innerHTML = towerManage(S, tw); wireManage(p, S, tw); }
     else { p.innerHTML = closeBtn + towerHead(S, tw) + towerGrowth(S, tw) + towerManage(S, tw); wireGrowth(p, S, tw); wireManage(p, S, tw); }
     if (APP.paused && !ended()) p.insertAdjacentHTML('beforeend', PAUSE_NOTE);   // почему кнопки серые — словами

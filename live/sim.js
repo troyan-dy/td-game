@@ -351,16 +351,38 @@
   // можно ли поднять ветку track башни на клетке: { ok, reason, cost }. reason: null | 'none' (нет башни) | 'track' (нет такой
   // ветки) | 'max' (ветка на потолке башни) | 'price' (до потолка есть ступени, но цены этой ступени в конфиге нет) | 'ended' | 'souls'.
   // cost — цена следующей ступени (null на потолке и без цены)
+  const stepPrice = (S, tw, track, n) => {
+    const price = TW[tw.type].tracks[track].cost[n];
+    return typeof price === 'number' ? Math.round(price * (1 - relicSum(S, 'trackDiscount'))) : null;
+  };
   const canUpgrade = (S, cell, track) => {
     const tw = towerAt(S, cell), no = (reason, cost = null) => ({ ok: false, reason, cost });
     if (!tw) return no('none');
     if (typeof track !== 'string' || !C.TRACKS.includes(track)) return no('track');
     const n = tw.tracks[track]; if (n >= tw.cap) return no('max');
-    const price = TW[tw.type].tracks[track].cost[n]; if (typeof price !== 'number') return no('price');
-    const cost = Math.round(price * (1 - relicSum(S, 'trackDiscount')));          // Резец каменщика
+    const cost = stepPrice(S, tw, track, n); if (cost === null) return no('price');
     if (ended(S)) return no('ended', cost);
     if (S.souls < cost) return no('souls', cost);
     return { ok: true, reason: null, cost };
+  };
+  // Полная цена от текущих ступеней до выбранных. Негодный набор отклоняется до любой оплаты.
+  const upgradeQuote = (S, cell, levels) => {
+    const tw = towerAt(S, cell), no = (reason, cost = null) => ({ ok: false, reason, cost });
+    if (!tw) return no('none');
+    if (S.phase !== 'prep' && S.phase !== 'wave') return no('phase');
+    if (!levels || typeof levels !== 'object' || Object.keys(levels).length !== C.TRACKS.length) return no('levels');
+    let cost = 0, count = 0;
+    for (const k of C.TRACKS) {
+      const to = levels[k], from = tw.tracks[k];
+      if (!own(levels, k) || !Number.isInteger(to) || to < from || to > tw.cap) return no('levels');
+      count += to - from;
+      for (let n = from; n < to; n++) {
+        const price = stepPrice(S, tw, k, n); if (price === null) return no('price');
+        cost += price;
+      }
+    }
+    if (!count) return no('empty', 0);
+    return S.souls < cost ? no('souls', cost) : { ok: true, reason: null, cost };
   };
   // можно ли взять перк p: { ok, reason, cost, need }. reason: null | 'none' | 'perk' (у типов башни нет такого перка) |
   // 'chosen' (этот перк уже взят) | 'taken' (слоты заняты другими; у гибрида разных типов — перк этого типа уже взят) |
@@ -553,7 +575,7 @@
   const pay = (S, c) => { S.souls -= c; S.stats.spent += c; };
   // клетки команды (cell, у переноса to, у слияния other) — только целые числа: строка '171' или [171] как индекс массива
   // нашли бы башню, а мусор и недостающий аргумент не должны ни менять забег, ни бросать исключение
-  const CELL_ARGS = { build: ['cell'], upgrade: ['cell'], perk: ['cell'], sell: ['cell'], move: ['cell', 'to'], merge: ['cell', 'other'] };
+  const CELL_ARGS = { build: ['cell'], upgrade: ['cell'], upgradeSet: ['cell'], perk: ['cell'], sell: ['cell'], move: ['cell', 'to'], merge: ['cell', 'other'] };
   const doCmd = (S, c) => {
     if (!c || typeof c !== 'object' || (own(CELL_ARGS, c.k) && !CELL_ARGS[c.k].every((key) => Number.isInteger(c[key])))) return;
     if (c.k === 'endless') {                                               // продолжить после победы: пауза перед следующей волной, по кнопке
@@ -577,6 +599,13 @@
       const cu = canUpgrade(S, c.cell, c.track); if (!cu.ok) return;
       pay(S, cu.cost); tw.tracks[c.track]++; tw.invested += cu.cost; tw.built = S.t;
       ev(S, 'upgrade', { cell: c.cell, track: c.track, step: tw.tracks[c.track], x: at[0], y: at[1] });
+    } else if (c.k === 'upgradeSet') {
+      if (!tw || tw.id !== c.towerId) return;
+      const quote = upgradeQuote(S, c.cell, c.levels); if (!quote.ok) return;
+      pay(S, quote.cost);
+      Object.assign(tw.tracks, c.levels);
+      tw.invested += quote.cost; tw.built = S.t;
+      ev(S, 'upgrade', { cell: c.cell, x: at[0], y: at[1] });
     } else if (c.k === 'perk') {
       const cp = canPerk(S, c.cell, c.p); if (!cp.ok) return;
       pay(S, cp.cost); tw.perks.push(c.p); tw.invested += cp.cost; tw.built = S.t;
@@ -1063,7 +1092,7 @@
   const SIM = {
     VIEW: { W, H }, L: LOOP, HINT: '', CONFIG: C, MAPGEN,
     create, step, at, selfCheck, doCmd, waveCount, lastWave, canEndless, relicDue, isBoss, preview, scoutRange, remaining, enemyStats, WAVEGEN, fill, perkText, perkAct, perksOf, hasPerk, freeSlots, muzzleH,
-    canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
+    canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, upgradeQuote, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
     hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, perkAt, hasteSouls, autoIn,

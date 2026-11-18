@@ -83,6 +83,56 @@ test('три ветки качаются каждая отдельно до св
   SIM.step(S, { cmds: [{ k: 'upgrade', cell, track: 'rate' }] }); assert.equal(tw.tracks.rate, 0);
 });
 
+test('набор ступеней: цена, целевые уровни, вложения и ручной выбор перка в подготовке и бою', () => {
+  for (const phase of ['prep', 'wave']) {
+    const S = SIM.create(4), cell = freeCell(S), levels = { dmg: 3, range: 0, rate: 3 };
+    S.souls = 1000;
+    SIM.doCmd(S, { k: 'build', cell, type: 'dark' });
+    if (phase === 'wave') SIM.doCmd(S, { k: 'call' });
+    const tw = S.towers[cell], before = tw.invested;
+    S.souls = 500;
+    const cmd = { k: 'upgradeSet', cell, towerId: tw.id, levels };
+    assert.deepEqual(SIM.upgradeQuote(S, cell, levels), { ok: true, reason: null, cost: 385 });
+    SIM.doCmd(S, cmd);
+    assert.deepEqual(tw.tracks, levels);
+    assert.equal(tw.invested - before, 385);
+    assert.equal(S.souls, 115);
+    assert.deepEqual(tw.perks, []);
+    assert.equal(SIM.canPerk(S, cell, 'split').need, 0);
+    SIM.doCmd(S, cmd);
+    assert.equal(S.souls, 115);
+  }
+});
+
+test('набор ступеней: отказ целиком при недостатке душ, негодной цели или замене башни', () => {
+  const S = SIM.create(12), cell = freeCell(S);
+  S.souls = 1000;
+  SIM.doCmd(S, { k: 'build', cell, type: 'dark' });
+  const tw = S.towers[cell], before = structuredClone(tw);
+  const buy = (levels, towerId = tw.id) => SIM.doCmd(S, { k: 'upgradeSet', cell, towerId, levels });
+  S.souls = 384;
+  buy({ dmg: 3, range: 0, rate: 3 });
+  assert.equal(S.souls, 384);
+  S.souls = 1000;
+  for (const levels of [null, [], { dmg: 1 }, { dmg: 1, range: 6, rate: 0 }, { dmg: 2, range: 1.5, rate: 0 }, { dmg: 3, range: -1, rate: 3 }]) buy(levels);
+  buy({ dmg: 2, range: 0, rate: 0 }, tw.id + 1);
+  assert.deepEqual(tw, before);
+  assert.equal(S.souls, 1000);
+});
+
+test('набор ступеней гибрида: потолок 8 и скидка округляется для каждой ступени как при одиночной покупке', () => {
+  const S = SIM.create(5), cell = freeCell(S); S.souls = 10000;
+  SIM.doCmd(S, { k: 'build', cell, type: 'dark' });
+  const tw = S.towers[cell];
+  tw.cap = 8; tw.tracks = { dmg: 5, range: 5, rate: 5 }; S.relics.push('chisel');
+  const single = structuredClone(S), levels = { dmg: 8, range: 5, rate: 7 };
+  for (const k of C.TRACKS) while (single.towers[cell].tracks[k] < levels[k]) SIM.doCmd(single, { k: 'upgrade', cell, track: k });
+  SIM.doCmd(S, { k: 'upgradeSet', cell, towerId: tw.id, levels });
+  assert.equal(S.souls, single.souls);
+  assert.equal(tw.invested, single.towers[cell].invested);
+  assert.deepEqual(tw.tracks, single.towers[cell].tracks);
+});
+
 test('у каждого старого типа три перка: оба прежних и третий новый', () => {
   const OLD = { bones: ['pierce', 'volley'], spirits: ['frost', 'pack'], plague: ['pestilence', 'acid'], dark: ['harvest', 'curse'] };
   for (const [type, old] of Object.entries(OLD)) {
