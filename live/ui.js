@@ -585,9 +585,10 @@
   let runGot = null;
   const credit = (S) => { if (S.demo) return null; const r = META.apply(profile(), META.result(S)); saveProfile(r.profile); return r; };
   const KIND = { tower: 'Башня', relic: 'Реликвия' };
-  const gotHTML = (got) => { if (!got || (!got.opened.length && !got.done.length)) return '';
+  const gotHTML = (got, canTry) => { if (!got || (!got.opened.length && !got.done.length)) return '';
     const by = new Set(got.opened.map((o) => o.by)), names = (id) => (C.UNLOCKS.achievements.find((a) => a.id === id) || {}).name || id;
-    const items = got.opened.map((o) => `<div class="got new"><b>${KIND[o.kind]}: ${o.name}</b><small>за «${o.byName}»</small></div>`)
+    const items = got.opened.map((o) => `<div class="got new"><b>${KIND[o.kind]}: ${o.name}</b><small>за «${o.byName}»</small>
+      ${o.kind === 'tower' ? `<span>${T[o.id].role}</span>${canTry ? `<button class="btn try" data-try="${o.id}">Испытать на этой карте</button>` : ''}` : ''}</div>`)
       .concat(got.done.filter((id) => !by.has(id)).map((id) => `<div class="got"><b>Достижение: ${names(id)}</b></div>`));
     return `<div class="unlocks"><div class="uh">${got.opened.length ? 'Открыто в этом забеге' : 'Достижения забега'}</div><div class="gl">${items.join('')}</div></div>`; };
   // Экран открытий (из меню): рекорды, башни и реликвии — открытые и закрытые с условием, достижения; «Открыть всё»
@@ -623,7 +624,7 @@
       : `<button class="btn green" id="e-again">Новый забег</button><button class="btn" id="e-replay">Переиграть сид ${S.seed}</button><button class="btn" id="e-menu">В главное меню</button>`;
     $('#end').innerHTML = `<div class="frame box"><h2 style="color:${won ? 'var(--soul)' : 'var(--bad)'}">${won ? 'Склеп устоял' : 'Склеп пал'}</h2>
       <p>${text}</p>${won ? '' : leaksHTML(S)}
-      ${gotHTML(runGot)}
+      ${gotHTML(runGot, !choice)}
       <div class="stats"><span>Сид</span><b>${S.seed}</b><span>Волна</span><b>${S.endless ? `${S.wave} · ∞` : `${S.wave} / ${R}`}</b><span>Время</span><b>${clock(S.stats.time)}</b><span>Врагов повержено</span><b>${S.stats.kills}</b>
       <span>Прочность склепа</span><b>${S.hp} / ${C.CRYPT_HP}</b><span>Собрано душ</span><b>${S.stats.earned}</b></div>
       <div class="col">${btns}</div></div>`;
@@ -634,6 +635,10 @@
       return; }
     $('#e-again').onclick = () => startRun();
     $('#e-replay').onclick = () => { const r = SIM.parseSeed(String(S.seed)); if (r.ok) startRun(r.seed); else AUDIO.ui('deny'); };
+    for (const b of $('#end').querySelectorAll('[data-try]')) b.onclick = () => {
+      startRun(S.seed);
+      cardAction(b.dataset.try);
+    };
     $('#e-menu').onclick = () => { showOverlay('end', false); APP.toMenu(); showMenu(); }; };
   // события, уже лежащие в загруженном забеге, отыграны до сохранения: не повторяем их тосты, звуки и окно «новый враг»
   const evKey = (e) => e.k + '|' + e.t.toFixed(4) + '|' + (e.x || 0).toFixed(1);
