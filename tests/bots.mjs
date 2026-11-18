@@ -20,6 +20,7 @@ const C = SIM.CONFIG, TW = C.TOWERS, MG = SIM.MAPGEN, WG = SIM.WAVEGEN;
 
 // открытое у нового профиля (первый забег человека); null — открыто всё
 export const NEW_PROFILE = META.unlocked(META.fresh());
+export const FIRST_RUN = { unlocked: NEW_PROFILE, firstRun: true };
 
 // ---------------------------------------------------------------- покрытие дороги (кэш на карту)
 const ROAD = new WeakMap();
@@ -289,7 +290,7 @@ export const planned = (mix, perks = PERK) => (S, mem) => {
 // всё); opts.endless — сколько волн играть после победы в бесконечном режиме (0 — закончить на победе).
 // Итог: { phase, wave, hp, t — секунд игры, win — время победы (секунд идущих волн, как в рекордах) или null, kills, souls, towers, waveLog, grim — душ в Гримуар }
 export const play = (bot, seed = 1, maxT = 5400, dt, opts = {}) => {
-  const S = SIM.create(seed, { dt, unlocked: opts.unlocked || null }), mem = {};
+  const S = SIM.create(seed, { dt, unlocked: opts.unlocked || null, firstRun: opts.firstRun }), mem = {};
   SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
   let i = 0, win = null;
   const waveLog = [], every = Math.max(1, Math.round(0.1 / S.dt)), stop = C.RUN_WAVES + (opts.endless || 0);

@@ -3,7 +3,7 @@
 // проверки tools/check.mjs (через tools/check/game.mjs). Полный прогон по многим сидам — вручную: node tools/balance.mjs.
 // Ожидания — по набору сидов, а не по одной партии: числа баланса двигаются, и один сид может перевалить через край.
 // Сиды подобраны с запасом: на них сильный бот побеждает с большой прочностью склепа, разумный — проходит далеко.
-import { play, smart, grim, random, idle, NEW_PROFILE, SIM } from './bots.mjs';
+import { play, smart, grim, random, idle, FIRST_RUN, SIM } from './bots.mjs';
 const C = SIM.CONFIG;
 
 const SEEDS = [4, 5, 12];   // по полному прогону: разумный бот побеждает на 4 и 12, на 5 падает на 19-й; сильный везде побеждает и живёт в бесконечном режиме 15 волн
@@ -33,7 +33,7 @@ export const RUNS = [
   ...SEEDS.map((seed) => ({ name: `random s${seed}`, bot: random, seed, want: RANDOM, ok: randomOk(seed) })),
 ];
 // крупный шаг: партии ботов быстрее; открыто — как у нового профиля (первый забег человека)
-export const playRun = (R) => play(R.bot, R.seed, undefined, 1 / 30, { unlocked: NEW_PROFILE });
+export const playRun = (R) => play(R.bot, R.seed, undefined, 1 / 30, FIRST_RUN);
 export const describe = (r) => `${r.phase.padEnd(4)} волна ${String(r.wave).padStart(2)} hp ${String(r.hp).padStart(2)} ${String(r.t).padStart(4)} с`;
 
 // итоги партий с запоминанием: каждая партия играется не больше одного раза за процесс

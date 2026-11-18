@@ -37,7 +37,7 @@ if (!isMainThread) {
   setCfg(B.SIM.CONFIG, workerData.set);
   parentPort.on('message', (job) => {
     if (!job) return process.exit(0);
-    const t0 = Date.now(), r = B.play(botOf(B, job.bot), job.seed, 5400, 1 / job.dt, { unlocked: job.open === 'all' ? null : B.NEW_PROFILE, endless: job.endless });
+    const t0 = Date.now(), r = B.play(botOf(B, job.bot), job.seed, 5400, 1 / job.dt, { ...(job.open === 'all' ? {} : B.FIRST_RUN), endless: job.endless });
     delete r.waveLog;
     parentPort.postMessage(Object.assign({ bot: job.bot, seed: job.seed, ms: Date.now() - t0 }, r));
   });
