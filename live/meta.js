@@ -77,8 +77,9 @@
     for (const a of cat.achievements) if (!q.done.includes(a.id) && met(a, run, tot)) { q.done.push(a.id); done.push(a.id); }
     const after = openSet(q, cat);
     q.unlocked = unlocked(q, cat) || [...after];
+    // Между before и after изменились только достижения: у каждого нового предмета есть выдавшее его достижение.
     const opened = cat.items.filter((it) => after.has(it.id) && !before.has(it.id))
-      .map((it) => ({ id: it.id, kind: it.kind, name: it.name, by: it.by, byName: (cat.achievements.find((a) => a.id === it.by) || {}).name || '' }));
+      .map((it) => ({ id: it.id, kind: it.kind, name: it.name, by: it.by, byName: cat.achievements.find((a) => a.id === it.by).name || '' }));
     return { profile: q, opened, done };
   };
 

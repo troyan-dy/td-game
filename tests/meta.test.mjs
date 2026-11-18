@@ -24,6 +24,55 @@ const lost = (wave, stats = {}) => ({ wave, won: false, endless: false, time: nu
 const win = (time, stats = {}) => ({ wave: RUN, won: true, endless: false, time, stats: Object.assign({ kills: 0, time }, stats) });
 const freeze = (o) => { Object.freeze(o); for (const k in o) if (o[k] && typeof o[k] === 'object') freeze(o[k]); return o; };
 
+test('каталог без словаря башен принимает массив реликвий и сохраняет порядок и имена', () => {
+  const rules = { startTowers: 1, startRelics: 1, achievements: [] };
+  const cfg = { UNLOCKS: rules, TOWER_ORDER: ['bones'], RELICS: [{ id: 'a' }, { id: 'b', name: 'Ключ' }] };
+  const compact = (cat) => cat.items.map(({ id, name, start }) => [id, name, start]);
+  assert.deepEqual(compact(META.catalog(cfg)), [['bones', 'bones', true], ['a', 'a', true], ['b', 'Ключ', false]]);
+  cfg.TOWERS = { bones: { title: 'Костяная башня' } };
+  assert.equal(META.catalog(cfg).items[0].name, 'Костяная башня');
+});
+
+test('достижение с пределом потерь открывает награду на точной границе', () => {
+  const cat = META.catalog({
+    UNLOCKS: { startTowers: 1, startRelics: 0, achievements: [{ id: 'guard', gives: 'relic', runMax: { leaks: 2 } }] },
+    TOWER_ORDER: ['bones'], RELICS: [{ id: 'gem' }],
+  });
+  const p = META.fresh(cat);
+  const over = META.apply(p, lost(2, { leaks: 3 }), cat);
+  assert.deepEqual(over.done, []);
+  const before = META.view(over.profile, cat);
+  assert.deepEqual(before.items.map(({ id, open, ach }) => [id, open, ach?.id]), [
+    ['bones', true, undefined], ['gem', false, 'guard'],
+  ]);
+  assert.equal(before.achievements[0].done, false);
+  const exact = META.apply(over.profile, lost(2, { leaks: 2 }), cat);
+  assert.deepEqual(exact.opened, [{ id: 'gem', kind: 'relic', name: 'gem', by: 'guard', byName: '' }]);
+  const after = META.view(exact.profile, cat);
+  assert.equal(after.items[1].open, true);
+  assert.equal(after.achievements[0].done, true);
+  assert.equal(before.items[1].open, false);
+});
+
+test('ранний выход без статистики сохраняет рекорд и уже открытые предметы', () => {
+  const p = META.fresh(FULL);
+  p.best = 7;
+  p.unlocked.push('retired');
+  const { profile, opened } = META.apply(p, { won: false, endless: false }, FULL);
+  assert.equal(profile.runs, 1);
+  assert.equal(profile.best, 7);
+  assert.deepEqual(profile.totals, {});
+  assert.ok(META.unlocked(profile, FULL).includes('retired'));
+  assert.deepEqual(opened, []);
+});
+
+test('победа без отдельного снимка берёт время из статистики забега', () => {
+  const stats = { time: 132, leaks: 1 };
+  assert.deepEqual(META.result({ phase: 'won', wave: RUN, stats }), {
+    wave: RUN, won: true, endless: false, time: 132, stats, base: null,
+  });
+});
+
 test('новый профиль получает перенос, старый сохраняет прежние реликвии и связь наград с достижениями', () => {
   const current = META.unlocked(META.fresh());
   assert.ok(current.includes('restless'));
