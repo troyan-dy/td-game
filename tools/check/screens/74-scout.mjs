@@ -156,10 +156,10 @@ export const steps = {
     await ctx.eval(() => { const s = APP.play; s.souls = 49; s.seen = Object.fromEntries(Object.keys(SIM.CONFIG.ENEMIES).map(k => [k, 1])); });
     await ctx.need('#scout-panel .hunt-stake:disabled');
     await ctx.eval(() => { APP.play.souls = 150; });
-    await ctx.need('#scout-panel .hunt-stake:enabled'); await ctx.shot('hunt_offer');
-    await ctx.click('#scout-panel .hunt-stake');
+    const button = await ctx.need('#scout-panel .hunt-stake:enabled'); await ctx.shot('hunt_offer');
+    await button.click();
     await ctx.page.waitForFunction(() => APP.play.hunt?.wave === 11 && APP.play.souls === 100);
-    await ctx.click('#wavebtn');
+    await (await ctx.need('#wavebtn')).click();
     await ctx.need('#scout.show .hunt-live');
     await ctx.shot('hunt_wave');
   },
