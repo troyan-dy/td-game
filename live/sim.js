@@ -240,7 +240,7 @@
   // положена ли реликвия после волны n: волны забега из C.RELIC.waves, в бесконечном режиме — каждая endlessEvery-я
   const relicDue = (n) => (n > C.RUN_WAVES ? n % C.RELIC.endlessEvery === 0 : C.RELIC.waves.includes(n));
   const isBoss = (n) => WAVEGEN.isBoss(n);
-  const ev = (S, k, o) => { S.ev.push(Object.assign({ k, t: S.t }, o || {})); };
+  const ev = (S, k, o) => { S.ev.push(Object.assign({ k, t: S.t }, o)); };
 
   // seed — сид забега (карта и случайность боя); opts.dt — шаг времени; opts.unlocked — открытые id (null — открыто всё)
   const create = (seed, opts) => {
@@ -476,10 +476,10 @@
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
-    const skel = makeSkel(S, towers[Object.keys(TW)[0]], S.map.road[0], { hp: 1, dmg: 1, hit: 1, reach: 1 }, 0);
     // образец, который не создался, молча отключил бы проверку формы своего типа: это ошибка разработки, падаем громко
     for (const [what, all] of [['башни', towers], ['врага', enemies]]) for (const type in all)
       if (kind(all[type]) !== 'object' || all[type].type !== type) throw new Error(`SIM.loadable: не создался образец ${what} ${type}`);
+    const skel = makeSkel(S, towers[Object.keys(TW)[0]], S.map.road[0], { hp: 1, dmg: 1, hit: 1, reach: 1 }, 0);
     // мелочь боя, у которой нет одного создателя: только поля, без которых шаг или кадр споткнутся
     return (SHAPE = JSON.parse(JSON.stringify({ state, towers, enemies, skel, queue: { at: 0, e: '' }, poison: { dps: 0, t: 0, tw: 0, pest: null },
       shot: { k: '', x: 0, y: 0 }, cloud: { x: 0, y: 0, r: 0, t: 0, T: 0, dps: 0, linger: 0 }, beam: { x0: 0, y0: 0, x1: 0, y1: 0, t: 0 }, ev: { k: '', t: 0 } })));
@@ -858,8 +858,7 @@
   };
   const attackOf = (tw) => { const a = TW[tw.type].attack; return own(ATTACKS, a) ? ATTACKS[a] : null; };
   // выстрел (или действие без целей): итоговые характеристики, если сработал (по ним перезарядка), иначе null
-  const fire = (S, tw) => {
-    const atk = attackOf(tw); if (!atk) return null;
+  const fire = (S, tw, atk) => {
     const st = towerStats(S, tw), cand = inRange(S, tw, st.rangePx); if (!cand.length && !atk.idle) return null;
     const [mx, my] = muzzle(S, tw);
     if (!atk.run(S, tw, st, cand, mx, my, fxOf(tw, st))) return null;
@@ -992,7 +991,7 @@
   // сколько враг пройдёт за t секунд с нынешней скоростью: скованный и оглушённый стоят, пока не очнутся; удержанный
   // скелетом стоит весь срок (когда отпустят — неизвестно); замедление и ускорение знаменосца — как в шаге
   const leadOf = (S, e, t) => {
-    if ((S.skels || []).some((k) => k.foe === e.id)) return 0;
+    if (S.skels.some((k) => k.foe === e.id)) return 0;
     const v = e.speed * (1 + (e.haste || 0)) * (e.slowT > 0 ? 1 - e.slowK : 1);
     return v * Math.max(0, t - Math.max(e.freezeT > 0 ? e.freezeT : 0, e.stunT > 0 ? e.stunT : 0)); };
   const step = (S, inp) => {
@@ -1066,7 +1065,11 @@
     // башни
     // перезарядка с переносом остатка шага: средний интервал выстрелов — ровно rate при любом шаге (иначе крупный шаг
     // округляет каждый интервал вверх до целого числа шагов и скорострельные башни теряют до нескольких процентов урона)
-    for (const tw of S.towers) { if (!tw || !attackOf(tw)) continue; tw.cd -= DT; if (tw.cd <= 0) { const st = fire(S, tw); tw.cd = st ? Math.max(0, tw.cd + st.rate) : 0.05; } }
+    for (const tw of S.towers) {
+      const atk = tw && attackOf(tw); if (!atk) continue;
+      tw.cd -= DT;
+      if (tw.cd <= 0) { const st = fire(S, tw, atk); tw.cd = st ? Math.max(0, tw.cd + st.rate) : 0.05; }
+    }
     stepShots(S);
     S.enemies = S.enemies.filter((e) => !e.dead);
     S.beams = S.beams.filter((b) => S.t - b.t < 0.35);
@@ -1079,7 +1082,7 @@
       ev(S, 'waveClear', { wave: S.wave, bonus });
       settleHunt(S);
       if (S.wave >= lastWave(S)) { S.phase = 'won'; S.wonStats = Object.assign({}, S.stats); ev(S, 'win', {}); }
-      else { S.phase = 'prep'; S.autoT = RC.autoDelay; S.hasteT = RL.haste.window; if (relicDue(S.wave)) offerRelics(S); }
+      else { S.phase = 'prep'; S.autoT = RC.autoDelay; S.hasteT = RL.haste.window; if (relicDue(S.wave) && !S.demo) offerRelics(S); }
     }
     pruneEv(S);
   };

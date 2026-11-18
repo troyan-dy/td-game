@@ -37,7 +37,9 @@ test('неоднозначные идентификаторы в конфиге 
   assert.throws(() => loadRules((c) => { c.TRACKS.push('bones'); }), /линия Гримуара bones повторяется/);
 });
 
-test('ошибка подготовки образца башни для сейва называет проблемный тип', () => {
-  const { SIM: game } = loadRules((c) => { c.TOWERS.dark.base.cost = 2e9; });
-  assert.throws(() => game.loadable(game.create(7)), /не создался образец башни dark/);
-});
+for (const type of ['bones', 'dark']) {
+  test(`ошибка подготовки образца башни для сейва называет проблемный тип ${type}`, () => {
+    const { SIM: game } = loadRules((c) => { c.TOWERS[type].base.cost = 2e9; });
+    assert.throws(() => game.loadable(game.create(7)), new RegExp(`не создался образец башни ${type}`));
+  });
+}
