@@ -72,10 +72,12 @@
   };
 
   // ---------------------------------------------------------------- проверка карты: список нарушений (пустой — карта годна)
-  const validate = (m) => { const road = m.road || [], f = roadProblems(m);
+  const validate = (m) => {
+    if (!Array.isArray(m?.road)) return ['дорога должна быть массивом клеток'];
+    const road = m.road, f = roadProblems(m);
     return road.every((i) => i >= 0 && i < m.cols * m.rows && i === Math.floor(i)) ? f.concat(cellProblems(m)) : f; };
   const roadProblems = (m) => {
-    const f = [], cols = m.cols, rows = m.rows, road = m.road || [];
+    const f = [], cols = m.cols, rows = m.rows, road = m.road;
     if (cols !== G.cols || rows !== G.rows) f.push(`поле ${cols}×${rows}, ожидалось ${G.cols}×${G.rows}`);
     if (road.length < MP.roadMin || road.length > MP.roadMax) f.push(`длина дороги ${road.length}, нужно ${MP.roadMin}–${MP.roadMax}`);
     for (const i of road) if (!(i >= 0 && i < cols * rows) || i !== Math.floor(i)) { f.push('клетка дороги вне поля: ' + i); return f; }

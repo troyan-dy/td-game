@@ -262,3 +262,10 @@ test('проверка карты возвращает список наруше
   const top = []; for (let x = 0; x < 20; x++) top.push(x);
   assert.ok(MAPGEN.validate({ cols: COLS, rows: ROWS, road: top }).some((s) => /HUD/.test(s)), 'дорога под HUD не замечена');
 });
+
+test('проверка карты без дороги возвращает причину отказа', () => {
+  const map = { cols: COLS, rows: ROWS, obstacles: [], specials: [] };
+  for (const road of [undefined, null, '1,2,3', []]) {
+    assert.ok(MAPGEN.validate({ ...map, road }).some((s) => /дорог/.test(s)));
+  }
+});
