@@ -1,9 +1,8 @@
-// node --test tests/*.test.mjs — забег на сгенерированной карте: команды, шаг времени, детерминизм, сейв, демо; боты — по tests/runs.mjs.
+// node --test tests/*.test.mjs — забег на сгенерированной карте: команды, шаг времени, детерминизм, сейв, демо.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { SIM, play, smart, planned } from './bots.mjs';
-import { RUNS, resultOf, results, describe } from './runs.mjs';
+import SIM from '../live/sim.js';
 const require = createRequire(import.meta.url);
 const MAPGEN = require('../live/mapgen.js');
 const C = SIM.CONFIG;
@@ -415,20 +414,6 @@ test('яд от облака «Мора» кончается в свой сро�
   assert.deepEqual(tough.poison, {}, `яд держится ${(S.t - last).toFixed(1)} с после последнего облака при сроке ${linger} с`);
 });
 
-test('ни в одном снимке партий ботов, берущих все перки, нет нечисловых значений', () => {
-  const sets = [{}, { bones: 'pierce', spirits: 'frost', plague: 'pestilence', dark: 'harvest', bell: 'toll', altar: 'frenzy', barracks: 'legion' }, { bones: 'crush', spirits: 'chill', plague: 'miasma', dark: 'split', bell: 'knell', altar: 'circle', barracks: 'burst' }];
-  const all = new Set(); for (const p of sets) for (const v of Object.values(p)) all.add(v);
-  for (const t of C.TOWER_ORDER) for (const p of Object.keys(T[t].perks)) if (!['volley', 'pack', 'acid', 'curse', 'drone', 'offering', 'grip'].includes(p)) assert.ok(all.has(p), 'перк не покрыт ботами: ' + p);
-  const bad = (o, path) => { if (typeof o === 'number') return Number.isFinite(o) ? null : path;
-    if (o && typeof o === 'object') for (const k of Object.keys(o)) { if (k === 'map') continue; const b = bad(o[k], path + '.' + k); if (b) return b; } return null; };
-  for (const perks of sets) {
-    const bot = planned(C.TOWER_ORDER, Object.keys(perks).length ? perks : undefined), S = SIM.create(3, { dt: 1 / 30 }), mem = {};
-    SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] }); let i = 0;
-    while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) { const c = i++ % 3 === 0 ? bot(S, mem) : null; SIM.step(S, c ? { cmds: c } : null);
-      if (i % 30 === 0) { const b = bad(S, 'S'); assert.equal(b, null, `нечисловое значение ${b} на ${S.t.toFixed(0)} с (перки ${JSON.stringify(perks)})`); } }
-  }
-});
-
 test('вид атаки, действующий без целей: зовётся и без врагов, перезарядка — только когда сработал', () => {
   let calls = 0, acted = 0;
   SIM.ATTACKS.zz_idle = { idle: true, run: () => { calls++; if (calls % 3) return false; acted++; return true; } };
@@ -670,15 +655,6 @@ test('враги идут по клеткам дороги и поворачив
     }
   }
   assert.ok(checked > 1000);
-});
-
-test('детерминизм: тот же сид и те же команды — тот же итог', () => {
-  const a = play(smart, 7, 900), b = play(smart, 7, 900);
-  assert.deepEqual(a, b);
-  const c = play(smart, 8, 900); assert.notDeepEqual(a.towers, c.towers);
-});
-for (const R of RUNS) test(`бот ${R.name}: ${R.want}`, () => {        // партии и ожидания — tests/runs.mjs
-  const r = resultOf(R.name); assert.ok(R.ok(r, results), `${R.name}: ${describe(r)}`);
 });
 
 test('состояние сериализуется в JSON без потерь (сейв)', () => {

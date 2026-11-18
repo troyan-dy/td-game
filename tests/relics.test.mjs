@@ -2,7 +2,7 @@
 // выбор останавливает забег, каждая реликвия берётся командой и работает, сейв на экране выбора.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM, smart, NEW_PROFILE } from './bots.mjs';
+import { SIM, NEW_PROFILE } from './bots.mjs';
 const C = SIM.CONFIG, RL = C.RELICS, IDS = Object.keys(RL), MAPGEN = SIM.MAPGEN;
 
 const json = (S) => JSON.parse(JSON.stringify(S));
@@ -148,16 +148,6 @@ test('реликвии: забег на экране выбора после JSO
   SIM.step(S, { cmds: [{ k: 'relic', i: 2 }] }); SIM.step(J, { cmds: [{ k: 'relic', i: 2 }] });
   run(S, 20); run(J, 20); assert.deepEqual(json(J), json(S));
   assert.equal(SIM.loadable(json(S)), true, 'после выбора');
-});
-
-test('реликвии: партия бота проходит экраны выбора (берёт первую) и её снимки годны', () => {
-  const S = SIM.create(2, { dt: 1 / 30 }), mem = {}; let i = 0, relicSnaps = 0;
-  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
-  while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
-    if (S.phase === 'relic') { relicSnaps++; assert.equal(SIM.loadable(json(S)), true, 'снимок экрана выбора, волна ' + S.wave); }
-    const cmds = i++ % 3 === 0 ? smart(S, mem) : null; SIM.step(S, cmds ? { cmds } : null);
-  }
-  assert.ok(S.relics.length >= 1 && relicSnaps >= 1, `реликвий ${S.relics.length}, волна ${S.wave}`);
 });
 
 // ---------------------------------------------------------------- каждая реликвия: берётся командой, забег идёт дальше, эффект

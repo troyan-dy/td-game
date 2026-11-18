@@ -44,6 +44,12 @@ node --test tests/*.test.mjs   # все тесты, включая быстру�
 node tools/check.mjs           # всё сразу: тесты, боты, браузер в окнах 1280 и 1920 (нужна переменная PLAYWRIGHT, см. AGENTS.md)
 ```
 
+Покрытие игровой логики юнит-тестами измеряется на Node.js 24. Команда запускает тесты через очередь CPU и возвращает ошибку, если покрытие строк, функций или ветвлений ниже 100%. Полные партии ботов запускаются общей командой выше.
+
+```sh
+node tools/slot.mjs --cpu node --test --experimental-test-coverage '--test-coverage-include=live/{config,mapgen,meta,rng,sim,wavegen}.js' --test-coverage-lines=100 --test-coverage-functions=100 --test-coverage-branches=100 'tests/!(bot-runs|slot).test.mjs'
+```
+
 Инструменты баланса (тяжёлый счёт — через очередь: `node tools/slot.mjs --cpu <команда>`):
 
 ```bash

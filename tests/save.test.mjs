@@ -1,7 +1,7 @@
 // node --test tests/*.test.mjs — сид забега и сейв: разбор введённого сида, пригодность сохранённого состояния (SIM.loadable).
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM, smart, idle, grim } from './bots.mjs';
+import SIM from '../live/sim.js';
 const C = SIM.CONFIG, WAVEGEN = SIM.WAVEGEN;
 
 const run = (S, sec) => { const n = Math.round(sec / S.dt); for (let i = 0; i < n; i++) SIM.step(S, null); };
@@ -68,21 +68,6 @@ test('сейв: живой забег и его JSON-копия дальше и�
   const L = midWave(), J = json(L);
   run(L, 20); run(J, 20);
   assert.deepEqual(json(J), json(L));
-});
-
-// Защита от расширений состояния: всё, что реально бывает в партии, проверка принимает.
-// Тикет, добавивший в состояние поле, которое проверка не понимает, увидит это здесь.
-for (const [name, bot, seed] of [['smart', smart, 1], ['idle', idle, 2], ['grim', grim, 3]]) test(`сейв: снимки партии бота ${name} годны на всём её ходу и в конце`, () => {
-  const S = SIM.create(seed, { dt: 1 / 30 }), mem = {}, every = Math.round(20 / S.dt); let i = 0, n = 0;
-  SIM.step(S, { cmds: [{ k: 'call' }, { k: 'auto', on: true }] });
-  while (S.phase !== 'won' && S.phase !== 'lost' && S.t < 5400) {
-    const cmds = i % 3 === 0 ? bot(S, mem) : null;
-    SIM.step(S, cmds ? { cmds } : null);
-    if (++i % every === 0) { n++; assert.equal(SIM.loadable(json(S)), true, `снимок на ${S.t.toFixed(0)} с, волна ${S.wave}, ${S.phase}`); }
-  }
-  assert.ok(n >= 5, 'снимков ' + n);
-  assert.ok(S.phase === 'won' || S.phase === 'lost', 'партия не закончилась');
-  assert.equal(SIM.loadable(json(S)), true, 'законченный забег (' + S.phase + ')');
 });
 
 test('сейв: старт волны за пределами забега не бросает исключение', () => {
