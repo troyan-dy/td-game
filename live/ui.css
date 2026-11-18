@@ -301,8 +301,9 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #07050d; }
 .unlocks .got.new { border-color: var(--gold); color: var(--text); }
 .unlocks .got small { display: block; font-size: 13px; color: var(--dim); }
 .unlocks .got span { display: block; color: var(--text); }
-.unlocks .try { display: block; margin: 4px auto 0; padding: 3px 9px; font: 700 15px var(--body); }
+.unlocks .try { display: block; margin: 4px auto 0; padding: 3px 9px; font: 700 15px var(--body); color: var(--text); }
 #end > .box { max-height: 96%; overflow-y: auto; }
+#end .box :is(.leaks, .unlocks, .stats) { max-width: 100%; }
 #meta .box { width: 900px; padding: 18px 26px 22px; }
 #meta h2 { margin-bottom: 10px; }
 #meta .recs { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
