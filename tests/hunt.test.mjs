@@ -43,7 +43,7 @@ test('одна прошедшая повозка допускается, ост�
   const control = structuredClone(s); delete control.hunt; assert.ok(SIM.loadable(control));
   clear(control); clear(s);
   assert.equal(s.souls - control.souls, 125);
-  assert.equal(s.stats.earned - control.stats.earned, 125);
+  assert.equal(s.stats.earned - control.stats.earned, 75);
   const loaded = structuredClone(s); assert.ok(SIM.loadable(loaded));
   SIM.step(loaded); assert.equal(loaded.souls, s.souls);
   call(loaded); assert.equal(loaded.hunt, null);

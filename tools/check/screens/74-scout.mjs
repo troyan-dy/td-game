@@ -56,6 +56,14 @@ export const steps = {
     await ctx.click('#wave-losses summary');
     const text = await ctx.eval(() => document.querySelector('#wave-losses[open] .breakdown')?.textContent);
     if (!text?.includes('Ополченец') || !text.includes('−10')) throw new Error('разбивка потерь первой волны: ' + text);
+    await g.frames(ctx);
+    const apart = await ctx.eval(() => {
+      const losses = document.querySelector('#wave-losses[open] .breakdown')?.getBoundingClientRect();
+      const scout = document.querySelector('#scout-panel.show')?.getBoundingClientRect();
+      return losses?.width > 0 && scout?.width > 0 &&
+        (losses.right <= scout.left || scout.right <= losses.left || losses.bottom <= scout.top || scout.bottom <= losses.top);
+    });
+    expect(apart, 'раскрытая сводка потерь и разведка должны быть видны целиком одновременно');
     await ctx.shot('wave_loss_details');
     await ctx.click('#wavebtn'); await g.applied(ctx);
     if (await ctx.eval(() => !document.querySelector('#wave-losses').hidden)) throw new Error('потери старой волны остались в бою');
@@ -157,8 +165,10 @@ export const steps = {
     await ctx.need('#scout-panel .hunt-stake:disabled');
     await ctx.eval(() => { APP.play.souls = 150; });
     const button = await ctx.need('#scout-panel .hunt-stake:enabled'); await ctx.shot('hunt_offer');
-    await button.click();
-    await ctx.page.waitForFunction(() => APP.play.hunt?.wave === 11 && APP.play.souls === 100);
+    // Два штатных способа активировать кнопку после Tab. Вызов волны остаётся отдельным действием.
+    await button.focus();
+    await ctx.page.keyboard.press(ctx.vw === 1280 ? 'Enter' : 'Space');
+    await ctx.page.waitForFunction(() => APP.play.hunt?.wave === 11 && APP.play.souls === 100 && APP.play.phase === 'prep' && !APP.paused);
     await (await ctx.need('#wavebtn')).click();
     await ctx.need('#scout.show .hunt-live');
     await ctx.shot('hunt_wave');

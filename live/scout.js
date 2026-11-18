@@ -76,11 +76,14 @@
     return { roadN, forbidden, cost: (forbidden ? 1e4 : 0) + roadN * 10 + under.length * 0.1 + (x - X0) * 0.002 }; };
   // раз на паузу (сид, номер волны, диапазон): высота — по самой высокой из листаемых волн, место — самое дешёвое
   const place = (S, r) => {
-    const key = JSON.stringify([S.seed, S.wave, r.from, r.to]); if (key === placeKey) return; placeKey = key;
+    const losses = $('#wave-losses[open]:not([hidden])');
+    const key = JSON.stringify([S.seed, S.wave, r.from, r.to, !!losses]); if (key === placeKey) return; placeKey = key;
     box.style.visibility = 'hidden'; box.classList.add('show'); let hh = 0;
     for (let n = r.from; n <= r.to; n++) { box.innerHTML = panelHTML(S, preview(S, n), r); hh = Math.max(hh, box.offsetHeight); }
-    const w = box.offsetWidth; let best = null;
-    for (let x = X0; x <= SIM.VIEW.W - 12 - w; x += STEP) { const c = spotCost(S, x, w, hh); if (!best || c.cost < best.cost) best = Object.assign({ x }, c); }
+    const w = box.offsetWidth, details = losses?.querySelector('.breakdown');
+    const left = details ? Math.max(X0, losses.offsetLeft + details.offsetLeft + details.offsetWidth + 12) : X0;
+    let best = null;
+    for (let x = left; x <= SIM.VIEW.W - 12 - w; x += STEP) { const c = spotCost(S, x, w, hh); if (!best || c.cost < best.cost) best = Object.assign({ x }, c); }
     box.style.left = best.x + 'px'; box.style.visibility = ''; boxKey = '';
     Object.assign(box.dataset, { road: best.roadN, forbidden: best.forbidden ? 1 : 0, height: hh });
   };

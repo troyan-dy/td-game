@@ -79,7 +79,9 @@ export const steps = {
     if (st.off || !st.all || !st.text.includes('Всё открыто')) throw new Error('«Открыть всё» открыло не всё: ' + JSON.stringify(st));
     await ctx.shot('meta_all');
     await back(ctx); await g.newGame(ctx, 5);
-    const run = await ctx.eval(() => ({ unlocked: APP.play.unlocked, locked: document.querySelectorAll('.card.locked').length }));
-    if (run.unlocked !== null || run.locked) throw new Error('после «Открыть всё» забег с закрытым: ' + JSON.stringify(run));
+    if (await ctx.eval(() => APP.play.unlocked !== null)) throw new Error('после «Открыть всё» в новом забеге остались закрытые типы');
+    await ctx.page.waitForFunction(() => document.querySelectorAll('#cards .card').length === SIM.CONFIG.TOWER_ORDER.length
+      && !document.querySelector('#cards .card.locked'), null, { timeout: 5000 })
+      .catch(() => { throw new Error('после «Открыть всё» карточки нового забега не сняли замки'); });
   },
 };

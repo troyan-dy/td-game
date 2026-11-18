@@ -249,7 +249,9 @@
       // Esc: сначала закрывает меню и отменяет открытый режим (перенос, слияние, выбор; окно Гримуара ловит Esc раньше), потом — меню
       if (k === 'Escape') { if (menuOpen()) closeMenu(); else if (upgradeDraft) closeUpgradeDraft(); else if (ui.move >= 0) cancelMove(); else if (ui.merge >= 0) cancelMerge(); else if (ui.sel >= 0 || ui.armed) select(-1); else openMenu(); e.preventDefault(); return; }
       if (menuOpen()) { if (k === 'Space') e.preventDefault(); return; }   // под меню игра молчит
-      if (k === 'Enter' && e.target.closest?.('#panel :is(.batch-open,.tier,.batch-back,.batch-buy)')) return;
+      // Нативная активация сфокусированной кнопки не должна одновременно вызвать волну или паузу.
+      const actionButton = e.target.closest?.('#panel :is(.batch-open,.tier,.batch-back,.batch-buy), .hunt-stake, #end [data-try]');
+      if (actionButton && (k === 'Enter' || (k === 'Space' && actionButton.matches(':focus-visible')))) return;
       if (k === 'Space') { togglePause(); e.preventDefault(); return; }
       if (k === 'KeyF') { cycleSpeed(); return; }
       if (k === 'KeyA') { toggleAuto(); return; }
@@ -649,7 +651,7 @@
   const gotHTML = (got, canTry) => { if (!got || (!got.opened.length && !got.done.length)) return '';
     const by = new Set(got.opened.map((o) => o.by)), names = (id) => (C.UNLOCKS.achievements.find((a) => a.id === id) || {}).name || id;
     const items = got.opened.map((o) => `<div class="got new"><b>${KIND[o.kind]}: ${o.name}</b><small>за «${o.byName}»</small>
-      ${o.kind === 'tower' ? `<span>${T[o.id].role}</span>${canTry ? `<button class="btn try" data-try="${o.id}">Испытать на этой карте</button>` : ''}` : ''}</div>`)
+      ${o.kind === 'tower' ? `<span>${T[o.id].role}</span>${canTry && o.id === 'bell' ? '<span>Ставь рядом с атакующей башней.</span>' : ''}${canTry ? `<button class="btn try" data-try="${o.id}">Испытать на этой карте</button>` : ''}` : ''}</div>`)
       .concat(got.done.filter((id) => !by.has(id)).map((id) => `<div class="got"><b>Достижение: ${names(id)}</b></div>`));
     return `<div class="unlocks"><div class="uh">${got.opened.length ? 'Открыто в этом забеге' : 'Достижения забега'}</div><div class="gl">${items.join('')}</div></div>`; };
   // Экран открытий (из меню): рекорды, башни и реликвии — открытые и закрытые с условием, достижения; «Открыть всё»

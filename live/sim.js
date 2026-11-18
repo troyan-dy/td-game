@@ -583,7 +583,8 @@
   const settleHunt = (S) => {
     if (!S.hunt || S.hunt.wave !== S.wave) return;
     const won = huntWon(S), payout = won ? C.HUNT.stake + C.HUNT.profit : 0;
-    S.souls += payout; S.stats.earned += payout;
+    S.souls += payout;
+    if (won) S.stats.earned += C.HUNT.profit;
     ev(S, 'huntEnd', { won, payout });
   };
   // сколько врагов волны ещё осталось: не вышедшие на дорогу и живые — вместе с теми, кто выйдет из них при смерти
