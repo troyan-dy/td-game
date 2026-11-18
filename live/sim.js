@@ -259,6 +259,7 @@
       grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
       leakBy: {},                                  // кто прорвался к склепу за забег: тип врага → сколько (экран поражения; сейвы без поля годны)
       waveLeakBy: {},                              // прорывы с начала текущей волны, сохраняются до вызова следующей
+      hunt: null,                                  // принятая охота сохраняется до начала следующей волны
     };
   };
 
@@ -524,6 +525,14 @@
     if (S.relics.length > chances) return false;
     if (S.phase !== 'relic') return S.offer === null;
     return Array.isArray(S.offer) && S.offer.length > 0 && JSON.stringify(S.offer) === JSON.stringify(drawRelics(S.seed, S.wave, S.relics, S.unlocked, S.firstRun)); };
+  const cartCount = (w) => w.squads.reduce((n, q) => n + (q.type === 'cart' ? q.count : 0), 0);
+  const huntOk = (S) => {
+    const h = S.hunt;
+    if (h == null) return true; // в старых сейвах этого поля нет
+    if (!int(h.wave, 1, lastWave(S)) || (h.wave !== S.wave && !(S.phase === 'prep' && h.wave === S.wave + 1 && h.passed === 0))) return false;
+    const carts = cartCount(WAVEGEN.wave(S.seed, h.wave));
+    return carts >= C.HUNT.minCarts && int(h.passed, 0, carts);
+  };
   // характеристики врагов и очередь выхода текущей (или только что отбитой) волны — ровно то, что генератор даёт от сида и
   // номера волны: иначе на дорогу выйдут враги с цифрами, которых нет в разведке. Реликвии и бой их не меняют. До первой волны их нет
   const waveOk = (S) => {
@@ -541,7 +550,7 @@
       if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
-      if (!relicsOk(S) || !waveOk(S)) return false;
+      if (!relicsOk(S) || !waveOk(S) || !huntOk(S)) return false;
       if (!GRIM.every((l) => int(S.grim[l.id], 0, l.cost.length))) return false;   // ступени Гримуара — целые до предела линии
       const ids = new Set(), freshId = (x) => { if (!int(x, 1, S.nid - 1) || ids.has(x)) return false; ids.add(x); return true; };
       for (let i = 0; i < S.towers.length; i++) { const tw = S.towers[i]; if (tw === null) continue;
@@ -565,6 +574,18 @@
   // Свежий объект на каждый вызов: менять его можно, на бой это не влияет.
   const scoutRange = (S) => ({ from: S.wave + 1, to: Math.min(lastWave(S), S.wave + C.SCOUT_AHEAD) });
   const preview = (S, n) => { const r = scoutRange(S); return Number.isInteger(n) && n >= r.from && n <= r.to ? WAVEGEN.wave(S.seed, n) : null; };
+  // Разведка передаёт своё закэшированное превью; команда проверяет волну заново.
+  const huntOffer = (S, w) => {
+    if (!w || S.phase !== 'prep' || w.n !== S.wave + 1 || w.n > lastWave(S) || cartCount(w) < C.HUNT.minCarts) return null;
+    return { wave: w.n, accepted: S.hunt?.wave === w.n, affordable: S.souls >= C.HUNT.stake };
+  };
+  const huntWon = (S) => !!S.hunt && S.hp > 0 && S.hunt.passed <= C.HUNT.maxPassed;
+  const settleHunt = (S) => {
+    if (!S.hunt || S.hunt.wave !== S.wave) return;
+    const won = huntWon(S), payout = won ? C.HUNT.stake + C.HUNT.profit : 0;
+    S.souls += payout; S.stats.earned += payout;
+    ev(S, 'huntEnd', { won, payout });
+  };
   // сколько врагов волны ещё осталось: не вышедшие на дорогу и живые — вместе с теми, кто выйдет из них при смерти
   // (повозка считается за себя и своих ополченцев сразу, поэтому число только убывает)
   const remaining = (S) => { let n = 0;
@@ -601,7 +622,13 @@
     if (S.phase === 'relic' && c.k !== 'relic') return;               // на выборе реликвии забег стоит: другие команды не действуют
     dropIndex();
     const tw = c.cell >= 0 && c.cell < cellCount(S) ? S.towers[c.cell] : null, at = tw ? cellXY(S, c.cell) : null;
-    if (c.k === 'build') {
+    if (c.k === 'hunt') {
+      if (S.phase !== 'prep' || c.wave !== S.wave + 1) return;
+      const offer = huntOffer(S, preview(S, c.wave));
+      if (!offer || offer.accepted || !offer.affordable) return;
+      pay(S, C.HUNT.stake); S.hunt = { wave: c.wave, passed: 0 };
+      ev(S, 'hunt', { wave: c.wave });
+    } else if (c.k === 'build') {
       const cb = canBuild(S, c.cell, c.type); if (!cb.ok) return;
       const [x, y] = cellXY(S, c.cell);
       pay(S, cb.cost);
@@ -661,6 +688,7 @@
   const startWave = (S) => {
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.autoT = 0; S.hasteT = 0;
     S.waveLeakBy = {};
+    if (S.hunt && S.hunt.wave !== S.wave) S.hunt = null;
     // описание волны считается заново от сида и номера; её характеристики врагов живут в состоянии забега до следующей волны
     const w = WAVEGEN.wave(S.seed, S.wave);
     S.queue = WAVEGEN.queue(w); S.waveStats = w.stats;
@@ -1014,6 +1042,7 @@
         if (!S.leakBy || typeof S.leakBy !== 'object' || Array.isArray(S.leakBy)) S.leakBy = {};
         S.leakBy[e.type] = (Number.isInteger(S.leakBy[e.type]) ? S.leakBy[e.type] : 0) + 1;
         if (S.waveLeakBy) S.waveLeakBy[e.type] = (S.waveLeakBy[e.type] || 0) + 1;
+        if (e.type === 'cart' && S.hunt) S.hunt.passed++;
         if (hasRelic(S, 'toll')) { S.souls += e.bounty; S.stats.earned += e.bounty; ev(S, 'toll', { x: cx, y: cy - 40, souls: e.bounty }); } }   // Плата за проход
     }
     // облака яда
@@ -1041,12 +1070,13 @@
     S.enemies = S.enemies.filter((e) => !e.dead);
     S.beams = S.beams.filter((b) => S.t - b.t < 0.35);
     // конец волны / партии
-    if (S.hp <= 0 && S.phase !== 'lost') { S.phase = 'lost'; ev(S, 'lose', {}); }
+    if (S.hp <= 0 && S.phase !== 'lost') { S.phase = 'lost'; settleHunt(S); ev(S, 'lose', {}); }
     else if (S.phase === 'wave' && S.qi >= S.queue.length && !S.enemies.length) {
       // Десятина — сумма по реликвиям; Ростовщик — доля душ в запасе до награды
       const interest = hasRelic(S, 'usury') ? Math.min(RL.usury.interestMax, Math.floor(S.souls * RL.usury.interest)) : 0;
       const bonus = C.WAVE_BONUS(S.wave) + relicSum(S, 'waveSouls') + interest; S.souls += bonus; S.stats.earned += bonus;
       ev(S, 'waveClear', { wave: S.wave, bonus });
+      settleHunt(S);
       if (S.wave >= lastWave(S)) { S.phase = 'won'; S.wonStats = Object.assign({}, S.stats); ev(S, 'win', {}); }
       else { S.phase = 'prep'; S.autoT = RC.autoDelay; S.hasteT = RL.haste.window; if (relicDue(S.wave)) offerRelics(S); }
     }
@@ -1111,7 +1141,7 @@
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, upgradeQuote, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
-    hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, waveLeakReport, perkAt, hasteSouls, autoIn,
+    hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, waveLeakReport, perkAt, hasteSouls, autoIn, huntOffer, huntWon,
     hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
     canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
     skelCells,

@@ -153,6 +153,7 @@ const BAD = {
   'шаг времени Number.MIN_VALUE': (S) => { S.dt = Number.MIN_VALUE; },
   'пауза после последней волны (автоплей через 1 с)': (S) => { S.phase = 'prep'; S.wave = SIM.waveCount(); S.auto = true; S.autoT = 1; S.enemies = []; S.queue = []; S.qi = 0; },
   'отсчёт автоплея длиннее задержки': (S) => { S.phase = 'prep'; S.autoT = C.RUN_CONTROL.autoDelay * 10; S.enemies = []; S.queue = []; S.qi = 0; },
+  'охота на чужую волну': (S) => { S.hunt = { wave: S.wave + 5, passed: 0 }; },
   'гигантский отсчёт автоплея': (S) => { S.phase = 'prep'; S.autoT = 1e300; S.enemies = []; S.queue = []; S.qi = 0; },
   'окно Нетерпения длиннее окна': (S) => { S.phase = 'prep'; S.hasteT = C.RUN_CONTROL.hasteWindow * 2; S.enemies = []; S.queue = []; S.qi = 0; },
   'автоплей строкой': (S) => { S.auto = 'да'; },

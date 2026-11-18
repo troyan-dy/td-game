@@ -44,6 +44,13 @@
       <div class="who"><span class="pic">${pic(q.type)}</span><span class="nm">${q.name}${q.ability ? '<i class="ab">✦</i>' : ''}</span><span class="n">×${q.count}</span></div>
       <span>${num(q.hp)}</span><span>${pct(q.armor)}</span><span>${pct(q.mres)}</span><span>${num(q.speed)}</span><span>${num(q.bounty)}</span></div>`).join('');
   const panelHTML = (S, w, r) => {
+    const offer = SIM.huntOffer(S, w), H = C.HUNT;
+    let hunt = '';
+    if (offer) {
+      const action = offer.accepted ? '<b>Ставка принята</b>' : `<button type="button" class="btn hunt-stake" data-wave="${w.n}" ${offer.affordable ? '' : 'disabled'}>${offer.affordable ? 'Поставить' : 'Нужно'} ${H.stake} душ</button>`;
+      hunt = `<div class="hunt-offer"><b>Охота на обоз</b><span>Пропусти не больше ${H.maxPassed} повозки и сохрани склеп. Выигрыш +${H.profit} душ, ставка вернётся.</span>${action}</div>`;
+    }
+    const last = S.hunt?.wave === S.wave && w.n === S.wave + 1 ? `<div class="hunt-result">${SIM.huntWon(S) ? 'Охота удалась · получено ' + (H.stake + H.profit) + ' душ' : 'Охота не удалась · ставка потеряна'}</div>` : '';
     const k = w.n - S.wave, when = k === 1 ? 'следующая' : `через ${k - 1} ${k === 2 ? 'волну' : 'волны'}`;
     return `<div class="hd"><button class="btn nav prev${w.n <= r.from ? ' off' : ''}" title="Раньше (←)">◂</button>
       <div class="tt">ВОЛНА ${w.n} <small>${when} · ${w.n - r.from + 1}/${r.to - r.from + 1}</small></div>
@@ -54,7 +61,7 @@
       <div class="grid"><div class="sq head"><div class="who">Отряд</div><span>HP</span><span>Броня</span><span>Магия</span><span>Скор.</span><span>Души</span></div>${squadRows(w)}</div>
       ${w.extra.map((x) => `<div class="extra">+${x.count} × ${x.name} из «${EN[x.from].name}», HP ${num(x.hp)}</div>`).join('')}
       <div class="tot"><span>Всего <b>${w.total.count}</b>${w.total.extra ? `<i>+${w.total.extra}</i>` : ''}</span><span>HP <b>${num(w.total.hp)}</b></span>
-      <span>Души <b>${num(w.total.bounty)}</b> +${num(w.bonus)} за волну</span></div>`;
+      <span>Души <b>${num(w.total.bounty)}</b> +${num(w.bonus)} за волну</span></div>${last}${hunt}`;
   };
 
   // место панели высотой ph и шириной pw: клетки под прямоугольником (с заметным перекрытием), дорога под ним, вход и склеп
@@ -91,6 +98,8 @@
     bar = h('div', 'scout', 'frame box'); box = h('div', 'scout-panel', 'frame'); tip = h('div', 'scout-tip', 'frame'); bar.title = 'Разведка (I)';
     root.insertBefore(bar, before); root.insertBefore(box, before); root.insertBefore(tip, before);
     bar.addEventListener('click', () => toggle());
+    box.addEventListener('click', (e) => { const b = e.target.closest('.hunt-stake');
+      if (b && !UI.held()) APP.cmd({ k: 'hunt', wave: Number(b.dataset.wave) }); });
     box.addEventListener('click', (e) => { const b = e.target.closest('.nav'); if (!b) return;
       if (b.classList.contains('x')) toggle(false); else turn(b.classList.contains('next') ? 1 : -1); });
     // подсказка: способность отряда или описание свойства — рядом с панелью, на высоте строки
@@ -112,18 +121,20 @@
     if (S !== lastS || S.phase !== lastPhase) { if (S.phase === 'prep') { open = true; page = 0; } lastS = S; lastPhase = S.phase; boxKey = ''; barKey = ''; }
     const r = SIM.scoutRange(S), prep = S.phase === 'prep', can = prep && r.from <= r.to, next = can ? preview(S, r.from + page) : null;
     // строка: в паузе — коротко о следующей волне, во время волны — сколько врагов осталось (с теми, кто выйдет из повозок)
-    const bk = prep ? JSON.stringify([S.seed, S.wave, can, expanded(S)]) : 'w' + S.wave + ':' + SIM.remaining(S);
+    const bk = prep ? JSON.stringify([S.seed, S.wave, can, expanded(S)]) : 'w' + S.wave + ':' + SIM.remaining(S) + ':' + S.hunt?.passed;
     if (bk !== barKey) { barKey = bk;
       if (can) { const w = preview(S, r.from), all = w.total.count + w.total.extra;
         const bn = w.boss ? 0 : [...Array(r.to - r.from).keys()].map((i) => r.from + 1 + i).find((n) => SIM.isBoss(n));   // босс дальше в разведке
         bar.innerHTML = `<span>ВОЛНА ${w.n}</span>${w.boss ? '<span class="bad">☠ БОСС</span>' : ''}${bn ? `<span class="bad">☠ на ${bn}-й</span>` : ''}<span>${all} ${enemyWord(all)}</span>${w.trait ? `<span class="tr">⚑ ${w.trait.name}</span>` : ''}<span class="ar">${expanded(S) ? '▴' : '▾'}</span>`; }
       else if (prep) bar.innerHTML = '<span class="k">РАЗВЕДКА</span><span>волн больше нет</span>';
-      else { const n = SIM.remaining(S); bar.innerHTML = `<span class="k">ВОЛНА ${S.wave}</span><span>осталось <b>${n}</b> ${enemyWord(n)}</span>`; }
+      else { const n = SIM.remaining(S); bar.innerHTML = S.phase === 'wave' && S.hunt
+        ? `<span>Осталось <b>${n}</b></span><span class="hunt-live">Обоз · пропущено ${S.hunt.passed}/${C.HUNT.maxPassed}</span>`
+        : `<span class="k">ВОЛНА ${S.wave}</span><span>осталось <b>${n}</b> ${enemyWord(n)}</span>`; }
       bar.classList.toggle('live', !prep); bar.classList.toggle('boss', !!(can && preview(S, r.from).boss)); }
     bar.classList.add('show');
     const show = !!next && expanded(S);
     if (show) place(S, r);
     box.classList.toggle('show', show); if (!show) hideTip();
-    if (show) { const key = JSON.stringify([S.seed, S.wave, next.n]); if (key !== boxKey) { boxKey = key; box.innerHTML = panelHTML(S, next, r); box.classList.toggle('boss', !!next.boss); hideTip(); } }
+    if (show) { const key = JSON.stringify([S.seed, S.wave, next.n, S.hunt?.wave, S.souls >= C.HUNT.stake]); if (key !== boxKey) { boxKey = key; box.innerHTML = panelHTML(S, next, r); box.classList.toggle('boss', !!next.boss); hideTip(); } }
   };
 })();
