@@ -13,6 +13,27 @@ const clearWave = (S) => { cmd(S, { k: 'call' }); S.qi = S.queue.length; S.enemi
 // идущая волна зачищена на следующем шаге (без вызова)
 const finish = (S) => { S.qi = S.queue.length; S.enemies = []; S.shots = []; SIM.step(S, null); };
 
+test('потери отбитой волны переживают сохранение и не переносятся в чистую волну', () => {
+  const S = SIM.create(4, { dt: 1 / 30 });
+  SIM.doCmd(S, { k: 'call' });
+  while (S.phase === 'wave') SIM.step(S);
+  assert.equal(S.phase, 'prep');
+  const report = SIM.waveLeakReport(S);
+  assert.ok(report.length > 0);
+  assert.equal(report.reduce((sum, row) => sum + row.hp, 0), C.CRYPT_HP - S.hp);
+  const saved = json(S);
+  assert.ok(SIM.loadable(saved));
+  assert.deepEqual(SIM.waveLeakReport(saved), report);
+  clearWave(saved);
+  assert.deepEqual(SIM.waveLeakReport(saved), []);
+  assert.deepEqual(SIM.leakReport(saved), report);
+  delete S.waveLeakBy;
+  assert.ok(SIM.loadable(S), 'сейв предыдущей версии пригоден');
+  assert.deepEqual(SIM.waveLeakReport(S), []);
+  S.waveLeakBy = { cart: -1 };
+  assert.equal(SIM.loadable(S), false);
+});
+
 test('числа управления забегом — в конфиге', () => {
   assert.ok(RC.autoDelay > 0 && RC.autoDelay <= 10, 'задержка автоплея ' + RC.autoDelay);
   assert.ok(RC.hasteWindow > RC.autoDelay, 'окно Нетерпения ' + RC.hasteWindow);

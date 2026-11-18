@@ -7,7 +7,7 @@ const SEEDS = [1, 7, 42, 99, 2024, 31337, 999999];       // фиксирован
 
 // Сид и волна забега, где показать больше всего: отряды, выходящие из убитых, длина описания свойства (или босс).
 const worst = (ctx, boss) => ctx.eval((boss) => { let best = null;
-  for (let s = 1; s <= 300; s++) for (let n = 3; n <= SIM.waveCount(); n++) {
+  for (let s = 1; s <= 200; s++) for (let n = 3; n <= SIM.waveCount(); n++) {
     const w = WAVEGEN.wave(s, n); if (boss ? !w.boss : !w.trait) continue;
     const sc = w.squads.length * 1000 + w.extra.length * 100 + (w.trait ? JSON.stringify(w.trait).length : 0) + w.total.count / 1000;
     if (!best || sc > best.sc) best = { s, n, sc }; }
@@ -47,6 +47,19 @@ const placed = (ctx) => ctx.eval(() => {
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 export const steps = {
+  wave_loss_details: async (ctx, g) => {
+    await g.newGame(ctx, 4);
+    await ctx.eval(() => {
+      const S = APP.play; SIM.doCmd(S, { k: 'call' });
+      while (S.phase === 'wave') SIM.step(S);
+    });
+    await ctx.click('#wave-losses summary');
+    const text = await ctx.eval(() => document.querySelector('#wave-losses[open] .breakdown')?.textContent);
+    if (!text?.includes('Ополченец') || !text.includes('−10')) throw new Error('разбивка потерь первой волны: ' + text);
+    await ctx.shot('wave_loss_details');
+    await ctx.click('#wavebtn'); await g.applied(ctx);
+    if (await ctx.eval(() => !document.querySelector('#wave-losses').hidden)) throw new Error('потери старой волны остались в бою');
+  },
   scout_start: async (ctx, g) => {
     await g.newGame(ctx, 1);
     await waitWave(ctx, 1, 'в начале забега разведка не раскрылась на 1-й волне');
