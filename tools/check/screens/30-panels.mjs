@@ -53,5 +53,29 @@ export async function steps(ctx, g) {
   };
   out.panel_empty = async () => { await ctx.eval(() => { document.getElementById('tip').classList.remove('show'); APP.play.souls = 99999; });
     await g.select(ctx, spots[types.length + 1]); await ctx.shot('panel_empty'); };
+  out.panel_upgrade_set = async () => {
+    await g.newGame(ctx, 4);
+    const cell = (await g.spots(ctx))[0];
+    await g.build(ctx, cell, 'dark'); await g.select(ctx, cell);
+    await ctx.eval(() => { APP.play.souls = 300; });
+    const click = (selector) => ctx.page.locator(selector).click();
+    await click('#panel .batch-open');
+    for (const k of ['dmg', 'rate']) await click(`#panel [data-track="${k}"] [data-n="3"]`);
+    const buy = ctx.page.locator('#panel .batch-buy');
+    if (!await buy.isDisabled() || !((await ctx.page.locator('.batch-balance').innerText()).includes('85')))
+      throw new Error('при 300 душах набор за 385 должен показать нехватку 85');
+    await ctx.shot('panel_upgrade_set_poor');
+    await ctx.eval(() => { APP.play.souls = 500; });
+    await ctx.page.waitForFunction(() => !document.querySelector('.batch-buy').disabled);
+    if (!(await buy.innerText()).includes('385') || !(await ctx.page.locator('.batch-balance').innerText()).includes('115'))
+      throw new Error('цена набора или остаток душ не обновились');
+    await ctx.shot('panel_upgrade_set');
+    await click('#wavebtn'); await ctx.page.waitForFunction(() => APP.play.phase === 'wave');
+    await buy.click(); await g.applied(ctx);
+    const result = await ctx.eval((c) => ({ t: APP.play.towers[c].tracks, p: APP.play.towers[c].perks, souls: APP.play.souls }), cell);
+    if (result.t.dmg !== 3 || result.t.rate !== 3 || result.t.range !== 0 || result.p.length || result.souls !== 115)
+      throw new Error('неверный результат покупки в бою: ' + JSON.stringify(result));
+    await ctx.shot('panel_upgrade_set_bought');
+  };
   return out;
 }
