@@ -269,3 +269,88 @@ test('проверка карты без дороги возвращает пр�
     assert.ok(MAPGEN.validate({ ...map, road }).some((s) => /дорог/.test(s)));
   }
 });
+
+test('валидатор сообщает о неверном размере поля и недопустимых индексах клеток', () => {
+  const good = mapOf(7);
+  for (const cell of [-1, COLS * ROWS, 4.5]) {
+    const errors = MAPGEN.validate({ ...good, road: [good.road[0], cell] });
+    assert.ok(errors.includes('клетка дороги вне поля: ' + cell));
+  }
+  // Клетки внутри поля, но оба шага диагональные. Валидатор должен проверить и дорогу, и расстановку.
+  const diagonal = [5 * COLS + 5, 4 * COLS + 4, 3 * COLS + 5];
+  const broken = MAPGEN.validate({ cols: COLS, rows: ROWS, road: diagonal, specials: [{ cell: 5 * COLS + 4, kind: 'well' }] });
+  assert.deepEqual(broken.filter((s) => s.startsWith('разрыв дороги')), ['разрыв дороги между 0 и 1', 'разрыв дороги между 1 и 2']);
+  assert.ok(broken.some((s) => s.includes('нет особой клетки вида')));
+  const empty = MAPGEN.validate({ cols: 1, rows: 1, road: [] });
+  assert.ok(empty.some((s) => s.startsWith('поле 1×1')));
+  assert.ok(empty.some((s) => s.includes('препятствий 0.0%')));
+
+  const errors = MAPGEN.validate({
+    ...good,
+    obstacles: [...good.obstacles, { cell: -1, kind: 'tree' }, { cell: good.road[4], kind: 'fog' }],
+    specials: [...good.specials, { cell: COLS * ROWS, kind: 'mound' }, { cell: good.road[0], kind: 'well' }],
+  });
+  for (const reason of ['препятствие вне поля: -1', 'препятствие неизвестного вида «fog»: ' + good.road[4],
+    'особая клетка вне поля: ' + COLS * ROWS, 'особая клетка вплотную ко входу или склепу: ' + good.road[0]]) {
+    assert.ok(errors.includes(reason), reason);
+  }
+});
+
+test('поиск вида клетки без расстановки и на двух отдельных картах', () => {
+  const bare = { cols: COLS, rows: ROWS, road: [] };
+  assert.equal(MAPGEN.obstacle(bare, 4), null);
+  assert.equal(MAPGEN.special(bare, 7), null);
+  const decorated = { ...bare, obstacles: [{ cell: 4, kind: 'tree' }], specials: [{ cell: 7, kind: 'well' }] };
+  assert.equal(MAPGEN.obstacle(decorated, 4), 'tree');
+  assert.equal(MAPGEN.special(decorated, 7), 'well');
+  assert.equal(MAPGEN.obstacle(bare, 4), null);
+});
+
+test('на всех восьми поворотах маршрут проходит короткую четверть окружности', () => {
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]], tile = C.GRID.tile, r = C.MAP.cornerR;
+  const cell = 5 * COLS + 5, x = 5.5 * tile, y = 5.5 * tile;
+  for (const [ux, uy] of dirs) for (const [vx, vy] of dirs) {
+    if (ux * vx + uy * vy !== 0) continue;
+    const road = [cell - ux - uy * COLS, cell, cell + vx + vy * COLS];
+    const points = MAPGEN.route({ cols: COLS, rows: ROWS, road });
+    const first = points.findIndex(([px, py]) => Math.hypot(px - (x - ux * r), py - (y - uy * r)) < 1e-8);
+    const last = points.findIndex(([px, py]) => Math.hypot(px - (x + vx * r), py - (y + vy * r)) < 1e-8);
+    assert.ok(first >= 0 && last > first);
+    const cx = x - ux * r + vx * r, cy = y - uy * r + vy * r;
+    let length = 0;
+    for (let i = first; i <= last; i++) {
+      const [px, py] = points[i];
+      assert.ok(Math.abs(Math.hypot(px - cx, py - cy) - r) < 1e-8);
+      if (i > first) length += Math.hypot(px - points[i - 1][0], py - points[i - 1][1]);
+    }
+    assert.ok(Math.abs(length - Math.PI * r / 2) < 0.1);
+  }
+});
+
+test('маршрут входит снаружи каждой границы, клетки включают верхнюю и левую грани', () => {
+  const cols = 5, rows = 4, tile = C.GRID.tile, map = { cols, rows };
+  for (const [gate, toward, dx, dy] of [[5, 6, -1, 0], [9, 8, 1, 0], [2, 7, 0, -1], [17, 12, 0, 1]]) {
+    const [x, y] = MAPGEN.cellXY(map, gate);
+    const path = MAPGEN.route({ ...map, road: [gate, toward] });
+    assert.deepEqual(path[0], [x + dx * tile, y + dy * tile]);
+    assert.equal(MAPGEN.cellAt(map, ...path[0]), -1);
+    assert.equal(MAPGEN.cellAt(map, x - tile / 2, y - tile / 2), gate);
+    assert.equal(MAPGEN.cellAt(map, ...path[path.length - 1]), toward);
+  }
+});
+
+test('исчерпание попыток генерации сообщает сид и этап отказа', (t) => {
+  const map = C.MAP, ob = map.obstacles;
+  const { roadMin, attempts } = map, { nearMin, attempts: placements } = ob;
+  t.after(() => {
+    Object.assign(map, { roadMin, attempts });
+    Object.assign(ob, { nearMin, attempts: placements });
+  });
+  map.attempts = 1;
+  map.roadMin = map.roadMax + 1;
+  assert.throws(() => MAPGEN.generate(7), /нет годной карты для сида 7/);
+  Object.assign(map, { roadMin, attempts });
+  ob.attempts = 1;
+  ob.nearMin = COLS * ROWS;
+  assert.throws(() => MAPGEN.generate(7), /нет расстановки препятствий для сида 7/);
+});

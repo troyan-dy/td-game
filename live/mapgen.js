@@ -45,11 +45,10 @@
     // можно ли положить клетку (x, y) следующей: внутри поля и не на его краю, свободна, не касается чужих витков ни боком, ни углом
     const free = (x, y) => {
       if (x < 0 || y < 0 || x >= cols || y >= rows || inKeepout(x, y) || onEdge(x, y, cols, rows)) return false;
-      const i = y * cols + x; if (used.has(i)) return false;
       const prev = road[road.length - 1], prev2 = road.length > 1 ? road[road.length - 2] : -1;
-      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { if (!dx && !dy) continue;
-        const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
-        const j = ny * cols + nx; if (!used.has(j) || j === prev) continue;
+      // Кандидат внутри поля и не на его краю: весь квадрат 3×3, включая саму клетку, лежит на карте.
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const j = (y + dy) * cols + x + dx; if (!used.has(j) || j === prev) continue;
         if (j === prev2 && dx && dy) continue;                       // угол поворота: соседство по диагонали со своей же клеткой
         return false; }
       return true; };
@@ -137,7 +136,8 @@
       for (const [px, py] of pts) { const v = (px - x) * (px - x) + (py - y) * (py - y) <= R * R; if (v && !inr) runs++; inr = v; }
       return runs >= 2; }); };
   const pickWeighted = (pairs, R) => { let s = 0; for (const p of pairs) s += p[1]; let u = R() * s;
-    for (const [v, w] of pairs) { u -= w; if (u < 0) return v; } return pairs[pairs.length - 1][0]; };
+    for (let i = 0; i < pairs.length - 1; i++) { u -= pairs[i][1]; if (u < 0) return pairs[i][0]; }
+    return pairs[pairs.length - 1][0]; };
 
   // расстановка после выбора дороги (дорога по сиду от неё не зависит): k — номер попытки, у каждой свои потоки
   const decorate = (m, k) => {

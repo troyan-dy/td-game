@@ -7,6 +7,13 @@ const RNG = require('../live/rng.js');
 
 const take = (f, n) => Array.from({ length: n }, f);
 
+test('неназванный поток имеет номер 0 и сохраняет последовательность для старых сидов', () => {
+  assert.equal(RNG.seed(0), 2388540327);
+  assert.equal(RNG.seed(0, '', 0), RNG.seed(0));
+  const next = RNG.stream(0);
+  assert.deepEqual(take(() => next() * 2 ** 32, 3), [336309845, 3768188672, 864577953]);
+});
+
 test('поток от сида и имени детерминирован, значения в [0, 1)', () => {
   const a = take(RNG.stream(42, 'waves'), 50), b = take(RNG.stream(42, 'waves'), 50);
   assert.deepEqual(a, b);
