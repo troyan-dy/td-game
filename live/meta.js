@@ -19,8 +19,10 @@
   // achievements — из конфига, с item — id предмета, который достижение открывает (null — предмета не хватило)
   const catalog = (cfg) => {
     cfg = cfg || C; const U = cfg.UNLOCKS, T = cfg.TOWERS || {};
+    const relics = new Map(relicList(cfg));
+    const order = [...new Set([...(U.relicOrder || []), ...relics.keys()])].filter((id) => relics.has(id));
     const items = cfg.TOWER_ORDER.map((id, i) => ({ id, kind: 'tower', name: (T[id] && (T[id].name || T[id].title)) || id, full: (T[id] && T[id].title) || '', start: i < U.startTowers, by: null }))
-      .concat(relicList(cfg).map(([id, r], i) => ({ id, kind: 'relic', name: (r && r.name) || id, start: i < U.startRelics, by: null })));
+      .concat(order.map((id, i) => ({ id, kind: 'relic', name: relics.get(id)?.name || id, start: i < U.startRelics, by: null })));
     const achievements = U.achievements.map((a) => Object.assign({}, a, { item: null }));
     for (const kind of ['tower', 'relic']) {
       const locked = items.filter((it) => it.kind === kind && !it.start);

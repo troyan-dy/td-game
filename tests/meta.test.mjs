@@ -24,6 +24,20 @@ const lost = (wave, stats = {}) => ({ wave, won: false, endless: false, time: nu
 const win = (time, stats = {}) => ({ wave: RUN, won: true, endless: false, time, stats: Object.assign({ kills: 0, time }, stats) });
 const freeze = (o) => { Object.freeze(o); for (const k in o) if (o[k] && typeof o[k] === 'object') freeze(o[k]); return o; };
 
+test('новый профиль получает перенос, старый сохраняет прежние реликвии и связь наград с достижениями', () => {
+  const current = META.unlocked(META.fresh());
+  assert.ok(current.includes('restless'));
+  assert.ok(!current.includes('tithe'));
+  assert.equal(current.filter((id) => id in C.RELICS).length, 10);
+  const awards = Object.fromEntries(META.catalog().items.filter((it) => it.kind === 'relic' && it.by).map((it) => [it.by, it.id]));
+  assert.deepEqual(awards, { wave5: 'caustic', kills500: 'deal', runs3: 'twin', wave15: 'tithe', souls3000: 'cornerstone',
+    kills2500: 'hallowed', steady: 'toll', fast: 'haste', wave25: 'insight', wins3: 'usury' });
+  const old = { ...META.fresh(), runs: 2, done: ['wave5'], unlocked: [...OLD, ...Object.keys(C.RELICS).slice(0, 10), 'caustic'] };
+  const after = META.unlocked(META.load(old));
+  assert.ok(old.unlocked.every((id) => after.includes(id)));
+  assert.ok(after.includes('restless'));
+});
+
 test('новый профиль: открыты четыре старые башни и стартовые реликвии, рекордов нет', () => {
   const p = META.fresh(FULL), open = META.unlocked(p, FULL);
   assert.deepEqual(open.filter((id) => FULL.items.find((it) => it.id === id).kind === 'tower'), OLD);

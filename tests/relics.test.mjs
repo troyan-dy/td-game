@@ -2,7 +2,7 @@
 // выбор останавливает забег, каждая реликвия берётся командой и работает, сейв на экране выбора.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SIM, smart } from './bots.mjs';
+import { SIM, smart, NEW_PROFILE } from './bots.mjs';
 const C = SIM.CONFIG, RL = C.RELICS, IDS = Object.keys(RL), MAPGEN = SIM.MAPGEN;
 
 const json = (S) => JSON.parse(JSON.stringify(S));
@@ -45,6 +45,34 @@ test('реликвии: пул около 20, примерно половина 
 });
 
 // ---------------------------------------------------------------- выбор
+test('первый забег: после пятой волны можно взять перенос или одну из двух обычных реликвий', () => {
+  for (const seed of [1, 4, 5, 12]) {
+    const S = SIM.create(seed, { unlocked: NEW_PROFILE, firstRun: true });
+    toWave(S, 5);
+    assert.ok(S.offer.includes('restless'));
+    assert.equal(new Set(S.offer).size, 3);
+    assert.equal(S.offer.filter((id) => RL[id].kind === 'num').length, 2);
+    assert.ok(SIM.loadable(json(S)));
+    const pick = S.offer.findIndex((id) => id !== 'restless');
+    SIM.step(S, { cmds: [{ k: 'relic', i: pick }] });
+    toWave(S, 10);
+    assert.deepEqual(S.offer, SIM.drawRelics(seed, 10, S.relics, NEW_PROFILE));
+  }
+});
+
+test('обычная жеребьёвка и старый сейв продолжают прежнюю партию', () => {
+  const unlocked = [...C.TOWER_ORDER.slice(0, 4), 'marrow', 'lampoil', 'bile', 'lens', 'dust', 'tithe', 'coin', 'ossuary', 'hoard', 'chisel'];
+  const S = SIM.create(4, { unlocked });
+  delete S.firstRun;
+  toWave(S, 4);
+  assert.ok(SIM.loadable(json(S)));
+  clearWave(S);
+  assert.deepEqual(S.offer, ['hoard', 'tithe', 'coin']);
+  assert.ok(SIM.loadable(json(S)));
+  const later = toWave(SIM.create(4, { unlocked: NEW_PROFILE }), 5);
+  assert.deepEqual(later.offer, SIM.drawRelics(4, 5, [], NEW_PROFILE));
+});
+
 test('реликвии: после 5-й волны забег стоит, пока не выбрана реликвия; выбор по номеру предложения', () => {
   const S = SIM.create(11);
   toWave(S, 4); clearWave(S);
