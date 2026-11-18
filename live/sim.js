@@ -252,6 +252,7 @@
       relics: [], offer: null, waveMoved: 0,       // взятые реликвии, предложение (только в фазе 'relic'), волна последнего переноса посреди боя
       grim: Object.fromEntries(GRIM.map((l) => [l.id, 0])),
       leakBy: {},                                  // кто прорвался к склепу за забег: тип врага → сколько (экран поражения; сейвы без поля годны)
+      waveLeakBy: {},                              // прорывы с начала текущей волны, сохраняются до вызова следующей
     };
   };
 
@@ -441,6 +442,7 @@
     if (SHAPE) return SHAPE;
     const state = JSON.parse(JSON.stringify(create(DEMO_SEED))), S = create(DEMO_SEED), cells = rankCells(S, 3), towers = {}, enemies = {};
     state.leakBy = null;                                              // счётчик прорывов — только для показа: сейв без него (прежней сборки) годен
+    state.waveLeakBy = null;
     S.souls = 1e9; S.wave = 1;
     Object.keys(TW).forEach((type, i) => { doCmd(S, { k: 'build', cell: cells[i], type }); towers[type] = S.towers[cells[i]]; });
     for (const type of Object.keys(EN)) enemies[type] = spawnEnemy(S, type, 0);
@@ -504,6 +506,8 @@
       if (kind(S) !== 'object' || S.v !== C.VERSION || kind(S.map) !== 'object') return false;
       if (!(S.dt >= C.DT_MIN && S.dt <= C.DT_MAX)) return false;               // мельче — проба шла бы бесконечно
       if (!like(S, sh.state, S.dt) || !bounded(S)) return false;
+      if (S.waveLeakBy !== undefined && (kind(S.waveLeakBy) !== 'object' ||
+        !Object.entries(S.waveLeakBy).every(([id, n]) => own(EN, id) && int(n, 1, C.SAVE_NUM_MAX)))) return false;
       if (!int(S.seed, 0, C.SEED.max) || JSON.stringify(S.map) !== mapOfSeed(S.seed) || !int(S.rs, 0, 0xFFFFFFFF)) return false;
       if (!phaseOk(S) || !int(S.qi, 0, S.queue.length) || S.towers.length !== cellCount(S)) return false;
       if (S.unlocked !== null && !(Array.isArray(S.unlocked) && S.unlocked.every((u) => typeof u === 'string'))) return false;
@@ -619,6 +623,7 @@
   const autoIn = (S) => (S.phase === 'prep' && S.auto && S.autoT >= 0 && S.wave < lastWave(S) ? S.autoT : null);
   const startWave = (S) => {
     S.wave++; S.phase = 'wave'; S.waveT = 0; S.qi = 0; S.autoT = 0; S.hasteT = 0;
+    S.waveLeakBy = {};
     // описание волны считается заново от сида и номера; её характеристики врагов живут в состоянии забега до следующей волны
     const w = WAVEGEN.wave(S.seed, S.wave);
     S.queue = WAVEGEN.queue(w); S.waveStats = w.stats;
@@ -971,6 +976,7 @@
         e.dead = true; e.leaked = true; S.hp = Math.max(0, S.hp - def.leak); S.stats.leaked += def.leak; ev(S, 'leak', { x: cx, y: cy, dmg: def.leak, boss: !!def.boss, type: e.type });
         if (!S.leakBy || typeof S.leakBy !== 'object' || Array.isArray(S.leakBy)) S.leakBy = {};
         S.leakBy[e.type] = (Number.isInteger(S.leakBy[e.type]) ? S.leakBy[e.type] : 0) + 1;
+        if (S.waveLeakBy) S.waveLeakBy[e.type] = (S.waveLeakBy[e.type] || 0) + 1;
         if (hasRelic(S, 'toll')) { S.souls += e.bounty; S.stats.earned += e.bounty; ev(S, 'toll', { x: cx, y: cy - 40, souls: e.bounty }); } }   // Плата за проход
     }
     // облака яда
@@ -1019,8 +1025,10 @@
   const relicOffer = (S) => (S.phase === 'relic' && S.offer ? S.offer.map(relicInfo) : null);
   const relicsOf = (S) => S.relics.map(relicInfo);
   // кто отнял прочность склепа за забег (экран поражения): [{ type, name, n — прорвалось, hp — сколько прочности }], больше урона — выше
-  const leakReport = (S) => Object.entries((S && S.leakBy) || {}).filter(([t, n]) => own(EN, t) && n > 0)
+  const leakRows = (counts) => Object.entries(counts || {}).filter(([t, n]) => own(EN, t) && n > 0)
     .map(([type, n]) => ({ type, name: EN[type].name, n, hp: n * EN[type].leak })).sort((a, b) => b.hp - a.hp || b.n - a.n);
+  const leakReport = (S) => leakRows(S && S.leakBy);
+  const waveLeakReport = (S) => leakRows(S && S.waveLeakBy);
   const pruneEv = (S) => { if (S.ev.length > 300 || (S.ev.length && S.t - S.ev[0].t > 4)) S.ev = S.ev.filter((e) => S.t - e.t < 4).slice(-300); };
 
   // ---------------------------------------------------------------- демо (титульный экран): сгенерированная карта, оборона на лучших клетках, самая людная волна
@@ -1066,7 +1074,7 @@
     canBuild, buildRangePx, buildStats, cellBonus, spotCoverage, canUpgrade, canPerk, towerStats, ownStats, rangePx, ATTACKS, art, trackText, steps, look, loadable, parseSeed, coverage, rankCells, cellXY, routeOf, pathLen, posAt, muzzle, rangeTiles, sellValue,
     spawn: () => create(), outOfPlay: () => false,
     canMove, moveCells, moveRangePx, canGrim, grimLines, grimBonus,
-    hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, perkAt, hasteSouls, autoIn,
+    hasRelic, drawRelics, relicOffer, relicsOf, relicText, leakReport, waveLeakReport, perkAt, hasteSouls, autoIn,
     hasAura, auraTargets, auraCells, auraOf: (tw) => !!auraType(tw),
     canMerge, mergeTargets, mergeInfo, hybridInfo, isHybrid, towerArt, perkOn, perkGroups, mixText, mixOn,
     skelCells,

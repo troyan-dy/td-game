@@ -73,6 +73,9 @@
       <div class="frame box wave">⚔ <span id="s-wave">ВОЛНА 0 / 20</span></div><div class="frame box souls">${SOUL}<span id="s-souls">0</span></div>
       <div class="frame box hp"><span class="heart-ico">❤</span><span id="s-hp">20</span></div><button class="btn ibtn" id="b-menu" title="Меню (Esc)">☰</button>`;
     root.append(stats);
+    const losses = h('details', 'frame', ''); losses.id = 'wave-losses'; losses.hidden = true;
+    losses.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); });
+    root.append(losses);
     const wb = h('button', 'btn green', '<div class="l1" id="w-l1">Призвать волну</div><div class="l2" id="w-l2">Enter</div>'); wb.id = 'wavebtn'; root.append(wb);
     // во время волны на месте кнопки — плашка «волна идёт» (без неё неигровой угол — тёмная дыра в карте)
     const wp = h('div', 'frame pass', '<div class="l1" id="wp-l1"></div><div class="l2" id="wp-l2"></div>'); wp.id = 'waveplate'; root.append(wp);
@@ -667,8 +670,21 @@
 
   // ---------------------------------------------------------------- кадр
   let lastSouls = -1, lastHp = -1, wasEnded = false;
+  let shownLosses;
+  const showWaveLosses = (S) => {
+    const counts = S?.phase === 'prep' ? S.waveLeakBy : undefined;
+    if (counts === shownLosses) return;
+    shownLosses = counts;
+    const box = $('#wave-losses'), rows = SIM.waveLeakReport(counts ? S : null);
+    box.open = false; box.hidden = !rows.length;
+    if (!rows.length) return;
+    const hp = rows.reduce((sum, row) => sum + row.hp, 0);
+    box.innerHTML = `<summary title="Кто прорвался на прошлой волне"><strong>Волна ${S.wave} · −${hp} ❤</strong><span>${rows[0].name} ×${rows[0].n}${rows.length > 1 ? '…' : ''}</span></summary>
+      <div class="frame breakdown">${rows.map((r) => `<div><span>${r.name} ×${r.n}</span><b>−${r.hp} ❤</b></div>`).join('')}</div>`;
+  };
   UI.frame = (A, t) => {
     const S = A.play;
+    showWaveLosses(S);
     $('#stats').style.visibility = S ? 'visible' : 'hidden'; $('#autobtn').style.visibility = S ? 'visible' : 'hidden'; $('#cards').style.visibility = S ? 'visible' : 'hidden'; $('#seedbox').style.visibility = S ? 'visible' : 'hidden';
     if (!S) { $('#wavebtn').classList.add('hidden'); $('#panel').classList.remove('show'); $('#coach').classList.remove('show'); coachPoint(null); return; }
     $('#s-wave').textContent = S.endless ? `ВОЛНА ${Math.max(1, S.wave)} · ∞` : `ВОЛНА ${Math.max(1, S.wave)} / ${SIM.waveCount()}`; $('#s-seed').textContent = S.seed;

@@ -54,6 +54,7 @@ export function steps() {
         'битый JSON': () => '{{{',
         'старая версия': (sv) => { sv.S.v -= 1; },
         'башня неизвестного типа': (sv) => { sv.S.towers[sv.S.towers.findIndex(Boolean)] = { type: 'nope' }; },
+        'неизвестный враг в потерях волны': (sv) => { sv.S.waveLeakBy = { nope: 1 }; },
         'враг без полей': (sv) => { sv.S.enemies[0] = { type: sv.S.enemies[0].type }; },
         'законченный забег': (sv) => { sv.S.phase = 'lost'; },
         'крошечный шаг времени (меню не должно зависнуть)': (sv) => { sv.S.dt = 1e-9; },

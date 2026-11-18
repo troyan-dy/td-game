@@ -47,6 +47,19 @@ const placed = (ctx) => ctx.eval(() => {
 const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 export const steps = {
+  wave_loss_details: async (ctx, g) => {
+    await g.newGame(ctx, 4);
+    await ctx.eval(() => {
+      const S = APP.play; SIM.doCmd(S, { k: 'call' });
+      while (S.phase === 'wave') SIM.step(S);
+    });
+    await ctx.click('#wave-losses summary');
+    const text = await ctx.eval(() => document.querySelector('#wave-losses[open] .breakdown')?.textContent);
+    if (!text?.includes('Ополченец') || !text.includes('−10')) throw new Error('разбивка потерь первой волны: ' + text);
+    await ctx.shot('wave_loss_details');
+    await ctx.click('#wavebtn'); await g.applied(ctx);
+    if (await ctx.eval(() => !document.querySelector('#wave-losses').hidden)) throw new Error('потери старой волны остались в бою');
+  },
   scout_start: async (ctx, g) => {
     await g.newGame(ctx, 1);
     await waitWave(ctx, 1, 'в начале забега разведка не раскрылась на 1-й волне');
